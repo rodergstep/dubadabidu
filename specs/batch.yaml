@@ -1,0 +1,24 @@
+# Acceptance spec — the autopilot's contract (AUTOPILOT.md).
+# The agent must make every video/language row satisfy `accept` within
+# `budget`, or stop and escalate with reasons. Improve the system by editing
+# THIS file, not the pipeline. Only a human edits this file.
+
+accept:
+  mean_score_min: 0.60      # mean qc_score per video/lang
+  flagged_pct_max: 5        # % of segments below qc.eval.score_flag
+  wer_bad_max: 0            # segments with backcheck WER above threshold
+  overflow_max: 0           # segments that would not fit even at max_tempo
+  overlap_max: 0            # segments spilling into the next utterance
+
+budget:
+  # M1 (local) budget = bounded retries. M2 adds usd/gpu-hour caps that the
+  # RunPod infra agent enforces.
+  max_reroll_rounds: 2      # mechanical fix rounds per video/lang
+
+policy:
+  langs: [en]               # M1 fixture scope; widen to [en, fr, de, es, ru]
+  never:                    # hard rails — the agent must escalate instead
+    - publish
+    - delete work/
+    - edit eval weights
+    - edit this spec

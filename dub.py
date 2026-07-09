@@ -15,10 +15,10 @@ import yaml
 
 from pipeline import s1_extract, s2_transcribe, s3_translate, s4_synthesize, \
     s5_fit, s6_mix, s7_subtitles, s8_mux, prep as prep_mod, tune as tune_mod, \
-    manifest as M
+    autopilot as autopilot_mod, manifest as M
 from pipeline.device import torch_device, whisper_device
 from pipeline.logic import deep_merge
-from qc import backcheck, evaluate, review_page
+from qc import backcheck, batch_report, evaluate, review_page
 
 ROOT = Path(__file__).resolve().parent
 
@@ -147,12 +147,20 @@ def main() -> None:
     ap = argparse.ArgumentParser(prog="dubadabidu")
     ap.add_argument("cmd", choices=["run", "stage", "qc", "doctor", "report",
                                     "evaluate", "review", "tune", "prep",
-                                    "preamble"])
+                                    "preamble", "batch", "autopilot"])
     ap.add_argument("rest", nargs="*")
     ap.add_argument("--langs", default=None)
     ap.add_argument("--from", dest="from_stage", default="s1_extract",
                     choices=ORDER)
     ap.add_argument("--engine", default=None, choices=["chatterbox", "edge"])
+    ap.add_argument("--spec", default=None,
+                    help="acceptance spec for `autopilot` "
+                         "(default specs/batch.yaml)")
+    ap.add_argument("--force", action="store_true",
+                    help="with `stage s3_translate`: discard cached "
+                         "translations for --langs and re-translate "
+                         "(Phase B: provider switch). New text re-synthesizes "
+                         "automatically via the hash cache.")
     ap.add_argument("--config", default="config.yaml")
     ap.add_argument("--overlay", default=None,
                     help="second yaml deep-merged over --config "
@@ -175,6 +183,16 @@ def main() -> None:
     a.rest = [str(Path(v).resolve()) if Path(v).exists() else v for v in a.rest]
     os.chdir(ROOT)
 
+    # .env contract (AUTOPILOT.md): the human's only config touchpoint for
+    # credentials. KEY=VALUE lines; the environment always wins over the file.
+    env_file = ROOT / ".env"
+    if env_file.exists():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, _, v = line.partition("=")
+                os.environ.setdefault(k.strip(), v.strip())
+
     cfg = yaml.safe_load(open(config_path, encoding="utf-8"))
     if a.overlay:
         overlay_path = Path(a.overlay) if Path(a.overlay).is_absolute() \
@@ -186,6 +204,9 @@ def main() -> None:
 
     if a.cmd == "doctor":
         sys.exit(doctor(cfg))
+    if a.cmd == "batch":  # no args = all of work/; else the given videos
+        batch_report.run(cfg, a.rest or None)
+        return
     if not a.rest:
         ap.error("missing video path(s)")
 
@@ -198,6 +219,20 @@ def main() -> None:
         if stage not in STAGES:
             sys.exit(f"unknown stage {stage}; choose from {ORDER}")
         for v in videos:
+            if a.force and stage == "s3_translate":
+                man = M.load(cfg, v)
+                # drop translations AND the terms base — a new provider should
+                # rebuild terminology too. Old synth wavs die by hash mismatch.
+                for u in man["utterances"]:
+                    for lang in langs:
+                        u["tr"].pop(lang, None)
+                for lang in langs:
+                    man["stages"].pop(f"s3_{lang}", None)
+                    (M.video_workdir(cfg, v) / f"terms_{lang}.json") \
+                        .unlink(missing_ok=True)
+                M.save(cfg, v, man)
+                logging.info("--force: cleared %s translations for %s",
+                             langs, v)
             STAGES[stage](cfg, v, langs)
         return
     if a.cmd == "qc":
@@ -225,6 +260,9 @@ def main() -> None:
     if a.cmd == "preamble":
         for v in a.rest:
             preamble(cfg, v, langs)
+        return
+    if a.cmd == "autopilot":
+        autopilot_mod.main(cfg, a.rest, langs, a.spec)
         return
 
     for v in a.rest:  # run

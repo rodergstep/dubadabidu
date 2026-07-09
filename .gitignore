@@ -19,3 +19,6 @@ ref/
 
 # scratch
 scratch_*.log
+
+# credentials (.env.example is the committed template)
+.env
