@@ -1,0 +1,14 @@
+# RunPod profile — deep-merged over config.yaml:
+#   dubadabidu run video.mp4 --overlay config.gpu.yaml
+# Requires TRANSLATE_API_KEY = your DeepSeek key.
+
+translation:
+  # deepseek-chat / deepseek-reasoner names are DEPRECATED 2026-07-24 — use v4.
+  # 1M context + automatic context caching: our big shared system prompt
+  # (glossary + terms + full transcript) costs ~2% on every batch after the first.
+  base_url: https://api.deepseek.com
+  model: deepseek-v4-flash
+  response_format: json_object
+
+tts:
+  best_of: 5                  # takes are cheap on GPU; windowed-MOS picks the best

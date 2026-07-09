@@ -1,0 +1,39 @@
+[project]
+name = "dubadabidu"
+version = "0.2.0"
+description = "Ukrainian -> multilingual AI video dubbing with voice cloning (Chatterbox Multilingual v3)"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+  "faster-whisper==1.2.1",
+  "demucs==4.0.1",
+  # torchcodec is intentionally NOT a base dep: it must match the torch version.
+  # The `clone` extra pins torch 2.6.0 (ta.save is native there — no torchcodec needed).
+  # For an edge-only install on torch>=2.9, add the `hifi` extra below.
+  "edge-tts==7.2.8",
+  "srt==3.5.3",
+  "soundfile==0.14.0",
+  "librosa==0.11.0",
+  "pydub==0.25.1",
+  "openai==2.44.0",
+  "jiwer",
+  "speechbrain==1.1.0",   # ECAPA-TDNN speaker similarity (qc), Apache-2.0
+  "ruaccent==1.5.8.3",    # Russian stress marking pre-TTS, Apache-2.0
+  "distillmos==0.9.1",    # neural MOS naturalness proxy (qc), MIT
+  "pyyaml",
+]
+
+[project.optional-dependencies]
+clone = ["chatterbox-tts==0.1.7"]   # install first / separately: pins torch/torchaudio 2.6.0
+hifi = ["torchcodec==0.14.0"]       # ta.save backend for torch>=2.9; do NOT combine with `clone`
+dev = ["pytest"]
+
+[project.scripts]
+dubadabidu = "dub:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["dub"]
+packages = ["pipeline", "qc"]

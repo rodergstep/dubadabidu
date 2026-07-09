@@ -1,0 +1,271 @@
+"""s3: LLM translation via OpenAI-compatible endpoint (DeepSeek / Ollama / OpenAI)
+with retry+backoff, per-batch checkpointing, isometric constraint, glossary,
+and n-best shorter variants. See prompts/translate_system.md."""
+from __future__ import annotations
+import csv, json, logging, os, re, time
+from pathlib import Path
+from . import manifest as M
+
+log = logging.getLogger("dubadabidu.s3")
+LANG_NAMES = {"en": "English", "fr": "French", "de": "German",
+              "es": "Spanish", "ru": "Russian", "pl": "Polish"}
+
+# Some local servers (e.g. LM Studio) may wrap JSON in ```json fences in `text`
+# mode; strip them before parsing.
+_FENCE = re.compile(r"^```(?:json)?\s*|\s*```$")
+
+# Strict schemas for the {"type":"json_schema"} response_format (LM Studio /
+# OpenAI structured outputs). One per pass — draft/adapt emit translations,
+# reflect emits critiques, terms emits the terminology base.
+def _segments_schema(props: dict, required: list) -> dict:
+    return {"type": "object",
+            "properties": {"segments": {"type": "array", "items": {
+                "type": "object", "properties": props, "required": required}}},
+            "required": ["segments"]}
+
+
+_JSON_SCHEMA = _segments_schema(
+    {"id": {"type": "string"}, "text": {"type": "string"},
+     "variants": {"type": "array", "items": {"type": "string"}}},
+    ["id", "text", "variants"])
+_REFLECT_SCHEMA = _segments_schema(
+    {"id": {"type": "string"}, "issues": {"type": "string"}}, ["id", "issues"])
+_TERMS_SCHEMA = {
+    "type": "object",
+    "properties": {"terms": {"type": "array", "items": {
+        "type": "object",
+        "properties": {"uk": {"type": "string"}, "tr": {"type": "string"}},
+        "required": ["uk", "tr"]}}},
+    "required": ["terms"],
+}
+_SHORTEN_SCHEMA = {
+    "type": "object",
+    "properties": {"variants": {"type": "array", "items": {"type": "string"}}},
+    "required": ["variants"],
+}
+
+
+def _response_format(tcfg: dict, schema: dict = _JSON_SCHEMA) -> dict:
+    """OpenAI `response_format` arg. Providers diverge on structured-output support:
+      json_object (default) — DeepSeek / OpenAI / Ollama
+      json_schema           — LM Studio (strict; best for small local models)
+      text                  — no server-side enforcement; relies on the prompt."""
+    mode = tcfg.get("response_format", "json_object")
+    if mode == "json_object":
+        return {"type": "json_object"}
+    if mode == "text":
+        return {"type": "text"}
+    if mode == "json_schema":
+        return {"type": "json_schema",
+                "json_schema": {"name": "translation", "strict": True,
+                                "schema": schema}}
+    raise SystemExit(f"translation.response_format '{mode}' is invalid "
+                     "(use json_object | json_schema | text).")
+
+
+def _loads(content: str) -> dict:
+    return json.loads(_FENCE.sub("", content.strip()))
+
+
+def _glossary(lang: str) -> str:
+    p = Path("glossary") / f"{lang}.csv"
+    if not p.exists():
+        return ""
+    rows = [f"  {r[0]} -> {r[1]}" for r in csv.reader(p.open(encoding="utf-8"))
+            if len(r) >= 2 and not r[0].startswith("#")]
+    return ("Mandatory terminology (Ukrainian -> target):\n" + "\n".join(rows)) if rows else ""
+
+
+def _prompt(lang: str, tol: float, n_var: int,
+            name: str = "translate_system") -> str:
+    tpl = Path(f"prompts/{name}.md").read_text(encoding="utf-8")
+    return (tpl.replace("{LANG}", LANG_NAMES[lang])
+               .replace("{TOL}", str(int(tol * 100)))
+               .replace("{NVAR}", str(n_var)))
+
+
+def _terms(client, tcfg, cfg: dict, video: str, man: dict, lang: str) -> str:
+    """Video-specific terminology base, extracted once per video+lang (cached).
+    Injected next to the static glossary so every batch translates domain terms
+    and proper nouns identically — the document-level consistency lever."""
+    cache = M.video_workdir(cfg, video) / f"terms_{lang}.json"
+    if cache.exists():
+        terms = json.loads(cache.read_text(encoding="utf-8"))["terms"]
+    else:
+        transcript = "\n".join(u["text_uk"] for u in man["utterances"])
+        data = _chat(client, tcfg,
+                     f"From this Ukrainian art-course transcript, extract up to "
+                     f"30 domain terms and proper nouns whose {LANG_NAMES[lang]} "
+                     f"translation must stay consistent throughout the course. "
+                     f"Give your best dubbing-appropriate translation for each. "
+                     f'Output STRICT JSON: {{"terms":[{{"uk":"...","tr":"..."}}]}}',
+                     transcript, schema=_TERMS_SCHEMA)
+        terms = data.get("terms", [])
+        cache.write_text(json.dumps({"terms": terms}, ensure_ascii=False,
+                                    indent=2), encoding="utf-8")
+        log.info("%s: %d terms extracted -> %s", lang, len(terms), cache.name)
+    if not terms:
+        return ""
+    return ("Video-specific terminology (Ukrainian -> target, mandatory):\n"
+            + "\n".join(f"  {t['uk']} -> {t['tr']}" for t in terms))
+
+
+def _measured_cps(cfg: dict, lang: str, min_samples: int = 10) -> float | None:
+    """Median TTS speaking rate (chars/second) measured from past synths of
+    this language across all work/*/manifest.json. The prompt's char bound is
+    relative to UKRAINIAN length — a poor proxy for how long the TARGET text
+    takes to speak (German runs long, English short). A measured budget lets
+    the LLM aim at the actual slot instead of guessing."""
+    import statistics
+    rates = []
+    for mp in Path(cfg["work_dir"]).glob("*/manifest.json"):
+        try:
+            m = json.loads(mp.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for u in m.get("utterances", []):
+            tr = u.get("tr", {}).get(lang, {})
+            dur, text = tr.get("synth_dur"), tr.get("text", "")
+            if dur and dur > 0.5 and len(text) >= 20:  # skip trivial segments
+                rates.append(len(text) / dur)
+    if len(rates) < min_samples:
+        return None
+    return statistics.median(rates)
+
+
+def shorten(cfg: dict, lang: str, text_uk: str, text: str, max_chars: int,
+            n: int = 2) -> list[str]:
+    """Emergency rewrite for s5 overflow: the pre-generated variants were all
+    too long, so ask the LLM for n candidates under a HARD char budget derived
+    from the measured synth duration. Returns [] when the endpoint is
+    unavailable (no key / offline) — s5 then degrades to the overflow flag."""
+    tcfg = cfg["translation"]
+    key = os.environ.get(tcfg["api_key_env"])
+    if not key:
+        log.warning("%s not set — cannot request emergency shorter variants",
+                    tcfg["api_key_env"])
+        return []
+    from openai import OpenAI
+    client = OpenAI(base_url=tcfg["base_url"], api_key=key)
+    sysmsg = (
+        f"You shorten dubbing lines for a painting course voice-over.\n"
+        f"Rewrite the given {LANG_NAMES[lang]} line so it keeps the exact "
+        f"instructional meaning of the Ukrainian source but fits a tighter "
+        f"time slot. Produce {n} candidates, EACH AT MOST {max_chars} "
+        f"characters, progressively shorter. Drop filler and pleasantries "
+        f"before dropping instruction. Natural spoken {LANG_NAMES[lang]}.\n"
+        f'Output STRICT JSON: {{"variants":["...","..."]}}')
+    user = json.dumps({"source_uk": text_uk, "current": text,
+                       "max_chars": max_chars}, ensure_ascii=False)
+    try:
+        data = _chat(client, tcfg, sysmsg, user, retries=1,
+                     schema=_SHORTEN_SCHEMA)
+        return [v.strip() for v in data.get("variants", []) if v.strip()]
+    except Exception as e:
+        log.warning("emergency shorten failed (%s); keeping overflow", e)
+        return []
+
+
+def _chat(client, tcfg, sysmsg: str, user: str, retries: int = 4,
+          schema: dict = _JSON_SCHEMA) -> dict:
+    rformat = _response_format(tcfg, schema)
+    delay = 2.0
+    for attempt in range(retries + 1):
+        try:
+            resp = client.chat.completions.create(
+                model=tcfg["model"], temperature=0.3, timeout=120,
+                response_format=rformat,
+                messages=[{"role": "system", "content": sysmsg},
+                          {"role": "user", "content": user}])
+            return _loads(resp.choices[0].message.content)
+        except Exception as e:
+            if attempt == retries:
+                raise
+            log.warning("LLM call failed (%s); retry in %.0fs", e, delay)
+            time.sleep(delay)
+            delay *= 2
+
+
+def run(cfg: dict, video: str, langs: list[str]) -> None:
+    from openai import OpenAI
+    tcfg = cfg["translation"]
+    key = os.environ.get(tcfg["api_key_env"])
+    if not key:
+        raise SystemExit(f"Set {tcfg['api_key_env']} in your environment "
+                         f"(export {tcfg['api_key_env']}=sk-...).")
+    client = OpenAI(base_url=tcfg["base_url"], api_key=key)
+    man = M.load(cfg, video)
+
+    passes = int(tcfg.get("passes", 1))
+    for lang in langs:
+        todo = [u for u in man["utterances"] if "text" not in u["tr"].get(lang, {})]
+        if not todo:
+            log.info("%s: cached", lang)
+            continue
+        tol, nvar = tcfg["isometric_tolerance"], tcfg["n_short_variants"]
+        terms = _terms(client, tcfg, cfg, video, man, lang)
+        context = ("Full source transcript (context only, translate ONLY the "
+                   "segments in the request):\n"
+                   + "\n".join(u["text_uk"] for u in man["utterances"]))
+        cps = _measured_cps(cfg, lang)
+        pace = ""
+        if cps:
+            pace = (f"Measured speaking pace of the TTS voice in "
+                    f"{LANG_NAMES[lang]}: ~{cps:.1f} characters per second. "
+                    f"Hard duration budget: keep each segment's \"text\" under "
+                    f"seconds × {cps:.1f} characters; make each variant "
+                    f"progressively shorter than that.")
+            log.info("%s: measured TTS pace %.1f chars/s -> duration budget "
+                     "in prompt", lang, cps)
+        # pace goes BEFORE the long transcript context so it isn't buried
+        shared = "\n\n".join(x for x in [_glossary(lang), terms, pace, context]
+                             if x)
+        sys_draft = _prompt(lang, tol, nvar) + "\n\n" + shared
+        sys_reflect = _prompt(lang, tol, nvar, "translate_reflect") + "\n\n" + shared
+        sys_adapt = _prompt(lang, tol, nvar, "translate_adapt") + "\n\n" + shared
+
+        def _ask(sysmsg, payload, schema=_JSON_SCHEMA):
+            data = _chat(client, tcfg, sysmsg,
+                         json.dumps({"segments": payload}, ensure_ascii=False),
+                         schema=schema)
+            by_id = {s["id"]: s for s in data.get("segments", [])}
+            dropped = [p for p in payload if p["id"] not in by_id]
+            if dropped:  # small models drop segments; a singleton request is
+                # near-impossible to drop — rescue instead of failing the run
+                log.warning("LLM dropped %d segments (%s); retrying one by one",
+                            len(dropped), [p["id"] for p in dropped])
+                for p in dropped:
+                    data = _chat(client, tcfg, sysmsg,
+                                 json.dumps({"segments": [p]}, ensure_ascii=False),
+                                 schema=schema)
+                    by_id.update({s["id"]: s for s in data.get("segments", [])})
+            missing = [p["id"] for p in payload if p["id"] not in by_id]
+            if missing:
+                raise RuntimeError(f"LLM dropped segments {missing}; re-run s3.")
+            return by_id
+
+        bs = tcfg["batch_size"]
+        for i in range(0, len(todo), bs):
+            batch = todo[i:i + bs]
+            payload = [{"id": u["id"], "uk": u["text_uk"], "chars": len(u["text_uk"]),
+                        "seconds": round(u["end"] - u["start"], 1)} for u in batch]
+            final = _ask(sys_draft, payload)
+            if passes >= 3:  # translate -> reflect -> adapt
+                drafted = [dict(p, draft=final[p["id"]]["text"]) for p in payload]
+                critique = _ask(sys_reflect, drafted, schema=_REFLECT_SCHEMA)
+                adapted = [dict(d, issues=critique[d["id"]]["issues"])
+                           for d in drafted]
+                n_ok = sum(1 for d in adapted if d["issues"].strip().lower() == "ok")
+                log.info("%s: reflect pass — %d/%d drafts clean",
+                         lang, n_ok, len(adapted))
+                final = _ask(sys_adapt, adapted)
+            for u in batch:
+                r = final[u["id"]]
+                u["tr"].setdefault(lang, {})
+                u["tr"][lang]["text"] = r["text"].strip()
+                u["tr"][lang]["variants"] = [v.strip() for v in r.get("variants", [])]
+            man["stages"][f"s3_{lang}"] = f"{min(i+bs, len(todo))}/{len(todo)}"
+            M.save(cfg, video, man)
+            log.info("%s: %d/%d", lang, min(i + bs, len(todo)), len(todo))
+        man["stages"][f"s3_{lang}"] = "done"
+        M.save(cfg, video, man)

@@ -1,0 +1,21 @@
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# macOS
+.DS_Store
+
+# media & pipeline artifacts (rsync'd to/from the GPU box, never committed)
+input/
+output/
+work/
+ref/
+*.mp4
+*.wav
+*.m4a
+
+# scratch
+scratch_*.log

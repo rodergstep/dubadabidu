@@ -1,0 +1,22 @@
+# Verified on PyPI 2026-07-07. Install chatterbox-tts FIRST (it pins torch/torchaudio).
+chatterbox-tts==0.1.7
+faster-whisper==1.2.1
+demucs==4.0.1
+# NOTE: chatterbox-tts 0.1.7 pins torch/torchaudio 2.6.0, on which torchaudio.save
+# works natively — torchcodec is NOT needed. torchcodec==0.14.0 requires torchaudio>=2.9
+# and fails to load (libtorchcodec ABI mismatch) on 2.6.0, so it is intentionally omitted.
+# Only add torchcodec (matching your torch version) if you drop chatterbox and move to torch>=2.9.
+edge-tts==7.2.8          # fallback voices, no cloning
+srt==3.5.3
+soundfile==0.14.0
+librosa==0.11.0
+pydub==0.25.1
+openai==2.44.0           # universal client: OpenAI / DeepSeek / Ollama via base_url
+anthropic==0.116.0       # optional alternative translator
+jiwer                    # WER for qc/backcheck
+speechbrain==1.1.0       # ECAPA-TDNN speaker similarity (qc), Apache-2.0
+ruaccent==1.5.8.3        # Russian stress marking pre-TTS (Apache-2.0)
+distillmos==0.9.1        # neural MOS naturalness proxy (qc), MIT (Microsoft)
+pyyaml
+# optional, tighter word-level subtitle timing:
+# whisperx==3.8.6

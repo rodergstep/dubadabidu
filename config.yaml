@@ -1,0 +1,98 @@
+work_dir: work
+output_dir: output
+
+languages: [en, fr, de, es, ru, pl]
+source_language: uk
+
+asr:
+  model: large-v3            # faster-whisper 1.2.1
+  device: auto            # auto -> cuda | mps | cpu (mps unsupported by faster-whisper -> cpu)
+  # compute_type is chosen automatically: float16 on cuda, int8 on cpu
+  vad_filter: true
+  # segment merging. Longer units = fewer prosody resets ("reading list" effect);
+  # measured on sketch60: an 18s unit scored best-of-clip MOS 4.57, so the old
+  # 12s Chatterbox caution was too conservative for clean narration.
+  max_chars: 300
+  max_seconds: 20.0
+  pause_split_s: 0.6   # split segments at word gaps > this; dub keeps source rhythm
+
+separation:
+  enabled: true              # false => skip Demucs, use denoised original as vocals
+  demucs_model: htdemucs
+
+translation:
+  # OpenAI-compatible endpoint. Examples:
+  #   DeepSeek:   base_url https://api.deepseek.com    model deepseek-chat
+  #   Ollama:     base_url http://localhost:11434/v1   model qwen3:32b
+  #   LM Studio:  base_url http://127.0.0.1:1234/v1   model google/gemma-4-e4b
+  #   OpenAI:     base_url https://api.openai.com/v1   model gpt-5-mini
+  # NOTE: LM Studio's default port is 1234; if it differs, match base_url to the
+  # "listening on ..." line in its server log. Switch back to a remote provider
+  # by restoring a URL/model pair above (+ its real API key).
+  base_url: http://127.0.0.1:1234/v1
+  model: google/gemma-4-e4b
+  api_key_env: TRANSLATE_API_KEY
+  # Structured-output mode. json_object => DeepSeek/OpenAI/Ollama;
+  # json_schema => LM Studio (strict, best for small local models);
+  # text => no server enforcement, relies on the prompt.
+  response_format: json_schema
+  batch_size: 20
+  passes: 3                   # 1 = single-pass; 3 = translate -> reflect -> adapt
+                              # (VideoLingo-style; worth it with a capable LLM)
+  isometric_tolerance: 0.10   # secondary char bound; primary constraint is the
+                              # per-segment "seconds" slot (duration-targeted)
+  n_short_variants: 2         # pre-generate shorter variants for overflow retries
+
+tts:
+  engine: chatterbox          # chatterbox | cosyvoice | edge (no cloning)
+  engine_by_lang: {}          # per-lang override, e.g. {fr: cosyvoice} — set by
+                              # the GPU bake-off (IMPROVEMENT_PLAN.md Phase C)
+  reference_text: ""          # transcript of reference_wav — REQUIRED by
+                              # cosyvoice; `dubadabidu prep` fills refs.json
+  cosyvoice_model_dir: pretrained_models/Fun-CosyVoice3-0.5B
+  best_of: 3                  # auto-repair: re-roll low-scoring takes, keep the best
+  retake_mos_below: 2.6       # threshold on WORST-3s-WINDOW MOS (systematically lower
+                              # than take-average; 3s windows score pessimistically —
+                              # the gate is deliberately eager, the pick is relative)
+  reference_wav: ref/sketch_ref_08.wav   # extracted from sketch.mp4 vocals (echo-free);
+                                         # beats studio ref_04 on RAW sim + MOS — composite
+                                         # favored ref_04 only via per-ref calibration bias
+  cfg_weight: 0.0             # REQUIRED: reference is Ukrainian, targets are not
+                              # (re-validated by tune R2: 0.2/0.3 lost on sim AND mos)
+  exaggeration: 0.55          # tune winner vs 0.4 / 0.7
+  sample_rate: 24000
+  edge_voices:                # fallback engine voices (edge-tts 7.2.8)
+    en: en-US-AndrewNeural
+    fr: fr-FR-HenriNeural
+    de: de-DE-ConradNeural
+    es: es-ES-AlvaroNeural
+    ru: ru-RU-DmitryNeural
+    pl: pl-PL-MarekNeural
+
+fit:
+  max_tempo: 1.12             # max speed-up (prosodic-alignment literature: keep mild)
+  soft_tempo: 1.06            # above this, prefer a shorter variant over stretching
+  borrow_gap_s: 0.6           # silence borrowable from the following gap
+
+mix:
+  bg_gain_db: -6
+  lufs: -16
+
+mux:
+  subtitle_codec: mov_text
+  lang_tags: {uk: ukr, en: eng, fr: fra, de: deu, es: spa, ru: rus, pl: pol}
+
+qc:
+  wer_flag_threshold: 0.15
+  eval:                             # `dubadabidu evaluate` + tune objective
+    # calibrated vs human ratings 2026-07-08 (spearman: mos +.63 f0 +.48 sim -.30)
+    weights: {sim: 0.25, mos: 0.40, f0: 0.20, tempo: 0.15}
+    score_flag: 0.55                # review page flags segments below this
+    sim_floor_default: 0.35         # fallback if edge floor-synth is offline
+
+tune:                               # `dubadabidu tune` search space
+  subset_size: 8
+  refs_glob: ref/*.wav              # record 3-4 candidates, 15-20s each
+  cfg_weights: [0.0, 0.2, 0.3]
+  exaggerations: [0.4, 0.55, 0.7]
+  best_of: 3

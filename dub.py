@@ -1,0 +1,246 @@
+#!/usr/bin/env python3
+"""dubadabidu — Ukrainian -> multilingual video dubbing.
+
+  dubadabidu doctor                          # validate environment before anything
+  dubadabidu preamble input/a.mp4            # per-video prep: refs + ref pick (2 passes)
+  dubadabidu run input/*.mp4 [--langs en,de] [--from s4] [--engine edge]
+  dubadabidu stage s3_translate input/a.mp4
+  dubadabidu qc input/a.mp4
+  dubadabidu report input/a.mp4              # per-language fit/QC summary table
+"""
+from __future__ import annotations
+import argparse, logging, shutil, subprocess, sys
+from pathlib import Path
+import yaml
+
+from pipeline import s1_extract, s2_transcribe, s3_translate, s4_synthesize, \
+    s5_fit, s6_mix, s7_subtitles, s8_mux, prep as prep_mod, tune as tune_mod, \
+    manifest as M
+from pipeline.device import torch_device, whisper_device
+from pipeline.logic import deep_merge
+from qc import backcheck, evaluate, review_page
+
+ROOT = Path(__file__).resolve().parent
+
+STAGES = {
+    "s1_extract":    lambda c, v, l: s1_extract.run(c, v),
+    "s2_transcribe": lambda c, v, l: s2_transcribe.run(c, v),
+    "s3_translate":  lambda c, v, l: s3_translate.run(c, v, l),
+    "s4_synthesize": lambda c, v, l: s4_synthesize.run(c, v, l),
+    "s5_fit":        lambda c, v, l: s5_fit.run(c, v, l),
+    "s6_mix":        lambda c, v, l: s6_mix.run(c, v, l),
+    "s7_subtitles":  lambda c, v, l: s7_subtitles.run(c, v, l),
+    "s8_mux":        lambda c, v, l: s8_mux.run(c, v, l),
+}
+ORDER = list(STAGES)
+
+
+def doctor(cfg: dict) -> int:
+    ok = True
+
+    def check(name, cond, hint=""):
+        nonlocal ok
+        print(f"  [{'OK' if cond else '!!'}] {name}" + ("" if cond else f" — {hint}"))
+        ok = ok and bool(cond)
+
+    print("dubadabidu doctor")
+    check("ffmpeg", shutil.which("ffmpeg"), "install ffmpeg and add to PATH")
+    check("ffprobe", shutil.which("ffprobe"), "comes with ffmpeg")
+    dev = torch_device()
+    wdev, wct = whisper_device(cfg["asr"].get("device", "auto"))
+    print(f"  [i ] torch device: {dev} | whisper: {wdev}/{wct}")
+    if dev != "cuda":
+        print("  [i ] no CUDA: use tts.engine=edge for pipeline validation; "
+              "run the Chatterbox batch on a CUDA machine (RunPod/vast.ai).")
+    for mod in ["faster_whisper", "pydub", "soundfile", "srt", "yaml", "openai"]:
+        try:
+            __import__(mod); check(f"python: {mod}", True)
+        except ImportError:
+            check(f"python: {mod}", False, "pip install -r requirements.txt")
+    engines = {cfg["tts"]["engine"], *cfg["tts"].get("engine_by_lang", {}).values()}
+    if "chatterbox" in engines:
+        try:
+            __import__("chatterbox"); check("python: chatterbox", True)
+        except ImportError:
+            check("python: chatterbox", False, "pip install chatterbox-tts==0.1.7")
+    if "cosyvoice" in engines:
+        try:
+            __import__("cosyvoice"); check("python: cosyvoice", True)
+        except ImportError:
+            check("python: cosyvoice", False,
+                  "git clone --recursive FunAudioLLM/CosyVoice + PYTHONPATH "
+                  "(IMPROVEMENT_PLAN.md Phase C)")
+    if engines - {"edge"}:
+        check("reference_wav", Path(cfg["tts"]["reference_wav"]).exists(),
+              f"put a 15-20s clean voice clip at {cfg['tts']['reference_wav']} "
+              f"or run `dubadabidu prep <video>`")
+    import os
+    check(f"env {cfg['translation']['api_key_env']}",
+          os.environ.get(cfg["translation"]["api_key_env"]),
+          "export it, or point translation.base_url at a local Ollama")
+    print("doctor:", "all good" if ok else "fix items above")
+    return 0 if ok else 1
+
+
+def preamble(cfg: dict, video: str, langs: list[str]) -> None:
+    """Per-video preamble (IMPROVEMENT_PLAN Phase D), resumable:
+    pass 1: s1 + s2 + prep, then pause for the text_uk hand-review;
+    pass 2 (re-run):  s3 on the tune language, tune-lite R1 over this video's
+    own refs, winning ref stored in manifest tts_overrides (s4/s5/evaluate
+    honor it — no config paste per video)."""
+    import json
+    stem = Path(video).stem
+    fresh = not M.manifest_path(cfg, video).exists()
+    s1_extract.run(cfg, video)
+    if fresh:
+        s2_transcribe.run(cfg, video)
+    wd = M.video_workdir(cfg, video)
+    if not (wd / "refs.json").exists():
+        prep_mod.run(cfg, video)
+    if fresh:
+        print(f"\n[preamble] paused — review text_uk in "
+              f"{M.manifest_path(cfg, video)} (one fix here propagates to all "
+              f"languages), then re-run:\n  dubadabidu preamble {video}")
+        return
+    lang = langs[0]
+    s3_translate.run(cfg, video, [lang])
+    tcfg = deep_merge(cfg, {"tune": {"refs_glob": f"ref/{stem}_ref_*.wav",
+                                     "subset_size": 5, "rounds": ["R1"]}})
+    win = tune_mod.run(tcfg, video, [lang])
+    man = M.load(cfg, video)
+    over = {"reference_wav": win["reference_wav"]}
+    refs = json.loads((wd / "refs.json").read_text(encoding="utf-8"))
+    rt = refs.get(Path(win["reference_wav"]).name, {}).get("text_uk", "")
+    if rt:  # ref transcript — required by the cosyvoice engine
+        over["reference_text"] = rt
+    man["tts_overrides"] = over
+    M.save(cfg, video, man)
+    print(f"\n[preamble] done — this video's ref: {win['reference_wav']} "
+          f"(stored in manifest tts_overrides)."
+          f"\nNext: skim {wd}/terms_{lang}.json, then:"
+          f"\n  dubadabidu run {video} --from s3_translate")
+
+
+def report(cfg: dict, video: str) -> None:
+    man = M.load(cfg, video)
+    print(f"\n{video} — {len(man['utterances'])} utterances, "
+          f"{man['duration']:.0f}s | stages: {man.get('stages', {})}")
+    langs = sorted({l for u in man["utterances"] for l in u["tr"]})
+    score_flag = cfg["qc"].get("eval", {}).get("score_flag", 0.55)
+    hdr = f"{'lang':5} {'ok':>4} {'stretch':>8} {'shorten':>8} {'overflow':>9} " \
+          f"{'overlap':>8} {'wer>thr':>8} {'score<f':>8}"
+    print(hdr); print("-" * len(hdr))
+    for lang in langs:
+        trs = [u["tr"][lang] for u in man["utterances"]]
+        fits = [t.get("fit") for t in trs]
+        wer_bad = sum(1 for t in trs
+                      if t.get("qc_wer", 0) > cfg["qc"]["wer_flag_threshold"])
+        score_bad = sum(1 for t in trs if "qc_score" in t
+                        and t["qc_score"] < score_flag)
+        overlaps = sum(1 for t in trs if t.get("overrun_s"))
+        print(f"{lang:5} {fits.count('ok'):>4} {fits.count('stretched'):>8} "
+              f"{fits.count('shortened'):>8} {fits.count('overflow'):>9} "
+              f"{overlaps:>8} {wer_bad:>8} {score_bad:>8}")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(prog="dubadabidu")
+    ap.add_argument("cmd", choices=["run", "stage", "qc", "doctor", "report",
+                                    "evaluate", "review", "tune", "prep",
+                                    "preamble"])
+    ap.add_argument("rest", nargs="*")
+    ap.add_argument("--langs", default=None)
+    ap.add_argument("--from", dest="from_stage", default="s1_extract",
+                    choices=ORDER)
+    ap.add_argument("--engine", default=None, choices=["chatterbox", "edge"])
+    ap.add_argument("--config", default="config.yaml")
+    ap.add_argument("--overlay", default=None,
+                    help="second yaml deep-merged over --config "
+                         "(e.g. config.gpu.yaml for the RunPod profile)")
+    ap.add_argument("-v", "--verbose", action="store_true")
+    a = ap.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if a.verbose else logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    # resolve user-supplied paths against the caller's cwd, then anchor to the
+    # repo root so relative resources (config, glossary/, prompts/, ref/, work/)
+    # work no matter where the CLI is invoked from
+    import os
+    config_path = Path(a.config).resolve() if Path(a.config).exists() \
+        else ROOT / a.config
+    a.rest = [str(Path(v).resolve()) if Path(v).exists() else v for v in a.rest]
+    os.chdir(ROOT)
+
+    cfg = yaml.safe_load(open(config_path, encoding="utf-8"))
+    if a.overlay:
+        overlay_path = Path(a.overlay) if Path(a.overlay).is_absolute() \
+            else ROOT / a.overlay
+        cfg = deep_merge(cfg, yaml.safe_load(open(overlay_path, encoding="utf-8")))
+    if a.engine:
+        cfg["tts"]["engine"] = a.engine
+    langs = a.langs.split(",") if a.langs else cfg["languages"]
+
+    if a.cmd == "doctor":
+        sys.exit(doctor(cfg))
+    if not a.rest:
+        ap.error("missing video path(s)")
+
+    if a.cmd == "report":
+        for v in a.rest:
+            report(cfg, v)
+        return
+    if a.cmd == "stage":
+        stage, videos = a.rest[0], a.rest[1:]
+        if stage not in STAGES:
+            sys.exit(f"unknown stage {stage}; choose from {ORDER}")
+        for v in videos:
+            STAGES[stage](cfg, v, langs)
+        return
+    if a.cmd == "qc":
+        for v in a.rest:
+            backcheck.run(cfg, v, langs)
+            evaluate.run(cfg, v, langs)
+            report(cfg, v)
+        return
+    if a.cmd == "evaluate":
+        for v in a.rest:
+            evaluate.run(cfg, v, langs)
+        return
+    if a.cmd == "review":
+        for v in a.rest:
+            review_page.run(cfg, v, langs)
+        return
+    if a.cmd == "tune":
+        for v in a.rest:
+            tune_mod.run(cfg, v, langs)
+        return
+    if a.cmd == "prep":
+        for v in a.rest:
+            prep_mod.run(cfg, v)
+        return
+    if a.cmd == "preamble":
+        for v in a.rest:
+            preamble(cfg, v, langs)
+        return
+
+    for v in a.rest:  # run
+        if not Path(v).exists():
+            sys.exit(f"not found: {v}")
+        logging.info("=== %s ===", v)
+        started = False
+        for name in ORDER:
+            started = started or name == a.from_stage
+            if started:
+                try:
+                    STAGES[name](cfg, v, langs)
+                except subprocess.CalledProcessError as e:
+                    sys.exit(f"[{name}] external command failed: {e}")
+        logging.info("=== %s done ===", v)
+
+
+if __name__ == "__main__":
+    main()
