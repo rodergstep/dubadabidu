@@ -18,7 +18,7 @@ from pipeline import s1_extract, s2_transcribe, s3_translate, s4_synthesize, \
     autopilot as autopilot_mod, manifest as M
 from pipeline.device import torch_device, whisper_device
 from pipeline.logic import deep_merge
-from qc import backcheck, batch_report, evaluate, review_page, verdicts
+from qc import backcheck, bakeoff, batch_report, evaluate, review_page, verdicts
 
 ROOT = Path(__file__).resolve().parent
 
@@ -57,7 +57,8 @@ def doctor(cfg: dict) -> int:
             __import__(mod); check(f"python: {mod}", True)
         except ImportError:
             check(f"python: {mod}", False, "pip install -r requirements.txt")
-    engines = {cfg["tts"]["engine"], *cfg["tts"].get("engine_by_lang", {}).values()}
+    engines = {cfg["tts"]["engine"], *cfg["tts"].get("engine_by_lang", {}).values(),
+               *cfg.get("bakeoff", {}).get("engines", [])}
     if "chatterbox" in engines:
         try:
             __import__("chatterbox"); check("python: chatterbox", True)
@@ -69,7 +70,14 @@ def doctor(cfg: dict) -> int:
         except ImportError:
             check("python: cosyvoice", False,
                   "git clone --recursive FunAudioLLM/CosyVoice + PYTHONPATH "
-                  "(IMPROVEMENT_PLAN.md Phase C)")
+                  "(THIRD_PARTY.md)")
+    if "indextts" in engines:
+        try:
+            __import__("indextts"); check("python: indextts", True)
+        except ImportError:
+            check("python: indextts", False,
+                  "git clone index-tts/index-tts + checkpoints + PYTHONPATH "
+                  "(THIRD_PARTY.md)")
     if engines - {"edge"}:
         check("reference_wav", Path(cfg["tts"]["reference_wav"]).exists(),
               f"put a 15-20s clean voice clip at {cfg['tts']['reference_wav']} "
@@ -153,7 +161,7 @@ def main() -> None:
     ap.add_argument("cmd", choices=["run", "stage", "qc", "doctor", "report",
                                     "evaluate", "review", "tune", "prep",
                                     "preamble", "batch", "autopilot",
-                                    "verdicts"])
+                                    "verdicts", "bakeoff"])
     ap.add_argument("rest", nargs="*")
     ap.add_argument("--langs", default=None)
     ap.add_argument("--from", dest="from_stage", default="s1_extract",
@@ -263,6 +271,10 @@ def main() -> None:
     if a.cmd == "tune":
         for v in a.rest:
             tune_mod.run(cfg, v, langs)
+        return
+    if a.cmd == "bakeoff":   # engine head-to-head (Phase C); needs s3 done
+        for v in a.rest:
+            bakeoff.run(cfg, v, langs)
         return
     if a.cmd == "prep":
         for v in a.rest:

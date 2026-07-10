@@ -80,8 +80,19 @@ def synth_hash(text: str, lang: str, tts_cfg: dict) -> str:
     key_data = {"t": text, "l": lang, "ref": tts_cfg["reference_wav"],
                 "cfg": tts_cfg["cfg_weight"], "ex": tts_cfg["exaggeration"],
                 "engine": engine}
-    if engine == "cosyvoice":  # output depends on the ref transcript too
+    if engine == "cosyvoice":  # output depends on mode (+ transcript / instruct)
+        key_data["mode"] = tts_cfg.get("cosyvoice_mode", "cross_lingual")
         key_data["rt"] = tts_cfg.get("reference_text", "")
+        if tts_cfg.get("instruct_text"):
+            key_data["ins"] = tts_cfg["instruct_text"]
+    if engine == "indextts":  # emotion prompt / alpha / duration change output
+        if tts_cfg.get("emotion_wav"):
+            key_data["emo"] = tts_cfg["emotion_wav"]
+            key_data["ea"] = tts_cfg.get("emo_alpha", 1.0)
+        if tts_cfg.get("instruct_text"):
+            key_data["ins"] = tts_cfg["instruct_text"]
+        if tts_cfg.get("indextts_duration_ratio"):
+            key_data["dr"] = tts_cfg["indextts_duration_ratio"]
     if engine == "chatterbox":  # only chatterbox applies normalize_for_tts
         nv = NORM_VERSIONS.get(lang, 1)
         if nv > 1:  # v1 adds no key so pre-existing caches stay valid

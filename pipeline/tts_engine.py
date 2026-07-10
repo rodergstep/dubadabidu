@@ -4,14 +4,29 @@ go through synthesize() so caching and device handling live in one place.
 Engines:
   chatterbox — chatterbox-tts 0.1.7, Multilingual v3 weights from HF (MIT).
                cfg_weight=0.0 mandatory for Ukrainian reference -> other targets.
-  cosyvoice  — Fun-CosyVoice3-0.5B (Apache-2.0), zero-shot cloning; needs the
-               reference transcript (tts.reference_text / refs.json) alongside
-               the wav. Git-clone install, GPU-phase challenger — see
-               IMPROVEMENT_PLAN.md Phase C.
+  cosyvoice  — CosyVoice 2/3 (Apache-2.0). Covers all 5 targets + cross-lingual
+               cloning. cosyvoice_mode picks the inference path:
+                 cross_lingual — audio prompt ONLY, no ref transcript. The path
+                   for a Ukrainian ref (UA is not a CosyVoice-supported language,
+                   so its transcript can't be tokenized — cross-lingual clones
+                   timbre from the audio alone).
+                 zero_shot     — ref audio + ref transcript (reference_text).
+                 instruct      — ref audio + a natural-language style/emotion
+                   instruction (instruct_text) — per-segment prosody without any
+                   custom modulation code. Also transcript-free (UA-ref safe).
+  indextts   — IndexTTS-2 (Apache-2.0). EN + Mandarin ONLY (guarded). Built for
+               dubbing: DISENTANGLED emotion (a separate emotion_wav prompt — set
+               it to the source UA slice for real per-segment prosody transfer)
+               and duration control. English-track challenger.
   edge       — edge-tts 7.2.8, free MS neural voices, CPU-only, no cloning.
 
+The cosyvoice/indextts backends are GPU-only git-clone installs — see
+THIRD_PARTY.md. They fail with an actionable FileNotFoundError (which
+synthesize() re-raises without retry) when their package isn't importable.
+
 Per-language routing: tts.engine_by_lang maps a language to an engine,
-falling back to tts.engine (manifest.resolve_engine).
+falling back to tts.engine (manifest.resolve_engine). The winning assignment
+is decided by the bake-off (qc/bakeoff.py), not by reputation.
 """
 from __future__ import annotations
 import asyncio, logging, subprocess
@@ -21,8 +36,10 @@ from .manifest import resolve_engine
 from .text_norm import normalize_for_tts
 
 log = logging.getLogger("dubadabidu.tts")
+INDEXTTS_LANGS = {"en", "zh"}   # IndexTTS-2 native coverage; others need finetune
 _chatterbox_model = None
 _cosyvoice_model = None
+_indextts_model = None
 
 
 def _load_chatterbox():
@@ -67,10 +84,23 @@ def _load_cosyvoice(model_dir: str):
     return _cosyvoice_model
 
 
+def _cosyvoice_mode(t: dict) -> str:
+    """Which CosyVoice inference path. Default cross_lingual: the reference is
+    Ukrainian (not a CosyVoice-supported language), so its transcript can't be
+    tokenized — clone timbre from the audio alone. auto upgrades to instruct
+    when an instruct_text is present, or zero_shot when a ref transcript is."""
+    mode = t.get("cosyvoice_mode", "cross_lingual")
+    if mode != "auto":
+        return mode
+    if t.get("instruct_text"):
+        return "instruct"
+    return "zero_shot" if t.get("reference_text") else "cross_lingual"
+
+
 def _synth_cosyvoice(text: str, lang: str, out: Path, t: dict) -> None:
-    """Fun-CosyVoice3 zero-shot cloning. Requires reference_text — the exact
-    transcript of reference_wav (video-donated refs get it from refs.json).
-    GPU-first: untested on MPS; expected to run on the RunPod box."""
+    """CosyVoice 2/3 cloning. Mode-dependent (see _cosyvoice_mode); the default
+    cross_lingual path needs the ref audio only — the right choice for a
+    Ukrainian reference. GPU-first: expected to run on the RunPod box."""
     import torch
     import torchaudio as ta
     try:
@@ -79,22 +109,76 @@ def _synth_cosyvoice(text: str, lang: str, out: Path, t: dict) -> None:
         raise FileNotFoundError(
             "cosyvoice package not importable — git clone --recursive "
             "https://github.com/FunAudioLLM/CosyVoice (pin the commit), install "
-            "its requirements, and add it to PYTHONPATH. See IMPROVEMENT_PLAN.md "
-            f"Phase C. ({e})")
-    ref, ref_text = t["reference_wav"], t.get("reference_text", "")
+            "its requirements, and add it to PYTHONPATH. See THIRD_PARTY.md. "
+            f"({e})")
+    ref = t["reference_wav"]
     if not Path(ref).exists():
         raise FileNotFoundError(f"reference_wav not found: {ref}")
-    if not ref_text:
-        raise FileNotFoundError(
-            "tts.reference_text is required for the cosyvoice engine (the exact "
-            "transcript of reference_wav; `dubadabidu prep` writes refs.json "
-            "with transcripts for video-extracted refs).")
     m = _load_cosyvoice(t.get("cosyvoice_model_dir",
-                              "pretrained_models/Fun-CosyVoice3-0.5B"))
+                              "pretrained_models/CosyVoice2-0.5B"))
     prompt = load_wav(ref, 16000)
-    chunks = [r["tts_speech"] for r in
-              m.inference_zero_shot(text, ref_text, prompt, stream=False)]
+    mode = _cosyvoice_mode(t)
+    if mode == "zero_shot":
+        ref_text = t.get("reference_text", "")
+        if not ref_text:
+            raise FileNotFoundError(
+                "cosyvoice_mode=zero_shot needs tts.reference_text (the ref "
+                "transcript; `dubadabidu prep` writes refs.json). A Ukrainian "
+                "ref cannot be tokenized here — use cosyvoice_mode=cross_lingual.")
+        gen = m.inference_zero_shot(text, ref_text, prompt, stream=False)
+    elif mode == "instruct":
+        instruct = t.get("instruct_text") or "Speak naturally."
+        # instruct2: prompt speech + a style/emotion instruction, transcript-free
+        gen = m.inference_instruct2(text, instruct, prompt, stream=False)
+    else:  # cross_lingual — audio prompt only, UA-ref safe
+        gen = m.inference_cross_lingual(text, prompt, stream=False)
+    chunks = [r["tts_speech"] for r in gen]
     ta.save(str(out), torch.cat(chunks, dim=1), m.sample_rate)
+
+
+def _load_indextts(model_dir: str):
+    global _indextts_model
+    if _indextts_model is None:
+        try:
+            from indextts.infer_v2 import IndexTTS2  # type: ignore
+        except ImportError as e:
+            raise FileNotFoundError(
+                "indextts package not importable — git clone "
+                "https://github.com/index-tts/index-tts (pin the commit), install "
+                "its requirements + download checkpoints, add it to PYTHONPATH. "
+                f"See THIRD_PARTY.md. ({e})")
+        cfg_path = str(Path(model_dir) / "config.yaml")
+        log.info("loading IndexTTS-2 from %s ...", model_dir)
+        _indextts_model = IndexTTS2(cfg_path=cfg_path, model_dir=model_dir,
+                                    use_fp16=True)
+    return _indextts_model
+
+
+def _synth_indextts(text: str, lang: str, out: Path, t: dict) -> None:
+    """IndexTTS-2: zero-shot clone from reference_wav, with optional disentangled
+    emotion prompt (emotion_wav — set it per segment to the source UA slice for
+    real prosody transfer) and duration control. EN/Mandarin only."""
+    if lang not in INDEXTTS_LANGS:
+        raise FileNotFoundError(
+            f"indextts engine does not support '{lang}' (native: "
+            f"{sorted(INDEXTTS_LANGS)}). Route {lang} to chatterbox/cosyvoice "
+            f"via tts.engine_by_lang.")
+    ref = t["reference_wav"]
+    if not Path(ref).exists():
+        raise FileNotFoundError(f"reference_wav not found: {ref}")
+    m = _load_indextts(t.get("indextts_model_dir", "checkpoints"))
+    kw = {"spk_audio_prompt": ref, "text": text, "output_path": str(out),
+          "verbose": False}
+    emo = t.get("emotion_wav")
+    if emo and Path(emo).exists():   # disentangled per-segment emotion prompt
+        kw["emo_audio_prompt"] = emo
+        kw["emo_alpha"] = float(t.get("emo_alpha", 1.0))
+    elif t.get("instruct_text"):     # or a text emotion description
+        kw["use_emo_text"] = True
+        kw["emo_text"] = t["instruct_text"]
+    if t.get("indextts_duration_ratio"):   # global 0.75-1.25x pace control
+        kw["duration_ratio"] = float(t["indextts_duration_ratio"])
+    m.infer(**kw)   # writes output_path itself
 
 
 def _synth_edge(text: str, lang: str, out: Path, t: dict) -> None:
@@ -240,7 +324,7 @@ def synthesize(text: str, lang: str, out: Path, tts_cfg: dict,
     out.parent.mkdir(parents=True, exist_ok=True)
     engine = resolve_engine(tts_cfg, lang)
     fn = {"chatterbox": _synth_chatterbox, "cosyvoice": _synth_cosyvoice,
-          "edge": _synth_edge}[engine]
+          "indextts": _synth_indextts, "edge": _synth_edge}[engine]
     if engine == "chatterbox":
         # accent marks etc. exist only here — manifest/subs/QC keep clean text.
         # NOT applied to cosyvoice yet: whether it honors acute marks needs its

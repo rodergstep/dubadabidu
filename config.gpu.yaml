@@ -13,3 +13,24 @@ translation:
 tts:
   best_of: 5                  # takes are cheap on GPU; the composite ranking
                               # (windowed MOS + f0 + ECAPA sim) picks the best
+
+  # --- engine bake-off candidates (GPU-only git-clone installs; THIRD_PARTY.md) ---
+  # CosyVoice: covers all 5 targets + cross-lingual. cross_lingual mode needs NO
+  # ref transcript — the path for a Ukrainian reference. instruct mode adds
+  # per-segment emotion via a natural-language instruct_text (no custom code).
+  cosyvoice_model_dir: pretrained_models/CosyVoice2-0.5B
+  cosyvoice_mode: cross_lingual        # cross_lingual | zero_shot | instruct | auto
+  # IndexTTS-2: EN + Mandarin ONLY (guarded). Disentangled emotion — set
+  # emotion_wav to a source UA slice for real per-segment prosody transfer;
+  # indextts_duration_ratio (0.75-1.25) is native pace control.
+  indextts_model_dir: checkpoints
+  # emo_alpha: 1.0
+  # indextts_duration_ratio: 1.0
+
+  # After the bake-off, pin the winning engine per language, e.g.:
+  # engine_by_lang: {en: indextts, fr: cosyvoice, de: cosyvoice, es: cosyvoice, ru: chatterbox}
+
+bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
+  engines: [chatterbox, cosyvoice]   # add indextts for en-only comparisons
+  subset_size: 6               # stratified by source length
+  takes: 3                     # averaged per segment to beat TTS variance
