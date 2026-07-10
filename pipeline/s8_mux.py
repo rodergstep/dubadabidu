@@ -15,8 +15,17 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     wd = M.video_workdir(cfg, video)
     tags = cfg["mux"]["lang_tags"]
     src = cfg["source_language"]
-    out = Path(cfg["output_dir"]) / f"{Path(video).stem}_multi.mp4"
+    # edge (generic-voice) output validates plumbing only. Name it so it can
+    # never be mistaken for a judgeable dub — and so an edge fixture run can
+    # never overwrite a real cloned _multi.mp4.
+    edge = M.edge_langs(man, langs)
+    suffix = "_multi_EDGE-PLUMBING-ONLY.mp4" if edge else "_multi.mp4"
+    out = Path(cfg["output_dir"]) / f"{Path(video).stem}{suffix}"
     out.parent.mkdir(parents=True, exist_ok=True)
+    if edge:
+        print(f"[s8] !! {', '.join(edge)} synthesized with the EDGE fallback "
+              f"(generic voice, no cloning) — do NOT judge voice quality on "
+              f"this file: {out.name}")
 
     cmd = ["ffmpeg", "-y", "-i", video]                       # 0: video + ua audio
     for lang in langs:

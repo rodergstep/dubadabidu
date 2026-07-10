@@ -18,7 +18,7 @@ from pipeline import s1_extract, s2_transcribe, s3_translate, s4_synthesize, \
     autopilot as autopilot_mod, manifest as M
 from pipeline.device import torch_device, whisper_device
 from pipeline.logic import deep_merge
-from qc import backcheck, batch_report, evaluate, review_page
+from qc import backcheck, batch_report, evaluate, review_page, verdicts
 
 ROOT = Path(__file__).resolve().parent
 
@@ -127,18 +127,23 @@ def report(cfg: dict, video: str) -> None:
           f"{man['duration']:.0f}s | stages: {man.get('stages', {})}")
     langs = sorted({l for u in man["utterances"] for l in u["tr"]})
     score_flag = cfg["qc"].get("eval", {}).get("score_flag", 0.55)
-    hdr = f"{'lang':5} {'ok':>4} {'stretch':>8} {'shorten':>8} {'overflow':>9} " \
-          f"{'overlap':>8} {'wer>thr':>8} {'score<f':>8}"
+    hdr = f"{'lang':5} {'engine':>10} {'ok':>4} {'stretch':>8} {'shorten':>8} " \
+          f"{'overflow':>9} {'overlap':>8} {'wer>thr':>8} {'score<f':>8}"
     print(hdr); print("-" * len(hdr))
     for lang in langs:
         trs = [u["tr"][lang] for u in man["utterances"]]
+        engine = "⚠EDGE" if M.edge_langs(man, [lang]) else \
+            next((t["synth_engine"] for t in trs if t.get("synth_engine")), "-")
         fits = [t.get("fit") for t in trs]
         wer_bad = sum(1 for t in trs
                       if t.get("qc_wer", 0) > cfg["qc"]["wer_flag_threshold"])
         score_bad = sum(1 for t in trs if "qc_score" in t
                         and t["qc_score"] < score_flag)
-        overlaps = sum(1 for t in trs if t.get("overrun_s"))
-        print(f"{lang:5} {fits.count('ok'):>4} {fits.count('stretched'):>8} "
+        # drift_exceeded superseded overrun_s when s5 went soft-anchor
+        # (overlap in the mix is impossible now); old manifests keep overrun_s
+        overlaps = sum(1 for t in trs
+                       if t.get("overrun_s") or t.get("drift_exceeded"))
+        print(f"{lang:5} {engine:>10} {fits.count('ok'):>4} {fits.count('stretched'):>8} "
               f"{fits.count('shortened'):>8} {fits.count('overflow'):>9} "
               f"{overlaps:>8} {wer_bad:>8} {score_bad:>8}")
 
@@ -147,7 +152,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(prog="dubadabidu")
     ap.add_argument("cmd", choices=["run", "stage", "qc", "doctor", "report",
                                     "evaluate", "review", "tune", "prep",
-                                    "preamble", "batch", "autopilot"])
+                                    "preamble", "batch", "autopilot",
+                                    "verdicts"])
     ap.add_argument("rest", nargs="*")
     ap.add_argument("--langs", default=None)
     ap.add_argument("--from", dest="from_stage", default="s1_extract",
@@ -248,6 +254,11 @@ def main() -> None:
     if a.cmd == "review":
         for v in a.rest:
             review_page.run(cfg, v, langs)
+        return
+    if a.cmd == "verdicts":  # dubadabidu verdicts <video> <exported.json>
+        if len(a.rest) != 2:
+            ap.error("verdicts takes exactly: <video> <exported-ratings.json>")
+        verdicts.run(cfg, a.rest[0], a.rest[1])
         return
     if a.cmd == "tune":
         for v in a.rest:

@@ -1,8 +1,10 @@
 """Review page: work/<video>/review_<lang>.html — self-contained, offline.
 
 Per segment: dubbed audio + the real UA slice side by side, metric badges,
-and a 1..5 naturalness rating (persisted in localStorage, exportable as JSON).
-The exported ratings calibrate composite-score weights against your ear.
+a 1..5 naturalness rating AND an accept/reject verdict (AUTOPILOT.md M3 —
+the flywheel input). Both persist in localStorage and export as one JSON;
+`dubadabidu verdicts <video> <file.json>` writes them back to the manifest
+and accumulates them in ratings_<lang>.json for the qc-weight re-fit.
 Segments are sorted worst-first by qc_score when evaluate has run.
 """
 from __future__ import annotations
@@ -18,6 +20,8 @@ CSS = """
 body{font:14px/1.5 -apple-system,sans-serif;margin:2rem auto;max-width:960px;
      background:#111;color:#ddd}
 h1{font-size:1.2rem} .cal{color:#8ab}
+.edgewarn{background:#a53;color:#fff;border-radius:8px;padding:.8rem 1rem;
+  margin:.8rem 0;font-weight:bold}
 .seg{border:1px solid #333;border-radius:8px;padding:.8rem 1rem;margin:.8rem 0}
 .seg.flagged{border-color:#a53}
 .row{display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
@@ -26,25 +30,43 @@ h1{font-size:1.2rem} .cal{color:#8ab}
 audio{height:2rem;max-width:260px} .txt{color:#aaa;margin:.3rem 0}
 .stars button{background:#222;color:#ddd;border:1px solid #444;border-radius:4px;
   padding:.1rem .5rem;cursor:pointer} .stars button.on{background:#365;color:#fff}
+.verdict button{background:#222;color:#ddd;border:1px solid #444;
+  border-radius:4px;padding:.1rem .5rem;cursor:pointer}
+.verdict button.acc.on{background:#365;color:#fff}
+.verdict button.rej.on{background:#a53;color:#fff}
 #export{position:fixed;top:1rem;right:1rem;background:#365;color:#fff;
   border:none;border-radius:6px;padding:.4rem .8rem;cursor:pointer}
 """
 
 JS = """
 const KEY='dubadabidu_ratings_'+document.body.dataset.key;
-const ratings=JSON.parse(localStorage.getItem(KEY)||'{}');
+const store=JSON.parse(localStorage.getItem(KEY)||'{}');
+const ratings=store.ratings||store;        // legacy flat {id:stars} migrates
+const verdicts=store.verdicts||{};
+const save=()=>localStorage.setItem(KEY,JSON.stringify({ratings,verdicts}));
 document.querySelectorAll('.stars').forEach(w=>{
   const id=w.dataset.id;
   w.querySelectorAll('button').forEach(b=>{
     if(ratings[id]==+b.textContent)b.classList.add('on');
-    b.onclick=()=>{ratings[id]=+b.textContent;
-      localStorage.setItem(KEY,JSON.stringify(ratings));
+    b.onclick=()=>{ratings[id]=+b.textContent;save();
       w.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));};
+  });
+});
+document.querySelectorAll('.verdict').forEach(w=>{
+  const id=w.dataset.id;
+  w.querySelectorAll('button').forEach(b=>{
+    const v=b.classList.contains('acc')?'accept':'reject';
+    if(verdicts[id]===v)b.classList.add('on');
+    b.onclick=()=>{
+      if(verdicts[id]===v){delete verdicts[id];b.classList.remove('on');}
+      else{verdicts[id]=v;
+        w.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));}
+      save();};
   });
 });
 document.getElementById('export').onclick=()=>{
   const blob=new Blob([JSON.stringify({key:document.body.dataset.key,
-    ratings},null,2)],{type:'application/json'});
+    ratings,verdicts},null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
   a.download='ratings_'+document.body.dataset.key+'.json';a.click();};
 """
@@ -71,6 +93,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     flag_score = cfg["qc"].get("eval", {}).get("score_flag", 0.55)
 
     for lang in langs:
+        edge = bool(M.edge_langs(man, [lang]))
         cal = man.get("qc_calibration", {}).get(lang)
         us = sorted(man["utterances"],
                     key=lambda u: u["tr"][lang].get("qc_score", 1.0))
@@ -94,7 +117,8 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
 <div class="seg{' flagged' if flagged else ''}">
  <div class="row"><b>{u['id']}</b> <span>{u['start']:.1f}–{u['end']:.1f}s</span>
    {badges}
-   <span class="stars" data-id="{u['id']}">rate: {stars}</span></div>
+   <span class="stars" data-id="{u['id']}">rate: {stars}</span>
+   <span class="verdict" data-id="{u['id']}"><button class="acc">✓ accept</button><button class="rej">✗ reject</button></span></div>
  <div class="txt">dub: {html.escape(tr.get('fitted_text', tr.get('text', '')))}</div>
  <div class="txt">uk:&nbsp; {html.escape(u['text_uk'])}</div>
  <div class="row">
@@ -114,7 +138,11 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 f"{json.dumps(f'{Path(video).stem}_{lang}_{seg_hash}')}>"
                 f"<button id='export'>Export ratings JSON</button>"
                 f"<h1>{Path(video).stem} — {lang} ({len(us)} segments, worst first)</h1>"
-                f"<div class='cal'>calibration: {cal_line}</div>"
+                + ("<div class='edgewarn'>⚠ EDGE ENGINE — generic voice, no "
+                   "cloning. Plumbing check only: do NOT rate or judge voice "
+                   "quality here; verdicts from this page will be refused."
+                   "</div>" if edge else "")
+                + f"<div class='cal'>calibration: {cal_line}</div>"
                 f"{''.join(segs)}<script>{JS}</script>")
         out = wd / f"review_{lang}.html"
         out.write_text(page, encoding="utf-8")

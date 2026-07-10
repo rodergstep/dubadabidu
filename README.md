@@ -55,7 +55,8 @@ dubadabidu doctor                    # validates everything before you start
 
 ### macOS reality check
 Your Mac has no CUDA. faster-whisper runs CPU (int8) — OK but slow for 1h videos;
-Chatterbox may work on MPS but is unvalidated there. Recommended split:
+Chatterbox DOES run on MPS (validated 2026-07-09 on test60, ~16 it/s sampling —
+fine for short clips, slow for full lessons). Recommended split:
 **prototype on the Mac with `--engine edge`** (free MS voices, CPU, validates the
 whole chain incl. translation/fit/mux), then **run the cloned batch on a rented
 CUDA GPU** (RunPod/vast.ai, ~$0.3–0.5/h) — rsync the project folder, run, rsync
@@ -143,7 +144,7 @@ export TRANSLATE_API_KEY=...   # real key for remote; any non-empty string for l
 
 | Provider | `base_url` | `model` | `response_format` | `TRANSLATE_API_KEY` |
 |---|---|---|---|---|
-| DeepSeek (remote) | `https://api.deepseek.com` | `deepseek-chat` | `json_object` | real key |
+| DeepSeek (remote) | `https://api.deepseek.com` | `deepseek-v4-flash` | `json_object` | real key |
 | OpenAI (remote) | `https://api.openai.com/v1` | `gpt-5-mini` | `json_object` | real key |
 | **LM Studio (local)** | `http://127.0.0.1:1234/v1` | e.g. `google/gemma-4-e4b` | `json_schema` | any non-empty string |
 | Ollama (local) | `http://localhost:11434/v1` | e.g. `qwen3:32b` | `json_object` | any non-empty string |
@@ -169,6 +170,13 @@ are stripped automatically). Using the wrong one yields errors like
 
 Small local models can still drop or mangle segments; if you hit
 `LLM dropped segments … re-run s3`, lower `translation.batch_size` (e.g. 20 → 5).
+
+For local endpoints (base_url on 127.0.0.1/localhost) the full-transcript
+context in the system prompt is automatically capped at
+`translation.max_context_chars` (default 12000) so long lessons don't
+silently overflow a small model's context window. Remote providers always
+get the full transcript — on DeepSeek its context caching makes that
+effectively free after the first batch.
 
 ## Run
 
@@ -197,6 +205,31 @@ Recommended workflow per video:
   PerTh watermark by design.
 - Do NOT ship XTTS-v2 output commercially (Coqui CPML is non-commercial); it is not
   wired in here on purpose.
+
+## New in v0.4 (quality + flywheel release)
+
+- **Soft-anchor timeline (s5/s6/s7)**: dubs may drift up to `fit.drift_max_s`
+  after their source start, eating pause time instead of being stretched or
+  shortened; drift resets at real source pauses. Mix overlap is impossible by
+  construction (`drift_exceeded` replaces the old `overrun_s` flag); subtitles
+  follow the placed dub timing. Replaces `fit.borrow_gap_s`.
+- **Composite take ranking (s4/s5)**: with `tts.rank_takes` (default on), all
+  `best_of` takes are scored on windowed MOS + f0 liveliness + ECAPA speaker
+  similarity and the composite-best wins — take selection now sees monotony
+  and clone drift, not just naturalness. Per-take metrics land in the
+  manifest (`tr.takes`).
+- **Verdict flywheel (AUTOPILOT M3)**: review pages grew accept/reject
+  buttons; `dubadabidu verdicts <video> <exported.json>` writes
+  `human_rating`/`human_verdict` into the manifest and accumulates rows in
+  `ratings_<lang>.json` for the periodic qc-weight re-fit. The autopilot
+  never re-rolls an accepted segment and always re-rolls a rejected one;
+  autopilot re-rolls of WER-flagged segments back-transcribe every fresh
+  take and veto hallucinations.
+- **Number-safe backcheck WER**: digits are expanded to words (num2words) on
+  both sides before WER, so "25" vs "twenty-five" no longer false-flags
+  measurement-heavy segments. Whisper is a singleton across QC rounds.
+- s3: TTS pace measurement is filtered by engine; transcript context is
+  capped for local (LM Studio/Ollama) endpoints. Polish dropped from config.
 
 ## New in v0.2.0 (real-tool release)
 

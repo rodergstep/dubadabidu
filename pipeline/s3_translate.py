@@ -115,9 +115,16 @@ def _measured_cps(cfg: dict, lang: str, min_samples: int = 10) -> float | None:
     this language across all work/*/manifest.json. The prompt's char bound is
     relative to UKRAINIAN length — a poor proxy for how long the TARGET text
     takes to speak (German runs long, English short). A measured budget lets
-    the LLM aim at the actual slot instead of guessing."""
+    the LLM aim at the actual slot instead of guessing.
+
+    Samples are filtered to the engine that will synthesize THIS run (edge
+    voices pace differently from Chatterbox — Mac edge prototyping must not
+    skew GPU chatterbox budgets). Legacy samples with no engine tag are used
+    only as a fallback when the engine-matched pool is too small."""
     import statistics
-    rates = []
+    from .manifest import resolve_engine
+    engine = resolve_engine(cfg["tts"], lang)
+    rates, legacy = [], []
     for mp in Path(cfg["work_dir"]).glob("*/manifest.json"):
         try:
             m = json.loads(mp.read_text(encoding="utf-8"))
@@ -127,7 +134,11 @@ def _measured_cps(cfg: dict, lang: str, min_samples: int = 10) -> float | None:
             tr = u.get("tr", {}).get(lang, {})
             dur, text = tr.get("synth_dur"), tr.get("text", "")
             if dur and dur > 0.5 and len(text) >= 20:  # skip trivial segments
-                rates.append(len(text) / dur)
+                se = tr.get("synth_engine")
+                (rates if se == engine else legacy if se is None else []
+                 ).append(len(text) / dur)
+    if len(rates) < min_samples:
+        rates += legacy
     if len(rates) < min_samples:
         return None
     return statistics.median(rates)
@@ -204,9 +215,19 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             continue
         tol, nvar = tcfg["isometric_tolerance"], tcfg["n_short_variants"]
         terms = _terms(client, tcfg, cfg, video, man, lang)
+        transcript = "\n".join(u["text_uk"] for u in man["utterances"])
+        # local servers (LM Studio / Ollama) have small context windows; a 1h
+        # transcript in the system prompt of every batch overflows them
+        # silently. Remote providers (DeepSeek 1M + context caching) keep the
+        # full transcript — that shape is what makes cached batches ~free.
+        local = any(h in tcfg["base_url"] for h in ("127.0.0.1", "localhost"))
+        max_ctx = int(tcfg.get("max_context_chars", 12000))
+        if local and len(transcript) > max_ctx:
+            log.warning("local endpoint: transcript context capped "
+                        "%d -> %d chars", len(transcript), max_ctx)
+            transcript = transcript[:max_ctx] + "\n[... transcript truncated]"
         context = ("Full source transcript (context only, translate ONLY the "
-                   "segments in the request):\n"
-                   + "\n".join(u["text_uk"] for u in man["utterances"]))
+                   "segments in the request):\n" + transcript)
         cps = _measured_cps(cfg, lang)
         pace = ""
         if cps:

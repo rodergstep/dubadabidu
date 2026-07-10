@@ -87,29 +87,51 @@ def _assess(cfg: dict, video: str, lang: str, accept: dict) -> tuple[dict, list[
 
 
 def _bad_segments(cfg: dict, video: str, lang: str) -> list[str]:
-    """Segments fixable mechanically: bad WER or low score -> re-roll take."""
+    """Segments fixable mechanically: bad WER or low score -> re-roll take.
+    Human verdicts (M3 writeback) override the metrics in both directions:
+    an accepted segment is settled and never re-rolled no matter its score;
+    a rejected one re-rolls even when the metrics say it's fine — that
+    disagreement is exactly the signal the weight re-fit learns from."""
     score_flag = cfg["qc"].get("eval", {}).get("score_flag", 0.55)
     wer_thr = cfg["qc"]["wer_flag_threshold"]
     man = M.load(cfg, video)
-    return [u["id"] for u in man["utterances"]
-            if u["tr"][lang].get("qc_wer", 0) > wer_thr
-            or u["tr"][lang].get("qc_score", 1.0) < score_flag]
+    bad = []
+    for u in man["utterances"]:
+        tr = u["tr"][lang]
+        if tr.get("human_verdict") == "accept":
+            continue
+        if (tr.get("human_verdict") == "reject"
+                or tr.get("qc_wer", 0) > wer_thr
+                or tr.get("qc_score", 1.0) < score_flag):
+            bad.append(u["id"])
+    return bad
 
 
 def _reroll(cfg: dict, video: str, lang: str, ids: list[str]) -> None:
-    """Delete the cached takes for `ids`; s4/s5/s6 re-synthesize only those."""
+    """Delete the cached takes for `ids`; s4/s5/s6 re-synthesize only those.
+    WER-flagged segments get tr.reroll_wer: s4 then back-transcribes every
+    fresh take and vetoes hallucinated ones — re-rolling on the metric that
+    actually failed instead of hoping the MOS-gated dice land differently."""
+    wer_thr = cfg["qc"]["wer_flag_threshold"]
     man = M.load(cfg, video)
     wd = M.video_workdir(cfg, video)
     for u in man["utterances"]:
         if u["id"] not in ids:
             continue
         tr = u["tr"][lang]
+        if tr.get("qc_wer", 0) > wer_thr:
+            tr["reroll_wer"] = True
         for key in ("synth", "fitted", "placed"):
             if tr.get(key):
                 (wd / tr[key]).unlink(missing_ok=True)
         for key in list(tr):
             if key.startswith("qc_"):
                 del tr[key]
+        # the verdict/rating described the take we just deleted, not the
+        # fresh one (a stale reject would re-roll forever); the accumulated
+        # row in ratings_<lang>.json keeps the historical pair for the re-fit
+        tr.pop("human_verdict", None)
+        tr.pop("human_rating", None)
     M.save(cfg, video, man)
     for mod in (s4_synthesize, s5_fit, s6_mix, s7_subtitles):
         mod.run(cfg, video, [lang])

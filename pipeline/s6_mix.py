@@ -61,7 +61,11 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             placed = (wd / tr["fitted"]).with_name(f"{u['id']}_placed.wav")
             seg.export(placed, format="wav")
             tr["placed"] = str(placed.relative_to(wd))
-            track = track.overlay(seg, position=int(u["start"] * 1000))
+            # s5's soft-anchored timeline: overlay at placed_start (may drift
+            # within fit.drift_max_s of the source start); overlap-free by
+            # construction. Fall back to the source start for old manifests.
+            track = track.overlay(
+                seg, position=int(tr.get("placed_start", u["start"]) * 1000))
         voc = wd / f"dub_{lang}_vocals.wav"
         track.export(voc, format="wav")
 

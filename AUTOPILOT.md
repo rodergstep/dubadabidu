@@ -76,6 +76,10 @@ monotonically if this loop is real.
 - M2 RunPod lifecycle scripts; same loop remotely on the real engines.
 - M3 Review-page verdict capture -> manifest/ratings writeback (closes the
      flywheel; do this BEFORE the 20-video batch so every verdict counts).
+     DONE v0.4: review pages have accept/reject; `dubadabidu verdicts` writes
+     back to the manifest + ratings_<lang>.json; the loop honors verdicts
+     (accept = settled, reject = force re-roll) and WER re-rolls carry a
+     per-take back-transcription veto.
 - M4 Automated weight re-fit + FIXES.md playbook accumulation.
 
 ## Inherited invariants (from IMPROVEMENT_PLAN, still binding)

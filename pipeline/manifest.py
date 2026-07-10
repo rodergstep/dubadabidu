@@ -55,6 +55,17 @@ def save(cfg: dict, video: str | Path, man: dict) -> None:
     tmp.replace(p)
 
 
+def edge_langs(man: dict, langs: list[str]) -> list[str]:
+    """Languages whose synthesis used the edge fallback (generic MS voices,
+    no cloning). Edge output validates plumbing ONLY — it must never be
+    mistaken for judgeable dubbing, so mux renames it, the review page
+    banners it, and verdict ingestion refuses it. Legacy manifests without
+    synth_engine tags are treated as real (they predate the edge fixtures)."""
+    return [lang for lang in langs
+            if any(u["tr"].get(lang, {}).get("synth_engine") == "edge"
+                   for u in man["utterances"])]
+
+
 def resolve_engine(tts_cfg: dict, lang: str) -> str:
     """Effective engine for a language: per-lang override, else the default."""
     return tts_cfg.get("engine_by_lang") and \

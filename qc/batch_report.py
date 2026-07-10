@@ -20,8 +20,12 @@ def _mean(vals: list[float]) -> float | None:
 def _lang_row(cfg: dict, video: str, lang: str, trs: list[dict]) -> dict:
     score_flag = cfg["qc"].get("eval", {}).get("score_flag", 0.55)
     wer_thr = cfg["qc"]["wer_flag_threshold"]
+    engines = {t.get("synth_engine") for t in trs} - {None}
     return {
         "video": video, "lang": lang, "segs": len(trs),
+        # EDGE rows are plumbing checks — their scores say nothing about the
+        # cloned voice and must not be compared against real rows
+        "engine": "⚠EDGE" if "edge" in engines else ",".join(sorted(engines)) or "-",
         "score": _mean([t["qc_score"] for t in trs if "qc_score" in t]),
         "sim": _mean([t["qc_sim_cal"] for t in trs if "qc_sim_cal" in t]),
         "mos": _mean([t["qc_mos"] for t in trs if "qc_mos" in t]),
@@ -29,7 +33,10 @@ def _lang_row(cfg: dict, video: str, lang: str, trs: list[dict]) -> dict:
                        if t.get("qc_score", 1.0) < score_flag),
         "wer_bad": sum(1 for t in trs if t.get("qc_wer", 0) > wer_thr),
         "overflow": sum(1 for t in trs if t.get("fit") == "overflow"),
-        "overlap": sum(1 for t in trs if t.get("overrun_s")),
+        # drift_exceeded superseded overrun_s (soft-anchor s5: mix overlap is
+        # impossible; excessive timeline drift is the new failure mode)
+        "overlap": sum(1 for t in trs
+                       if t.get("overrun_s") or t.get("drift_exceeded")),
         "synth": sum(1 for t in trs if t.get("synth")),
     }
 
@@ -62,14 +69,14 @@ def run(cfg: dict, videos: list[str] | None = None) -> Path:
     lines = ["# batch report", "",
              "worst-first. flagged = qc_score below qc.eval.score_flag; "
              "review pages exist only after `dubadabidu review <video>`.", "",
-             "| video | lang | segs | synth | score | sim | mos | flagged "
+             "| video | lang | engine | segs | synth | score | sim | mos | flagged "
              "| wer>thr | overflow | overlap | review |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     fmt = lambda v: "-" if v is None else v  # noqa: E731
     for r, page in rows:
         link = f"[page]({page})" if page.exists() else "-"
         lines.append(
-            f"| {r['video']} | {r['lang']} | {r['segs']} | {r['synth']} "
+            f"| {r['video']} | {r['lang']} | {r['engine']} | {r['segs']} | {r['synth']} "
             f"| {fmt(r['score'])} | {fmt(r['sim'])} | {fmt(r['mos'])} "
             f"| {r['flagged']} | {r['wer_bad']} | {r['overflow']} "
             f"| {r['overlap']} | {link} |")

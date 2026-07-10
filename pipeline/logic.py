@@ -74,6 +74,32 @@ def merge_segments(segs: list[dict], max_chars: int, max_seconds: float,
     return merged
 
 
+def retime_step(src_start: float, prev_end: float, next_src_start: float,
+                drift_max: float, min_gap: float,
+                hard_end: float | None = None) -> tuple[float, float, float]:
+    """Soft-anchor placement for one segment -> (placed_start, drift, slot).
+
+    Instead of hard-anchoring every dub at its source start (which forces
+    atempo stretching or shorter variants whenever a translation runs long),
+    let segments drift forward within a cumulative budget: a segment starts at
+    its source time OR right after the previous placed dub, whichever is
+    later. The slot extends to the NEXT source start plus the drift budget,
+    so long dubs eat pause time instead of being stretched. Drift decays to
+    zero on its own wherever the source has real gaps — long pauses act as
+    natural resync anchors, no explicit anchor logic needed.
+
+    min_gap keeps a small breath between consecutive dubs; hard_end (video
+    duration) caps the last segment. Overlap is impossible by construction.
+    """
+    placed = src_start if prev_end <= 0 else max(src_start, prev_end + min_gap)
+    drift = placed - src_start
+    limit = next_src_start + drift_max
+    if hard_end is not None:
+        limit = min(limit, hard_end)
+    slot = max(0.0, limit - placed - min_gap)
+    return placed, drift, slot
+
+
 def choose_placement(durations: list[float], slot: float, max_tempo: float,
                      soft_tempo: float) -> tuple[int, str, float]:
     """Pick the candidate (primary first, then shorter variants) that fits with

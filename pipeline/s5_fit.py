@@ -1,11 +1,16 @@
-"""s5: fit segments into time slots. Ladder: as-is -> atempo<=max_tempo ->
-pre-generated shorter variant -> flagged overflow. Decision logic in logic.py."""
+"""s5: place segments on a soft-anchored timeline. Each dub starts at its
+source time or right after the previous dub (retime_step in logic.py) and may
+drift forward within fit.drift_max_s; drift resets naturally at source pauses.
+Within the resulting slot the old ladder applies: as-is -> atempo<=max_tempo
+-> pre-generated shorter variant -> LLM emergency shorten -> flagged overflow.
+Overlaps are impossible by construction; excessive drift is recorded as
+drift_exceeded (report/autopilot surface it where overlaps used to be)."""
 from __future__ import annotations
 import logging, subprocess
 from pathlib import Path
 import soundfile as sf
 from . import manifest as M
-from .logic import choose_placement
+from .logic import choose_placement, retime_step
 from .s3_translate import shorten as llm_shorten
 from .tts_engine import synth_best_of
 
@@ -24,6 +29,8 @@ def _atempo(src: Path, dst: Path, tempo: float) -> None:
 
 def run(cfg: dict, video: str, langs: list[str]) -> None:
     f = cfg["fit"]
+    drift_max = f.get("drift_max_s", 1.5)
+    min_gap = f.get("min_gap_s", 0.15)
     man = M.load(cfg, video)
     # per-video overrides (e.g. this video's own ref picked by `preamble`);
     # synth_hash sees the merged dict, so caches stay per-ref consistent
@@ -33,29 +40,34 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
 
     for lang in langs:
         stats = {"ok": 0, "stretched": 0, "shortened": 0, "overflow": 0}
+        prev_end = 0.0
         for i, u in enumerate(us):
             tr = u["tr"].get(lang)
             if not tr or not tr.get("text"):
                 raise SystemExit(f"{u['id']} missing {lang} translation — "
                                  f"run s3 first (only s2 is done for this video).")
-            next_start = us[i + 1]["start"] if i + 1 < len(us) else man["duration"]
-            slot = (u["end"] - u["start"]) + min(f["borrow_gap_s"],
-                                                 max(0.0, next_start - u["end"]))
+            last = i + 1 >= len(us)
+            next_start = man["duration"] if last else us[i + 1]["start"]
+            placed_start, drift, slot = retime_step(
+                u["start"], prev_end, next_start, drift_max,
+                0.0 if last else min_gap, hard_end=man["duration"])
             candidates = [tr["text"]] + tr.get("variants", [])
 
             def seg_wav(text: str) -> Path:
                 h = M.synth_hash(text, lang, t)
                 wav = wd / "seg" / lang / f"{u['id']}_{h}.wav"
                 if not wav.exists():
-                    # same MOS gate as s4: a variant that replaces the primary
-                    # in the mix must not be an ungated single take
-                    synth_best_of(text, lang, wav, t)
+                    # same gate/ranking as s4: a variant that replaces the
+                    # primary in the mix must not be an ungated single take.
+                    # target = this segment's actual slot: a variant exists
+                    # to FIT, so fitting takes are preferred outright.
+                    synth_best_of(text, lang, wav, t, target_dur=slot or None)
                 return wav
 
             soft = f.get("soft_tempo", 1.06)
             # synth the primary; only synth variants if it needs a hard stretch
             wavs = [seg_wav(candidates[0])]
-            if _dur(wavs[0]) / slot > soft:
+            if slot <= 0 or _dur(wavs[0]) / slot > soft:
                 wavs += [seg_wav(c) for c in candidates[1:]]
             durs = [_dur(w) for w in wavs]
             ci, verdict, tempo = choose_placement(durs, slot, f["max_tempo"], soft)
@@ -98,16 +110,21 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             tr["tempo"] = round(placed[1], 3)
             tr["fit"] = placed[2]
             stats[placed[2]] += 1
-            # s6 overlays at u.start with no collision check — audio spilling
-            # past the next utterance's start plays on top of it. Record it so
-            # report/review surface the collision, not just the overflow flag.
-            overrun = u["start"] + _dur(placed[0]) - next_start
-            if overrun > 0.05:
-                tr["overrun_s"] = round(overrun, 2)
-                log.warning("%s %s overlaps next utterance by %.2fs",
-                            lang, u["id"], overrun)
+            fit_dur = _dur(placed[0])
+            tr["placed_start"] = round(placed_start, 3)
+            tr["placed_end"] = round(placed_start + fit_dur, 3)
+            tr["drift"] = round(drift, 3)
+            # overflow can push the NEXT segment past its drift budget; record
+            # it so report/autopilot surface it (successor of the old overlap
+            # flag — actual overlap in the mix is impossible now)
+            if drift > drift_max + 0.05:
+                tr["drift_exceeded"] = round(drift - drift_max, 2)
+                log.warning("%s %s drift %.2fs exceeds budget %.1fs",
+                            lang, u["id"], drift, drift_max)
             else:
-                tr.pop("overrun_s", None)
+                tr.pop("drift_exceeded", None)
+            tr.pop("overrun_s", None)  # legacy flag from the hard-anchor era
+            prev_end = placed_start + fit_dur
         man["stages"][f"s5_{lang}"] = "done"
         M.save(cfg, video, man)
         log.info("%s: %s", lang, stats)

@@ -23,13 +23,20 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         subs = []
         for i, u in enumerate(man["utterances"], 1):
             # fitted_text = what the dub actually says (may be a shorter variant);
-            # subtitles must not contradict the audio
-            text = u["text_uk"] if lang == cfg["source_language"] \
-                else u["tr"][lang].get("fitted_text", u["tr"][lang]["text"])
+            # subtitles must not contradict the audio. Timing follows the
+            # PLACED dub (s5 soft-anchor timeline), not the source utterance —
+            # otherwise subs vanish while the voice is still speaking.
+            if lang == cfg["source_language"]:
+                text, start, end = u["text_uk"], u["start"], u["end"]
+            else:
+                tr = u["tr"][lang]
+                text = tr.get("fitted_text", tr["text"])
+                start = tr.get("placed_start", u["start"])
+                end = tr.get("placed_end", u["end"])
             subs.append(srt.Subtitle(
                 index=i,
-                start=dt.timedelta(seconds=u["start"]),
-                end=dt.timedelta(seconds=u["end"]),
+                start=dt.timedelta(seconds=start),
+                end=dt.timedelta(seconds=end),
                 content=_wrap(text)))
         out = wd / f"subs_{lang}.srt"
         out.write_text(srt.compose(subs), encoding="utf-8")

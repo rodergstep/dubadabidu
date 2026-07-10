@@ -1,9 +1,15 @@
 """s4: per-segment TTS through pipeline.tts_engine with content-hash caching.
 
 Auto-repair: autoregressive takes vary (measured spread ~0.74-0.80 on identical
-config); a take scoring below tts.retake_mos_below is re-rolled up to
-tts.best_of times and the best take wins. Cached segments are never re-judged —
-the hash-named file is the accepted take."""
+config); best_of takes are scored on windowed MOS + f0 liveliness + ECAPA
+similarity and the composite-best wins (tts.rank_takes; see synth_best_of).
+Per-take metrics land in the manifest (tr.takes) — diagnostic memory for the
+autopilot and features for the qc-weight re-fit. Cached segments are never
+re-judged — the hash-named file is the accepted take.
+
+Autopilot hook: a segment marked tr.reroll_wer (set by autopilot._reroll for
+WER-flagged segments) is re-synthesized with a per-take back-transcription
+veto, so a hallucination re-roll can't be won by another hallucination."""
 from __future__ import annotations
 import logging
 from pathlib import Path
@@ -33,7 +39,17 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             out = seg_dir / f"{u['id']}_{h}.wav"
             fresh = not out.exists()
             if fresh:
-                synth_best_of(tr["text"], lang, out, t)
+                takes: list[dict] = []
+                verify = bool(tr.get("reroll_wer"))
+                synth_best_of(tr["text"], lang, out, t, meta=takes,
+                              verify_cfg=cfg if verify else None,
+                              verify_text=tr["text"] if verify else None,
+                              # source slot: rank takes toward the speaker's
+                              # own pace and prefer takes that fit it
+                              target_dur=u["end"] - u["start"])
+                tr["takes"] = takes
+                tr["synth_engine"] = M.resolve_engine(t, lang)
+                tr.pop("reroll_wer", None)
                 n_new += 1
             info = sf.info(str(out))
             tr["synth"] = str(out.relative_to(wd))

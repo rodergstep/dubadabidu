@@ -107,32 +107,130 @@ def _synth_edge(text: str, lang: str, out: Path, t: dict) -> None:
     mp3.unlink(missing_ok=True)
 
 
-def synth_best_of(text: str, lang: str, out: Path, t: dict) -> float:
-    """Synthesize with MOS-gated re-rolls; keep the best take at `out`.
-    Gate on the worst 3s window, not the take average — brief garble in a
-    long take hides from the mean but not from its window. Used by s4 AND
-    s5 (variant retries): a variant that replaces the primary in the mix
-    must clear the same gate as the primary."""
-    from qc.metrics import mos_min_window
+PACE_TOL = 0.35        # |dur/target - 1| that zeroes the pace term
+FIT_SLACK = 1.10       # takes within target*this count as "fitting the slot"
+
+
+def _take_rank(m: dict, target_dur: float | None = None) -> float:
+    """Relative ranking of takes of the SAME text/ref. Weights follow the
+    human-rating calibration (mos +.63, f0 +.48, sim kept for identity):
+    windowed MOS first, prosody liveliness and raw ECAPA sim next.
+    Raw (uncalibrated) cosine is fine here — all takes share one reference,
+    only the ordering matters. Renormalized when sim is unavailable (edge
+    engine / missing ref).
+
+    Pace term (when target_dur is known): chatterbox pacing varies wildly
+    between rolls of the same text (measured −18%..+45% on sketch60), so
+    without this term the delivered speed is a dice roll — a fast-talking
+    take can win on MOS alone and the dub's rhythm drifts run to run.
+    Takes closest to the source slot's pace score highest; PACE_TOL away
+    scores zero."""
+    mos_n = max(0.0, min(1.0, (m["mos_min"] - 1.0) / 4.0))
+    f0_n = max(0.0, min(1.0, m.get("f0st", 0.0) / 4.0))
+    parts = [(0.5, mos_n), (0.25, f0_n)]
+    if m.get("sim") is not None:
+        parts.append((0.25, m["sim"]))
+    if target_dur and m.get("dur"):
+        pace = max(0.0, 1.0 - abs(m["dur"] / target_dur - 1.0) / PACE_TOL)
+        parts.append((0.25, pace))
+    total = sum(w for w, _ in parts)
+    return sum(w * v for w, v in parts) / total
+
+
+def synth_best_of(text: str, lang: str, out: Path, t: dict,
+                  meta: list | None = None, verify_cfg: dict | None = None,
+                  verify_text: str | None = None,
+                  target_dur: float | None = None) -> float:
+    """Synthesize best_of takes; keep the winner at `out`.
+
+    Two modes (tts.rank_takes, default true):
+      ranked — synthesize ALL best_of takes, score each on a composite of
+        windowed MOS + f0 liveliness + ECAPA similarity (_take_rank), and pick
+        the composite-best among takes clearing the MOS floor. The old
+        MOS-only early-stop froze flat or off-voice takes into the cache
+        forever the moment they cleared the naturalness gate — monotony and
+        clone drift were invisible to take selection by design.
+      legacy — early-stop on the first take with worst-3s-window MOS >=
+        retake_mos_below (cheapest; set rank_takes: false).
+
+    Optional WER veto (verify_cfg + verify_text, used by autopilot re-rolls of
+    WER-flagged segments): takes whose back-transcription WER exceeds
+    qc.wer_flag_threshold are disqualified unless every take fails — a re-roll
+    triggered by hallucination must not be won by another hallucination.
+
+    `target_dur` (the source slot in seconds, passed by s4/s5) adds a pacing
+    term to the ranking and an eligibility gate: takes fitting the slot
+    (dur <= target*FIT_SLACK) are preferred outright — a take that overflows
+    forces a shortened variant downstream, losing content for no reason when
+    a fitting roll exists. Relaxed only if every take overflows.
+
+    `meta`, if given, receives one dict per take (mos_min/f0st/sim/dur/wer/
+    rank/picked) — the per-take record the weight re-fit and FIXES.md
+    diagnostics read. Used by s4 AND s5 (variant retries): a variant that
+    replaces the primary in the mix must clear the same gate as the primary.
+    """
+    import soundfile as sf
+    from qc.metrics import ecapa_embed, cosine, f0_semitone_std, mos_min_window
     best_of = int(t.get("best_of", 1))
     threshold = float(t.get("retake_mos_below", 0.0))
-    best_score = None
+    ranked = bool(t.get("rank_takes", True)) and best_of > 1
+    engine = resolve_engine(t, lang)
+    ref = t.get("reference_wav")
+    ref_emb = (ecapa_embed(ref) if ranked and engine != "edge"
+               and ref and Path(ref).exists() else None)
+    wer_max = (float(verify_cfg["qc"]["wer_flag_threshold"])
+               if verify_cfg and verify_text else None)
+
+    takes = []  # (path, metrics)
     for take in range(best_of):
         cand = out.with_name(f"{out.stem}_take{take}.wav") if take else out
         synthesize(text, lang, cand, t)
-        score = mos_min_window(cand)
-        if best_score is None or score > best_score:
-            best_score = score
-            if take:
-                cand.replace(out)
-        elif take:
-            cand.unlink(missing_ok=True)
-        if best_score >= threshold:
+        info = sf.info(str(cand))
+        m = {"mos_min": round(mos_min_window(cand), 2),
+             "dur": round(info.frames / info.samplerate, 2)}
+        if ranked:
+            m["f0st"] = round(f0_semitone_std(cand), 2)
+            if ref_emb is not None:
+                m["sim"] = round(cosine(ref_emb, ecapa_embed(cand)), 3)
+        if wer_max is not None:
+            from qc.backcheck import segment_wer
+            m["wer"] = round(segment_wer(verify_cfg, verify_text, cand, lang), 3)
+        takes.append((cand, m))
+        if not ranked and m["mos_min"] >= threshold \
+                and (wer_max is None or m["wer"] <= wer_max):
             break
-        if take + 1 < best_of:
+        if take + 1 < best_of and not ranked:
             log.info("retake %d for %r (mos %.2f < %.2f)",
-                     take + 1, text[:40], score, threshold)
-    return best_score
+                     take + 1, text[:40], m["mos_min"], threshold)
+
+    # eligibility gates, relaxed only when they would eliminate every take
+    pool = takes
+    if wer_max is not None:
+        ok = [tk for tk in pool if tk[1]["wer"] <= wer_max]
+        pool = ok or pool
+    if target_dur:
+        fits = [tk for tk in pool if tk[1]["dur"] <= target_dur * FIT_SLACK]
+        pool = fits or pool
+    gated = [tk for tk in pool if tk[1]["mos_min"] >= threshold]
+    pool = gated or pool
+    key = (lambda m: _take_rank(m, target_dur)) if ranked \
+        else (lambda m: m["mos_min"])
+    winner = max(pool, key=lambda tk: key(tk[1]))
+    for path, m in takes:
+        m["rank"] = round(key(m), 4)
+        m["picked"] = path is winner[0]
+        if meta is not None:
+            meta.append(m)
+    if winner[0] is not out:
+        winner[0].replace(out)
+    for path, _ in takes:
+        if path is not winner[0] and path is not out:
+            path.unlink(missing_ok=True)
+    if len(takes) > 1:
+        log.info("picked take %d/%d for %r (rank %.3f, mos %.2f)",
+                 takes.index(winner) + 1, len(takes), text[:40],
+                 winner[1]["rank"], winner[1]["mos_min"])
+    return winner[1]["mos_min"]
 
 
 def synthesize(text: str, lang: str, out: Path, tts_cfg: dict,

@@ -1,7 +1,7 @@
 work_dir: work
 output_dir: output
 
-languages: [en, fr, de, es, ru, pl]
+languages: [en, fr, de, es, ru]   # pl dropped (IMPROVEMENT_PLAN v0.3)
 source_language: uk
 
 asr:
@@ -22,7 +22,8 @@ separation:
 
 translation:
   # OpenAI-compatible endpoint. Examples:
-  #   DeepSeek:   base_url https://api.deepseek.com    model deepseek-chat
+  #   DeepSeek:   base_url https://api.deepseek.com    model deepseek-v4-flash
+  #               (deepseek-chat/-reasoner are DEPRECATED 2026-07-24)
   #   Ollama:     base_url http://localhost:11434/v1   model qwen3:32b
   #   LM Studio:  base_url http://127.0.0.1:1234/v1   model google/gemma-4-e4b
   #   OpenAI:     base_url https://api.openai.com/v1   model gpt-5-mini
@@ -37,6 +38,9 @@ translation:
   # text => no server enforcement, relies on the prompt.
   response_format: json_schema
   batch_size: 20
+  max_context_chars: 12000    # transcript-context cap for LOCAL endpoints only
+                              # (small models overflow silently); remote
+                              # providers always get the full transcript
   passes: 3                   # 1 = single-pass; 3 = translate -> reflect -> adapt
                               # (VideoLingo-style; worth it with a capable LLM)
   isometric_tolerance: 0.10   # secondary char bound; primary constraint is the
@@ -51,6 +55,11 @@ tts:
                               # cosyvoice; `dubadabidu prep` fills refs.json
   cosyvoice_model_dir: pretrained_models/Fun-CosyVoice3-0.5B
   best_of: 3                  # auto-repair: re-roll low-scoring takes, keep the best
+  rank_takes: true            # synth ALL best_of takes; pick by composite
+                              # (windowed MOS + f0 liveliness + ECAPA sim) among
+                              # takes clearing the MOS floor. false = legacy
+                              # MOS-only early-stop (cheaper, blind to monotony
+                              # and clone drift)
   retake_mos_below: 2.6       # threshold on WORST-3s-WINDOW MOS (systematically lower
                               # than take-average; 3s windows score pessimistically —
                               # the gate is deliberately eager, the pick is relative)
@@ -72,7 +81,12 @@ tts:
 fit:
   max_tempo: 1.12             # max speed-up (prosodic-alignment literature: keep mild)
   soft_tempo: 1.06            # above this, prefer a shorter variant over stretching
-  borrow_gap_s: 0.6           # silence borrowable from the following gap
+  # soft-anchor timeline (voice-over content, loose sync): a dub may start up
+  # to drift_max_s after its source start, eating pause time instead of being
+  # stretched/shortened; drift decays to zero at real source pauses. Replaces
+  # the old borrow_gap_s hard-anchor slack.
+  drift_max_s: 1.5
+  min_gap_s: 0.15             # breath gap kept between consecutive dubs
 
 mix:
   bg_gain_db: -6

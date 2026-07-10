@@ -11,4 +11,5 @@ translation:
   response_format: json_object
 
 tts:
-  best_of: 5                  # takes are cheap on GPU; windowed-MOS picks the best
+  best_of: 5                  # takes are cheap on GPU; the composite ranking
+                              # (windowed MOS + f0 + ECAPA sim) picks the best
