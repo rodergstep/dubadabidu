@@ -103,7 +103,13 @@ def create_pod(rp: dict) -> dict:
         "ports": rp["ports"],
         "supportPublicIp": True,
     }
-    if rp.get("volume_gb"):
+    if rp.get("network_volume_id"):
+        # persistent volume mounted at /workspace — keeps .venv across runs so
+        # the ~15min chatterbox/torch install happens once (REMOTE_SETUP skips
+        # reinstall when chatterbox already imports). remote_dir moves onto it.
+        payload["networkVolumeId"] = rp["network_volume_id"]
+        payload["volumeMountPath"] = "/workspace"
+    elif rp.get("volume_gb"):
         payload["volumeInGb"] = rp["volume_gb"]
         payload["volumeMountPath"] = "/workspace"
     # inject ONLY the low-privilege translation key into the pod env (encrypted
@@ -325,8 +331,14 @@ def provision(rp: dict, deadline: float) -> tuple[str, str, int]:
 REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     "set -e; cd {dir}; "
     "python3 -m venv .venv 2>/dev/null || true; . .venv/bin/activate; "
-    "pip install -q chatterbox-tts==0.1.7 && pip install -q -e '.[dev]'; "
-    "python -c \"import torch;print('CUDA:',torch.cuda.is_available())\"")
+    # skip the ~15min reinstall when deps are already present (persistent-volume
+    # reuse across runs — see runpod.network_volume_id)
+    "if ! python -c 'import chatterbox' 2>/dev/null; then "
+    "pip install -q chatterbox-tts==0.1.7 && pip install -q -e '.[dev]'; fi; "
+    # FAIL if CUDA is missing — otherwise the run would silently synth on CPU,
+    # which is uselessly slow and defeats the point of renting a GPU
+    "python -c 'import torch,sys; ok=torch.cuda.is_available(); "
+    "print(\"CUDA:\",ok); sys.exit(0 if ok else 1)'")
 
 REMOTE_TASK = {
     "bakeoff": "dubadabidu bakeoff {video} --langs {langs} "
@@ -365,7 +377,9 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         raise SystemExit(f"{video}: work/{Path(video).stem}/vocals.wav missing — "
                          f"run s1 locally first.")
     deadline = _deadline(rp, budget)
-    remote = rp["remote_dir"]
+    # with a persistent volume, put the project (incl .venv) on it so deps survive
+    remote = ("/workspace/dubadabidu" if rp.get("network_volume_id")
+              else rp["remote_dir"])
     hours = (deadline - time.time()) / 3600
     log.info("budget $%.2f -> auto-terminate in %.1f h", budget, hours)
 
@@ -391,10 +405,11 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # the pod) and output/. The pod works from the synced work/ audio stems.
         rsync(rp, port, "./", f"{rp['ssh_user']}@{host}:{remote}/",
               extra_excludes=("input", "output"))
-        # 2. install + verify CUDA
+        # 2. install + verify CUDA (fails fast if CUDA is unavailable)
         if ssh_exec(rp, host, port, REMOTE_SETUP.format(dir=remote),
                     timeout=1800) != 0:
-            raise RuntimeError("remote setup failed (see output above)")
+            raise RuntimeError("remote setup failed: dependency install error "
+                               "OR CUDA unavailable (check the log's CUDA: line)")
         # 3. run the task, self-capped by remote `timeout` to the deadline.
         # Pass the (low-privilege) translation key inline — an SSH session may
         # not inherit the pod's container env, and s3 needs it. Not logged.
@@ -406,8 +421,18 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
                 f"export TRANSLATE_API_KEY={tk}; "
                 f"timeout {secs} {cmd}")
         rc = ssh_exec(rp, host, port, full, timeout=secs + 120)
+        if rc != 0:   # spot pods can be reclaimed mid-run — name it clearly
+            try:
+                st = (get_pod(pid).get("desiredStatus") or "").upper()
+            except Exception:
+                st = "UNREACHABLE"
+            if st in ("EXITED", "TERMINATED", "UNREACHABLE", ""):
+                log.warning("task rc=%d and pod is %s — likely SPOT PREEMPTION. "
+                            "Re-run to resume from the content-hash cache (only "
+                            "un-synthesized segments recompute).", rc, st or "gone")
         # 4. results back — only work/ (dubbed audio, subs, manifest, QC). No
-        # output/ from the pod; the mux happens locally next.
+        # output/ from the pod; the mux happens locally next. Always attempt it,
+        # even on failure, so partial progress is cached for a resumed run.
         rsync(rp, port, f"{rp['ssh_user']}@{host}:{remote}/work/",
               "./work/", check=False)
         # 5. mux LOCALLY: the source video is here, muxing is a cheap stream-copy.

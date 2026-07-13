@@ -41,6 +41,11 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   assumed_price_per_hr: 0.25   # deadline = budget / this (conservative)
   max_runtime_hours: 3.0       # absolute ceiling regardless of budget
   ssh_key: ~/.ssh/id_ed25519_runpod
-  # SAFETY: pod id persisted to work/.runpod_active.json on create; `remote kill`
-  # or the next `remote` call sweeps orphans; the run always terminates in a
-  # finally block. .env (RunPod key) is NEVER rsync'd to the pod.
+  # OPTIONAL: a RunPod network-volume id to persist .venv across runs — the
+  # ~15min chatterbox/torch install then happens ONCE instead of every run
+  # (worth it for the 20-video batch). Create the volume in the console first.
+  # network_volume_id: ""
+  # SAFETY: pod id persisted to work/.runpod_active.json on create; terminate
+  # retries+verifies and only clears state on confirmation; an independent
+  # pod-side watchdog self-destructs at the deadline even if this process dies;
+  # `remote kill`/next call sweeps orphans. .env (RunPod key) never reaches pod.
