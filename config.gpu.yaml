@@ -45,6 +45,11 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   # ~15min chatterbox/torch install then happens ONCE instead of every run
   # (worth it for the 20-video batch). Create the volume in the console first.
   # network_volume_id: ""
+  # OPTIONAL: per-engine install snippets for `remote bakeoff` (chatterbox is
+  # always installed). Each runs on the pod in the venv; fill with PINNED
+  # commands once validated (THIRD_PARTY.md). Empty => engine skipped.
+  # engine_setup:
+  #   cosyvoice: "git clone --recursive https://github.com/FunAudioLLM/CosyVoice third_party/CosyVoice && cd third_party/CosyVoice && git checkout <PIN> && pip install -r requirements.txt && cd ../.. && echo $PWD/third_party/CosyVoice > .venv/lib/python*/site-packages/cosyvoice.pth"
   # SAFETY: pod id persisted to work/.runpod_active.json on create; terminate
   # retries+verifies and only clears state on confirmation; an independent
   # pod-side watchdog self-destructs at the deadline even if this process dies;

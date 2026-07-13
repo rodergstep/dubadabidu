@@ -62,6 +62,10 @@ DEFAULTS = {
     "ssh_user": "root",
     "remote_dir": "~/dubadabidu",
     "provision_timeout_s": 420,   # wait this long for the pod to reach RUNNING+SSH
+    # per-engine install snippets for the bake-off (git-clone challengers —
+    # THIRD_PARTY.md). Each runs on the pod in the venv; empty => that engine is
+    # marked unavailable and skipped. Fill with PINNED commands once validated.
+    "engine_setup": {},           # e.g. {"cosyvoice": "git clone ... && pip install ..."}
 }
 
 
@@ -410,6 +414,20 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
                     timeout=1800) != 0:
             raise RuntimeError("remote setup failed: dependency install error "
                                "OR CUDA unavailable (check the log's CUDA: line)")
+        # 2.5 bake-off challengers (cosyvoice/indextts) are git-clone installs;
+        # run each configured engine_setup snippet. A failure is non-fatal — the
+        # bake-off just marks that engine unavailable and compares the rest.
+        if task == "bakeoff":
+            for eng in cfg.get("bakeoff", {}).get("engines", []):
+                snip = rp.get("engine_setup", {}).get(eng)
+                if not snip:
+                    continue
+                log.info("installing bake-off engine on pod: %s", eng)
+                if ssh_exec(rp, host, port,
+                            f"cd {remote}; . .venv/bin/activate; {snip}",
+                            timeout=2400) != 0:
+                    log.warning("engine %s setup failed — bake-off will mark it "
+                                "unavailable", eng)
         # 3. run the task, self-capped by remote `timeout` to the deadline.
         # Pass the (low-privilege) translation key inline — an SSH session may
         # not inherit the pod's container env, and s3 needs it. Not logged.
@@ -450,6 +468,8 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
     finally:
         _terminate_tracked()   # state-file driven: fires even if provision crashed
 
+
+# ---------------- entry points / diagnostics ----------------
 
 def smoke_test(cfg: dict) -> bool:
     """Cheapest possible lifecycle validation (~$0.02): provision -> print the

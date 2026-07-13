@@ -63,10 +63,19 @@ Pinned commit: `__________`  (fill after validation)
 
 ## Running the bake-off
 
+Locally (engines installed by hand):
 ```bash
 # translations must exist first (s3). On the pod, with the engine(s) installed:
 dubadabidu bakeoff input/sketch60/sketch60.mp4 --langs en --overlay config.gpu.yaml
 ```
+
+Remotely (M2 installs the challengers automatically): put the PINNED install
+command for each engine in `runpod.engine_setup` (config.gpu.yaml). `dubadabidu
+remote bakeoff <video>` runs it on the pod before the comparison. Each snippet
+must make the engine importable in the venv — either `pip install -e` the cloned
+repo or drop a `.pth` file into site-packages (so no PYTHONPATH is needed at run
+time). An engine whose snippet is empty or fails is reported unavailable and
+skipped, so a partial bake-off still runs.
 
 Writes `work/<video>/bakeoff/bakeoff_<lang>.md` (scorecard + ADOPT/keep verdict
 vs chatterbox) and `bakeoff_<lang>.html` (every engine side by side + your real
