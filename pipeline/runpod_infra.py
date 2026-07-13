@@ -201,15 +201,17 @@ def wait_ssh(rp: dict, host: str, port: int, deadline: float) -> bool:
     return False
 
 
-def rsync(rp: dict, src: str, dst: str) -> None:
+def rsync(rp: dict, port: int, src: str, dst: str, check: bool = True) -> None:
+    """rsync over SSH on the pod's MAPPED port (RunPod exposes 22 on a random
+    public port — omitting -p hits default 22 and fails auth)."""
     key = os.path.expanduser(rp["ssh_key"])
     subprocess.run([
-        "rsync", "-az", "--delete-excluded",
+        "rsync", "-az",
         "--exclude", ".venv", "--exclude", "__pycache__", "--exclude", ".env",
         "--exclude", ".git",
-        "-e", f"ssh -i {key} -o StrictHostKeyChecking=no "
+        "-e", f"ssh -i {key} -p {port} -o StrictHostKeyChecking=no "
               f"-o UserKnownHostsFile=/dev/null",
-        src, dst], check=True)
+        src, dst], check=check)
 
 
 # ---------------- provisioning + orchestration ----------------
@@ -289,15 +291,8 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
     pid = None
     try:
         pid, host, port = provision(rp, deadline)
-        # 1. project up (excludes .env/.venv/.git)
-        rsync(rp, "./", f"{rp['ssh_user']}@{host}:{remote}/")
-        # patch rsync -e for the port (host may use a nonstandard SSH port)
-        key = os.path.expanduser(rp["ssh_key"])
-        subprocess.run(["rsync", "-az", "--exclude", ".venv", "--exclude",
-                        "__pycache__", "--exclude", ".env", "--exclude", ".git",
-                        "-e", f"ssh -i {key} -p {port} -o StrictHostKeyChecking=no "
-                              f"-o UserKnownHostsFile=/dev/null",
-                        "./", f"{rp['ssh_user']}@{host}:{remote}/"], check=True)
+        # 1. project up (excludes .env/.venv/.git), on the pod's mapped SSH port
+        rsync(rp, port, "./", f"{rp['ssh_user']}@{host}:{remote}/")
         # 2. install + verify CUDA
         if ssh_exec(rp, host, port, REMOTE_SETUP.format(dir=remote),
                     timeout=1800) != 0:
@@ -311,11 +306,8 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         rc = ssh_exec(rp, host, port, full, timeout=secs + 120)
         # 4. results back (work/ + output/) regardless of task rc
         for sub in ("work", "output"):
-            subprocess.run(["rsync", "-az", "-e",
-                            f"ssh -i {key} -p {port} -o StrictHostKeyChecking=no "
-                            f"-o UserKnownHostsFile=/dev/null",
-                            f"{rp['ssh_user']}@{host}:{remote}/{sub}/",
-                            f"./{sub}/"], check=False)
+            rsync(rp, port, f"{rp['ssh_user']}@{host}:{remote}/{sub}/",
+                  f"./{sub}/", check=False)
         log.info("remote task %s exited rc=%d; results synced back", task, rc)
         return rc == 0
     finally:
