@@ -74,6 +74,12 @@ monotonically if this loop is real.
 - M1 `.env` contract + orchestrator loop running LOCALLY against the spec
      (edge engine, test30/test60 as fixtures) — proves the loop, zero cost.
 - M2 RunPod lifecycle scripts; same loop remotely on the real engines.
+     DONE: `pipeline/runpod_infra.py` + `dubadabidu remote <task>` (provision ->
+     rsync (never the source video) -> run -> sync back -> ALWAYS terminate).
+     Layered leak-prevention: state-file cleanup, terminate retry+verify,
+     independent pod-side self-destruct watchdog, hard budget->deadline cap.
+     `run`/`autopilot`/`bakeoff` tasks; mux happens locally. Lifecycle validated
+     live (smoke test); full engine run pending the first real batch session.
 - M3 Review-page verdict capture -> manifest/ratings writeback (closes the
      flywheel; do this BEFORE the 20-video batch so every verdict counts).
      DONE v0.4: review pages have accept/reject; `dubadabidu verdicts` writes

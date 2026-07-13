@@ -86,6 +86,17 @@ def doctor(cfg: dict) -> int:
     check(f"env {cfg['translation']['api_key_env']}",
           os.environ.get(cfg["translation"]["api_key_env"]),
           "export it, or point translation.base_url at a local Ollama")
+    # remote (M2) readiness — informational; only needed for `dubadabidu remote`
+    if os.environ.get("RUNPOD_API_KEY"):
+        rp = cfg.get("runpod", {})
+        key_path = Path(rp.get("ssh_key", "~/.ssh/id_ed25519_runpod")).expanduser()
+        check("remote: ssh_key", key_path.exists(),
+              f"private key {key_path} missing; register its .pub with RunPod")
+        print(f"  [i ] remote ready: RUNPOD_API_KEY set, budget cap "
+              f"${rp.get('budget_usd', 10)}")
+    else:
+        print("  [i ] remote (`dubadabidu remote`) off: set RUNPOD_API_KEY in "
+              ".env to enable GPU pod automation")
     print("doctor:", "all good" if ok else "fix items above")
     return 0 if ok else 1
 

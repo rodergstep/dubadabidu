@@ -185,8 +185,28 @@ effectively free after the first batch.
 ```bash
 dubadabidu run input/lesson01.mp4                 # all stages, all languages
 dubadabidu run input/*.mp4 --langs en,de          # subset
+dubadabidu run input/a.mp4 --to s7_subtitles      # stop before mux (audio+subs only)
 dubadabidu stage s3_translate input/lesson01.mp4  # single stage re-run
 dubadabidu qc input/lesson01.mp4                  # back-transcription WER + similarity report
+dubadabidu bakeoff input/a.mp4 --langs en         # TTS engine head-to-head (Phase C)
+dubadabidu autopilot input/a.mp4                  # spec-driven accept/fix loop
+dubadabidu verdicts input/a.mp4 ratings_a_en_x.json  # ingest review-page verdicts
+```
+
+**GPU on RunPod (M2 — automated lifecycle):** `dubadabidu remote <task> <video>`
+provisions a spot pod, runs the task, syncs results back, and ALWAYS terminates
+(hard budget cap + independent pod-side self-destruct watchdog). The source
+video never uploads — s1/s2 run locally, the pod works from `work/` audio stems,
+and the mux runs locally after sync-back. Requires `RUNPOD_API_KEY` in `.env` and
+your SSH key registered with RunPod.
+
+```bash
+dubadabidu remote smoke                            # ~$0.02 lifecycle check
+dubadabidu remote run  input/a.mp4 --langs fr --budget 10   # translate+synth on GPU
+dubadabidu remote bakeoff input/a.mp4 --langs en   # engine bake-off on GPU
+dubadabidu remote autopilot input/a.mp4            # accept/fix loop on GPU
+dubadabidu remote status                           # list account pods (leak check)
+dubadabidu remote kill                             # terminate any tracked pod
 ```
 
 Recommended workflow per video:
