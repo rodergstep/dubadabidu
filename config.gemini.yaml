@@ -1,0 +1,25 @@
+# Translation-provider overlay — Google Gemini (use when FINALIZING; WMT25
+# human-eval quality winner, best cost-performance for our languages).
+# Sets only the translation endpoint; compose with any TTS/GPU config:
+#   dubadabidu run video.mp4 --overlay config.gpu.yaml --overlay config.gemini.yaml
+# Requires TRANSLATE_API_KEY = your Google AI Studio key (aistudio.google.com).
+
+translation:
+  # Gemini's OpenAI-compatible endpoint (works through the same `openai` SDK).
+  base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+  model: gemini-2.5-flash           # verify exact id from GET /v1/models
+  response_format: json_object
+  # Gemini context caching is MANUAL (unlike DeepSeek's automatic) and the
+  # OpenAI-compat path may not expose it — but cost is still trivial here
+  # (~$12 for the whole 20-video batch), so it is not worth engineering around.
+
+# --- HYBRID (planned, when finalizing the pipeline) ---------------------------
+# The 3-pass flow is draft -> reflect(critic) -> adapt (translation.passes: 3).
+# A smarter CRITIC is the cheapest quality lever: run draft+adapt on cheap
+# gemini-2.5-flash and the reflect pass on a stronger model (gemini-3.1-pro or
+# claude-sonnet — best at the warm-teacher register). Not wired yet: s3 uses one
+# model for all passes. To enable, pipeline/s3_translate.py needs a per-pass
+# model split, e.g.:
+#   translation:
+#     models: {draft: gemini-2.5-flash, reflect: gemini-3.1-pro, adapt: gemini-2.5-flash}
+# (falls back to `model` when `models` is absent). Tracked for the finalize phase.

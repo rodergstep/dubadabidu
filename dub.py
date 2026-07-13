@@ -176,9 +176,11 @@ def main() -> None:
                          "(Phase B: provider switch). New text re-synthesizes "
                          "automatically via the hash cache.")
     ap.add_argument("--config", default="config.yaml")
-    ap.add_argument("--overlay", default=None,
-                    help="second yaml deep-merged over --config "
-                         "(e.g. config.gpu.yaml for the RunPod profile)")
+    ap.add_argument("--overlay", action="append", default=None,
+                    help="yaml deep-merged over --config; REPEATABLE, applied "
+                         "left-to-right (later wins). Compose independent axes, "
+                         "e.g. GPU/TTS + translation provider: --overlay "
+                         "config.gpu.yaml --overlay config.deepseek.yaml")
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args()
 
@@ -208,9 +210,8 @@ def main() -> None:
                 os.environ.setdefault(k.strip(), v.strip())
 
     cfg = yaml.safe_load(open(config_path, encoding="utf-8"))
-    if a.overlay:
-        overlay_path = Path(a.overlay) if Path(a.overlay).is_absolute() \
-            else ROOT / a.overlay
+    for ov in (a.overlay or []):  # stacked left-to-right; later overlays win
+        overlay_path = Path(ov) if Path(ov).is_absolute() else ROOT / ov
         cfg = deep_merge(cfg, yaml.safe_load(open(overlay_path, encoding="utf-8")))
     if a.engine:
         cfg["tts"]["engine"] = a.engine
