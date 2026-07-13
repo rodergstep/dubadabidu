@@ -25,6 +25,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from . import manifest as M
+
 log = logging.getLogger("dubadabidu.runpod")
 
 BASE = "https://rest.runpod.io/v1"
@@ -201,17 +203,17 @@ def wait_ssh(rp: dict, host: str, port: int, deadline: float) -> bool:
     return False
 
 
-def rsync(rp: dict, port: int, src: str, dst: str, check: bool = True) -> None:
+def rsync(rp: dict, port: int, src: str, dst: str, check: bool = True,
+          extra_excludes: tuple[str, ...] = ()) -> None:
     """rsync over SSH on the pod's MAPPED port (RunPod exposes 22 on a random
     public port — omitting -p hits default 22 and fails auth)."""
     key = os.path.expanduser(rp["ssh_key"])
-    subprocess.run([
-        "rsync", "-az",
-        "--exclude", ".venv", "--exclude", "__pycache__", "--exclude", ".env",
-        "--exclude", ".git",
-        "-e", f"ssh -i {key} -p {port} -o StrictHostKeyChecking=no "
-              f"-o UserKnownHostsFile=/dev/null",
-        src, dst], check=check)
+    args = ["rsync", "-az"]
+    for e in (".venv", "__pycache__", ".env", ".git", *extra_excludes):
+        args += ["--exclude", e]
+    args += ["-e", f"ssh -i {key} -p {port} -o StrictHostKeyChecking=no "
+                   f"-o UserKnownHostsFile=/dev/null", src, dst]
+    subprocess.run(args, check=check)
 
 
 # ---------------- provisioning + orchestration ----------------
@@ -257,8 +259,8 @@ def provision(rp: dict, deadline: float) -> tuple[str, str, int]:
     return pid, host, port
 
 
-REMOTE_SETUP = (
-    "set -e; cd {dir}; apt-get install -y ffmpeg rsync >/dev/null 2>&1 || true; "
+REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
+    "set -e; cd {dir}; "
     "python3 -m venv .venv 2>/dev/null || true; . .venv/bin/activate; "
     "pip install -q chatterbox-tts==0.1.7 && pip install -q -e '.[dev]'; "
     "python -c \"import torch;print('CUDA:',torch.cuda.is_available())\"")
@@ -268,7 +270,10 @@ REMOTE_TASK = {
                "--overlay config.gpu.yaml",
     "autopilot": "dubadabidu autopilot {video} --langs {langs} "
                  "--overlay config.gpu.yaml --overlay config.deepseek.yaml",
-    "run": "dubadabidu run {video} --langs {langs} "
+    # stops at s7: the pod produces dubbed audio + subs; the final mux (a video
+    # stream-copy needing the 4K source) runs LOCALLY after sync-back, so the
+    # source video never uploads.
+    "run": "dubadabidu run {video} --langs {langs} --to s7_subtitles "
            "--overlay config.gpu.yaml --overlay config.deepseek.yaml",
 }
 
@@ -283,6 +288,18 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
     if task not in REMOTE_TASK:
         raise SystemExit(f"unknown remote task {task!r} (choose "
                          f"{list(REMOTE_TASK)})")
+    # the pod gets work/ + ref/ + code, NOT the source video — so s1/s2 must be
+    # done locally first (their cached stems live in work/). Fail fast with a
+    # clear message instead of wasting a pod.
+    if not M.manifest_path(cfg, video).exists():
+        raise SystemExit(
+            f"{video}: no cached manifest — run s1+s2 locally first "
+            f"(`dubadabidu preamble {video}`). The GPU pod never receives the "
+            f"source video; it works from work/<video>/ audio stems.")
+    wd_v = M.video_workdir(cfg, video)
+    if not (wd_v / "vocals.wav").exists():
+        raise SystemExit(f"{video}: work/{Path(video).stem}/vocals.wav missing — "
+                         f"run s1 locally first.")
     deadline = _deadline(rp, budget)
     remote = rp["remote_dir"]
     hours = (deadline - time.time()) / 3600
@@ -291,32 +308,50 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
     pid = None
     try:
         pid, host, port = provision(rp, deadline)
-        # 0. the base image is minimal (no rsync/ffmpeg) — install them BEFORE
-        # the project sync (rsync-over-ssh needs rsync on the pod too)
-        if ssh_exec(rp, host, port,
-                    "export DEBIAN_FRONTEND=noninteractive; "
-                    "apt-get update -qq >/dev/null 2>&1; "
-                    "apt-get install -y -qq rsync ffmpeg >/dev/null 2>&1; "
-                    "which rsync", timeout=420) != 0:
-            raise RuntimeError("could not install rsync/ffmpeg on the pod "
-                               "(unexpected base image — check runpod.image)")
-        # 1. project up (excludes .env/.venv/.git), on the pod's mapped SSH port
-        rsync(rp, port, "./", f"{rp['ssh_user']}@{host}:{remote}/")
+        # 0. the base image (runpod/pytorch, Ubuntu) lacks rsync/ffmpeg — install
+        # them BEFORE the project sync (rsync-over-ssh needs rsync on the pod).
+        # Retry loop: the container runs its own apt at boot and can hold the
+        # dpkg lock briefly, which failed an earlier single-shot attempt.
+        apt = ("export DEBIAN_FRONTEND=noninteractive; "
+               "for i in 1 2 3 4 5 6; do "
+               "apt-get update && apt-get install -y rsync ffmpeg && break; "
+               "echo \"[apt] attempt $i failed (lock?), retrying in 10s\"; "
+               "sleep 10; done; which rsync && which ffmpeg")
+        if ssh_exec(rp, host, port, apt, timeout=600) != 0:
+            raise RuntimeError("could not install rsync/ffmpeg on the pod after "
+                               "retries (see log for the apt error)")
+        # 1. project up — EXCLUDE input/ (the 4K source video is never needed on
+        # the pod) and output/. The pod works from the synced work/ audio stems.
+        rsync(rp, port, "./", f"{rp['ssh_user']}@{host}:{remote}/",
+              extra_excludes=("input", "output"))
         # 2. install + verify CUDA
         if ssh_exec(rp, host, port, REMOTE_SETUP.format(dir=remote),
                     timeout=1800) != 0:
             raise RuntimeError("remote setup failed (see output above)")
-        # 3. run the task, self-capped by remote `timeout` to the deadline
+        # 3. run the task, self-capped by remote `timeout` to the deadline.
+        # Pass the (low-privilege) translation key inline — an SSH session may
+        # not inherit the pod's container env, and s3 needs it. Not logged.
         secs = max(60, int(deadline - time.time()))
         cmd = REMOTE_TASK[task].format(video=video, langs=",".join(langs))
+        import shlex
+        tk = shlex.quote(os.environ.get("TRANSLATE_API_KEY", ""))
         full = (f"cd {remote}; . .venv/bin/activate; "
-                f"export TRANSLATE_API_KEY=${{TRANSLATE_API_KEY:-x}}; "
+                f"export TRANSLATE_API_KEY={tk}; "
                 f"timeout {secs} {cmd}")
         rc = ssh_exec(rp, host, port, full, timeout=secs + 120)
-        # 4. results back (work/ + output/) regardless of task rc
-        for sub in ("work", "output"):
-            rsync(rp, port, f"{rp['ssh_user']}@{host}:{remote}/{sub}/",
-                  f"./{sub}/", check=False)
+        # 4. results back — only work/ (dubbed audio, subs, manifest, QC). No
+        # output/ from the pod; the mux happens locally next.
+        rsync(rp, port, f"{rp['ssh_user']}@{host}:{remote}/work/",
+              "./work/", check=False)
+        # 5. mux LOCALLY: the source video is here, muxing is a cheap stream-copy
+        if task == "run" and rc == 0:
+            from . import s8_mux
+            try:
+                s8_mux.run(cfg, video, langs)
+                log.info("local mux -> output/%s_multi.mp4",
+                         Path(video).stem)
+            except Exception as e:
+                log.warning("local mux failed (%s); audio is in work/", e)
         log.info("remote task %s exited rc=%d; results synced back", task, rc)
         return rc == 0
     finally:

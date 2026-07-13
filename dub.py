@@ -166,6 +166,10 @@ def main() -> None:
     ap.add_argument("--langs", default=None)
     ap.add_argument("--from", dest="from_stage", default="s1_extract",
                     choices=ORDER)
+    ap.add_argument("--to", dest="to_stage", default="s8_mux", choices=ORDER,
+                    help="stop after this stage (e.g. --to s7_subtitles to "
+                         "produce audio+subs but skip mux — the remote GPU path "
+                         "muxes locally so the source video never uploads)")
     ap.add_argument("--engine", default=None, choices=["chatterbox", "edge"])
     ap.add_argument("--spec", default=None,
                     help="acceptance spec for `autopilot` "
@@ -307,8 +311,10 @@ def main() -> None:
         return
 
     for v in a.rest:  # run
-        if not Path(v).exists():
-            sys.exit(f"not found: {v}")
+        # allow running without the source video when s1/s2 are already cached
+        # (the remote GPU path uploads work/ + ref/, never the 4K video)
+        if not Path(v).exists() and not M.manifest_path(cfg, v).exists():
+            sys.exit(f"not found: {v} (and no cached manifest — run s1+s2 first)")
         logging.info("=== %s ===", v)
         started = False
         for name in ORDER:
@@ -318,6 +324,8 @@ def main() -> None:
                     STAGES[name](cfg, v, langs)
                 except subprocess.CalledProcessError as e:
                     sys.exit(f"[{name}] external command failed: {e}")
+            if name == a.to_stage:
+                break
         logging.info("=== %s done ===", v)
 
 
