@@ -40,8 +40,11 @@ def load_spec(path: str | None) -> dict:
     return yaml.safe_load(p.read_text(encoding="utf-8"))
 
 
-def _ensure_stages(cfg: dict, video: str, lang: str) -> None:
-    """Run whatever the manifest says is missing, via the normal stage code."""
+def _ensure_stages(cfg: dict, video: str, lang: str, mux: bool = True) -> None:
+    """Run whatever the manifest says is missing, via the normal stage code.
+    mux=False stops after s7 (dubbed audio + subs): the remote GPU path skips
+    the mux — a video stream-copy needing the 4K source the pod never gets — and
+    the orchestrator muxes locally after sync-back."""
     if not M.manifest_path(cfg, video).exists():
         s1_extract.run(cfg, video)
         s2_transcribe.run(cfg, video)
@@ -55,7 +58,8 @@ def _ensure_stages(cfg: dict, video: str, lang: str) -> None:
                       (f"s6_{lang}", s6_mix), (f"s7_{lang}", s7_subtitles)]:
         if st.get(flag) != "done":
             mod.run(cfg, video, [lang])
-    s8_mux.run(cfg, video, [lang])
+    if mux:
+        s8_mux.run(cfg, video, [lang])
 
 
 def _ensure_qc(cfg: dict, video: str, lang: str) -> None:
@@ -107,7 +111,8 @@ def _bad_segments(cfg: dict, video: str, lang: str) -> list[str]:
     return bad
 
 
-def _reroll(cfg: dict, video: str, lang: str, ids: list[str]) -> None:
+def _reroll(cfg: dict, video: str, lang: str, ids: list[str],
+            mux: bool = True) -> None:
     """Delete the cached takes for `ids`; s4/s5/s6 re-synthesize only those.
     WER-flagged segments get tr.reroll_wer: s4 then back-transcribes every
     fresh take and vetoes hallucinated ones — re-rolling on the metric that
@@ -135,7 +140,8 @@ def _reroll(cfg: dict, video: str, lang: str, ids: list[str]) -> None:
     M.save(cfg, video, man)
     for mod in (s4_synthesize, s5_fit, s6_mix, s7_subtitles):
         mod.run(cfg, video, [lang])
-    s8_mux.run(cfg, video, [lang])
+    if mux:
+        s8_mux.run(cfg, video, [lang])
 
 
 def _log_fix(entry: str) -> None:
@@ -163,7 +169,7 @@ def _escalations(fails: list[str]) -> list[str]:
 
 
 def run(cfg: dict, video: str, langs: list[str],
-        spec_path: str | None = None) -> bool:
+        spec_path: str | None = None, mux: bool = True) -> bool:
     spec = load_spec(spec_path)
     accept, budget = spec["accept"], spec["budget"]
     langs = spec.get("policy", {}).get("langs") or langs
@@ -171,7 +177,7 @@ def run(cfg: dict, video: str, langs: list[str],
     all_ok = True
 
     for lang in langs:
-        _ensure_stages(cfg, video, lang)
+        _ensure_stages(cfg, video, lang, mux=mux)
         _ensure_qc(cfg, video, lang)
         row, fails = _assess(cfg, video, lang, accept)
         rounds = 0
@@ -183,7 +189,7 @@ def run(cfg: dict, video: str, langs: list[str],
             log.info("%s/%s round %d: re-rolling %s (fails: %s)",
                      name, lang, rounds, bad, fails)
             before = {f.split(" ")[0] for f in fails}
-            _reroll(cfg, video, lang, bad)
+            _reroll(cfg, video, lang, bad, mux=mux)
             _ensure_qc(cfg, video, lang)
             row, fails = _assess(cfg, video, lang, accept)
             _log_fix(f"- {name}/{lang} round {rounds}: re-rolled {bad} for "
@@ -207,11 +213,11 @@ def run(cfg: dict, video: str, langs: list[str],
 
 
 def main(cfg: dict, videos: list[str], langs: list[str],
-         spec_path: str | None) -> None:
+         spec_path: str | None, mux: bool = True) -> None:
     from qc import batch_report
     ok = True
     for v in videos:
-        ok = run(cfg, v, langs, spec_path) and ok
+        ok = run(cfg, v, langs, spec_path, mux=mux) and ok
     batch_report.run(cfg, None)
     print(f"\n[autopilot] batch verdict: {'PASS' if ok else 'ESCALATE'}")
     sys.exit(0 if ok else 1)

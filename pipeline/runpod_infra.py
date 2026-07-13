@@ -331,7 +331,8 @@ REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
 REMOTE_TASK = {
     "bakeoff": "dubadabidu bakeoff {video} --langs {langs} "
                "--overlay config.gpu.yaml",
-    "autopilot": "dubadabidu autopilot {video} --langs {langs} "
+    # --no-mux: stops at s7 like `run`; the mux happens locally after sync-back
+    "autopilot": "dubadabidu autopilot {video} --langs {langs} --no-mux "
                  "--overlay config.gpu.yaml --overlay config.deepseek.yaml",
     # stops at s7: the pod produces dubbed audio + subs; the final mux (a video
     # stream-copy needing the 4K source) runs LOCALLY after sync-back, so the
@@ -409,8 +410,9 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # output/ from the pod; the mux happens locally next.
         rsync(rp, port, f"{rp['ssh_user']}@{host}:{remote}/work/",
               "./work/", check=False)
-        # 5. mux LOCALLY: the source video is here, muxing is a cheap stream-copy
-        if task == "run" and rc == 0:
+        # 5. mux LOCALLY: the source video is here, muxing is a cheap stream-copy.
+        # Both run and autopilot skip the mux on the pod (--to s7 / --no-mux).
+        if task in ("run", "autopilot") and rc == 0:
             from . import s8_mux
             try:
                 s8_mux.run(cfg, video, langs)

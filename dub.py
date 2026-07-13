@@ -174,6 +174,10 @@ def main() -> None:
     ap.add_argument("--spec", default=None,
                     help="acceptance spec for `autopilot` "
                          "(default specs/batch.yaml)")
+    ap.add_argument("--no-mux", dest="mux", action="store_false",
+                    help="`autopilot`: stop at s7 (audio+subs), skip the mux — "
+                         "the remote GPU path muxes locally so the source video "
+                         "never uploads")
     ap.add_argument("--force", action="store_true",
                     help="with `stage s3_translate`: discard cached "
                          "translations for --langs and re-translate "
@@ -307,7 +311,7 @@ def main() -> None:
             preamble(cfg, v, langs)
         return
     if a.cmd == "autopilot":
-        autopilot_mod.main(cfg, a.rest, langs, a.spec)
+        autopilot_mod.main(cfg, a.rest, langs, a.spec, mux=a.mux)
         return
 
     for v in a.rest:  # run
