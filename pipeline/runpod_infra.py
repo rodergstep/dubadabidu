@@ -93,6 +93,12 @@ def create_pod(rp: dict) -> dict:
     if rp.get("volume_gb"):
         payload["volumeInGb"] = rp["volume_gb"]
         payload["volumeMountPath"] = "/workspace"
+    # inject ONLY the low-privilege translation key into the pod env (encrypted
+    # in transit) so s3 can run on the pod. The RunPod full-access key is never
+    # sent — it stays local, used only to drive this API.
+    tk = os.environ.get("TRANSLATE_API_KEY")
+    if tk:
+        payload["env"] = {"TRANSLATE_API_KEY": tk}
     return _req("POST", "/pods", payload)
 
 
@@ -116,46 +122,58 @@ def _clear_state() -> None:
     STATE_FILE.unlink(missing_ok=True)
 
 
-def sweep_orphans() -> None:
-    """Terminate any pod recorded in the state file (previous run that didn't
-    clean up). Called at the start of every `remote` command."""
+def _terminate_tracked() -> None:
+    """THE single cleanup path: terminate + clear whatever pod is recorded in
+    the state file. Idempotent and crash-safe — because the pod id is persisted
+    on create, this cleans up even when provisioning dies mid-flight (the local
+    pid variable is useless then). Every finally block and orphan-sweep calls
+    this, so termination never depends on a return value."""
     if not STATE_FILE.exists():
         return
     try:
-        st = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        pid = json.loads(STATE_FILE.read_text(encoding="utf-8")).get("pod_id")
     except (OSError, json.JSONDecodeError):
         _clear_state(); return
-    pid = st.get("pod_id")
     if pid:
-        log.warning("found orphaned pod %s from a prior run — terminating", pid)
         try:
             terminate_pod(pid)
         except Exception as e:
-            log.error("could not terminate orphan %s: %s (terminate it in the "
-                      "RunPod console!)", pid, e)
+            log.error("TERMINATE FAILED for %s: %s — kill it in the RunPod "
+                      "console NOW", pid, e)
     _clear_state()
+
+
+def sweep_orphans() -> None:
+    """Clean up a pod left in the state file by a prior run. Called at the start
+    of every `remote` command and exposed as `remote kill`."""
+    if STATE_FILE.exists():
+        log.warning("state file present — terminating tracked pod before start")
+    _terminate_tracked()
 
 
 # ---------------- SSH parsing / helpers ----------------
 
 def ssh_target(pod: dict) -> tuple[str, int] | None:
-    """Extract (public_ip, ssh_port) from a pod GET response, tolerating field-
-    name variation across API versions. Returns None until SSH is exposed."""
+    """Extract (public_ip, ssh_port) from a pod GET response. The live REST v1
+    shape is publicIp + portMappings {"22": <publicPort>}; other shapes are
+    tolerated as fallbacks. Returns None until SSH is exposed. Never raises on
+    an unexpected shape (a crash here used to leak the pod)."""
     ip = pod.get("publicIp") or pod.get("ip")
-    ports = (pod.get("portMappings") or pod.get("ports")
-             or (pod.get("runtime") or {}).get("ports") or [])
-    if isinstance(ports, dict):  # {"22/tcp": {...}} style
-        for k, v in ports.items():
-            if k.startswith("22"):
-                ip = ip or v.get("ip") or v.get("host")
-                pub = v.get("publicPort") or v.get("public") or v.get("port")
-                if ip and pub:
-                    return ip, int(pub)
-        return None
-    for p in ports:  # [{privatePort:22, publicPort:..., ip:...}]
-        if str(p.get("privatePort") or p.get("internal") or "").startswith("22"):
-            host = ip or p.get("ip") or p.get("publicIp")
-            pub = p.get("publicPort") or p.get("external") or p.get("public")
+    pm = pod.get("portMappings")
+    if isinstance(pm, dict):                       # {"22": 10345}
+        for k, v in pm.items():
+            if str(k).startswith("22") and ip and v:
+                try:
+                    return ip, int(v)
+                except (TypeError, ValueError):
+                    pass
+    # fallbacks: [{privatePort:22, publicPort:...}] or runtime.ports
+    ports = pod.get("ports")
+    if not isinstance(ports, list) or (ports and not isinstance(ports[0], dict)):
+        ports = (pod.get("runtime") or {}).get("ports") or []
+    for p in ports if isinstance(ports, list) else []:
+        if isinstance(p, dict) and str(p.get("privatePort") or "").startswith("22"):
+            host, pub = ip or p.get("ip"), p.get("publicPort")
             if host and pub:
                 return host, int(pub)
     return None
@@ -211,25 +229,28 @@ def provision(rp: dict, deadline: float) -> tuple[str, str, int]:
         raise RuntimeError(f"no pod id in create response: {str(pod)[:200]}")
     _save_state({"pod_id": pid, "created_at": time.time()})
     log.info("pod %s created; waiting for RUNNING + SSH ...", pid)
-    end = min(deadline, time.time() + rp["provision_timeout_s"])
-    target = None
-    while time.time() < end:
-        p = get_pod(pid)
-        status = p.get("desiredStatus") or p.get("status")
-        target = ssh_target(p)
-        if target:
-            break
-        if status in ("EXITED", "TERMINATED", "FAILED"):
-            terminate_pod(pid); _clear_state()
-            raise RuntimeError(f"pod entered {status} before SSH came up")
-        time.sleep(10)
-    if not target:
-        terminate_pod(pid); _clear_state()
-        raise RuntimeError("pod did not expose SSH within provision_timeout_s")
-    host, port = target
-    if not wait_ssh(rp, host, port, min(deadline, time.time() + 240)):
-        terminate_pod(pid); _clear_state()
-        raise RuntimeError("SSH never became reachable")
+    # any failure past this point terminates the pod (via the state file) so a
+    # crash — including an unexpected pod shape — can never leak a live box
+    try:
+        end = min(deadline, time.time() + rp["provision_timeout_s"])
+        target = None
+        while time.time() < end:
+            p = get_pod(pid)
+            status = p.get("desiredStatus") or p.get("status")
+            target = ssh_target(p)
+            if target:
+                break
+            if status in ("EXITED", "TERMINATED", "FAILED"):
+                raise RuntimeError(f"pod entered {status} before SSH came up")
+            time.sleep(10)
+        if not target:
+            raise RuntimeError("pod did not expose SSH within provision_timeout_s")
+        host, port = target
+        if not wait_ssh(rp, host, port, min(deadline, time.time() + 240)):
+            raise RuntimeError("SSH never became reachable")
+    except BaseException:
+        _terminate_tracked()   # crash-safe: reads pid from state, not a local var
+        raise
     log.info("pod %s SSH ready at %s:%d", pid, host, port)
     return pid, host, port
 
@@ -298,13 +319,7 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         log.info("remote task %s exited rc=%d; results synced back", task, rc)
         return rc == 0
     finally:
-        if pid:
-            try:
-                terminate_pod(pid)
-            except Exception as e:
-                log.error("TERMINATE FAILED for %s: %s — kill it in the RunPod "
-                          "console NOW", pid, e)
-            _clear_state()
+        _terminate_tracked()   # state-file driven: fires even if provision crashed
 
 
 def smoke_test(cfg: dict) -> bool:
@@ -326,14 +341,8 @@ def smoke_test(cfg: dict) -> bool:
         print(f"[smoke] nvidia-smi rc={rc}")
         return rc == 0
     finally:
-        if pid:
-            try:
-                terminate_pod(pid)
-                print(f"[smoke] terminated {pid} ✓")
-            except Exception as e:
-                log.error("TERMINATE FAILED for %s: %s — kill it in the console!",
-                          pid, e)
-            _clear_state()
+        _terminate_tracked()   # state-file driven: fires even if provision crashed
+        print("[smoke] cleanup done (pod terminated, state cleared)")
 
 
 def status() -> None:

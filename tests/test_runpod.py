@@ -28,15 +28,23 @@ def test_deadline_small_budget_short():
 
 # --- SSH detail parsing (tolerant of API field-shape variants) ---
 
-def test_ssh_target_list_shape():
+def test_ssh_target_real_rest_v1_shape():
+    # the shape the live REST v1 API actually returns (captured 2026-07)
+    pod = {"publicIp": "213.144.200.243", "ports": ["22/tcp"],
+           "portMappings": {"22": 10345}, "runtime": None}
+    assert ssh_target(pod) == ("213.144.200.243", 10345)
+
+
+def test_ssh_target_string_ports_never_crash():
+    # ports as a list of strings ("22/tcp") must return None, not raise —
+    # the exact bug that leaked a pod on the first smoke test
+    assert ssh_target({"ports": ["22/tcp"], "runtime": None}) is None
+
+
+def test_ssh_target_list_of_dicts_fallback():
     pod = {"publicIp": "1.2.3.4",
-           "portMappings": [{"privatePort": 22, "publicPort": 40022}]}
+           "ports": [{"privatePort": 22, "publicPort": 40022}]}
     assert ssh_target(pod) == ("1.2.3.4", 40022)
-
-
-def test_ssh_target_dict_shape():
-    pod = {"ports": {"22/tcp": {"ip": "5.6.7.8", "publicPort": 50022}}}
-    assert ssh_target(pod) == ("5.6.7.8", 50022)
 
 
 def test_ssh_target_runtime_nested():
