@@ -266,8 +266,8 @@ REMOTE_TASK = {
                "--overlay config.gpu.yaml",
     "autopilot": "dubadabidu autopilot {video} --langs {langs} "
                  "--overlay config.gpu.yaml --overlay config.deepseek.yaml",
-    "run": "dubadabidu run {video} --langs {langs} --from s4_synthesize "
-           "--overlay config.gpu.yaml",
+    "run": "dubadabidu run {video} --langs {langs} "
+           "--overlay config.gpu.yaml --overlay config.deepseek.yaml",
 }
 
 
