@@ -4,16 +4,27 @@ Provision a spot GPU pod -> rsync the project up -> run a task remotely ->
 rsync results back -> ALWAYS terminate. The pod is cattle; all state returns to
 this repo. Uses the REST v1 API (rest.runpod.io/v1, Bearer auth).
 
-SAFETY (a leaked pod burns money):
-  - The pod id is persisted to work/.runpod_active.json the instant it is
-    created, BEFORE anything else — so a crash is recoverable with `remote kill`.
-  - remote_run() terminates in a finally block no matter how the run exits.
-  - A wall-clock DEADLINE derived from the budget cap ($/hr -> max hours) bounds
-    the run; the remote command is also wrapped in `timeout` so the job self-caps
-    even if this process dies.
-  - Every `remote` invocation first sweeps orphaned pods from the state file.
-  - RUNPOD_API_KEY is read from the env/.env; it is NEVER sent to the pod
-    (rsync excludes .env) and never logged.
+SAFETY — layered so no single failure leaks a billing pod:
+  1. The pod id is persisted to work/.runpod_active.json the instant it is
+     created, BEFORE anything else — the state file, not a return value, is the
+     source of truth for what must be killed.
+  2. remote_run() terminates in a finally block on every exit path; provision()
+     self-terminates on any exception. Both go through terminate_pod(), which
+     RETRIES the DELETE and VERIFIES the pod left RUNNING.
+  3. The state file is cleared ONLY when termination is confirmed — a failed
+     terminate keeps the id so the next `remote` call / `remote kill` retries.
+  4. Every `remote` invocation first sweeps the state file (orphan from a prior
+     run). `remote status` lists all account pods as an authoritative check.
+  5. INDEPENDENT backstop: a pod-side self-destruct watchdog (arm_pod_watchdog)
+     removes the pod after the deadline even if THIS process dies — the one gap
+     the client-side design cannot cover.
+  6. A wall-clock DEADLINE (budget/$per-hr, capped by max_runtime_hours) bounds
+     the run; the remote command is also wrapped in `timeout`.
+  - RUNPOD_API_KEY is read from env/.env; NEVER sent to the pod (rsync excludes
+    .env) and never logged. Only the low-privilege TRANSLATE_API_KEY reaches it.
+
+Note: RunPod's REST create has no native pod-TTL field (per its OpenAPI schema),
+so the watchdog (5) is the server-independent auto-kill.
 """
 from __future__ import annotations
 import json
@@ -108,9 +119,37 @@ def get_pod(pid: str) -> dict:
     return _req("GET", f"/pods/{pid}")
 
 
-def terminate_pod(pid: str) -> None:
-    _req("DELETE", f"/pods/{pid}")
-    log.info("terminated pod %s", pid)
+def terminate_pod(pid: str, retries: int = 4) -> bool:
+    """DELETE the pod and CONFIRM it's gone. Returns True only when termination
+    is verified (or the pod is already absent). This is the one call that must
+    not fail silently — a dropped DELETE leaks a billing pod — so it retries and
+    then GETs the pod to check it actually left the RUNNING state."""
+    for attempt in range(retries):
+        try:
+            _req("DELETE", f"/pods/{pid}")
+        except RuntimeError as e:
+            if "HTTP 404" in str(e):            # already gone
+                log.info("pod %s already absent", pid)
+                return True
+            log.warning("terminate %s attempt %d/%d failed: %s",
+                        pid, attempt + 1, retries, e)
+            time.sleep(3)
+            continue
+        # DELETE returned OK — verify the pod really left RUNNING
+        try:
+            st = (get_pod(pid).get("desiredStatus")
+                  or get_pod(pid).get("status") or "").upper()
+        except RuntimeError as e:
+            if "HTTP 404" in str(e):            # confirmed gone
+                log.info("terminated pod %s (confirmed)", pid)
+                return True
+            st = "?"
+        if st in ("TERMINATED", "EXITED", "", "?"):
+            log.info("terminated pod %s", pid)
+            return True
+        log.warning("pod %s still %s after DELETE; retrying", pid, st)
+        time.sleep(3)
+    return False
 
 
 # ---------------- state file (leak protection) ----------------
@@ -136,13 +175,17 @@ def _terminate_tracked() -> None:
         pid = json.loads(STATE_FILE.read_text(encoding="utf-8")).get("pod_id")
     except (OSError, json.JSONDecodeError):
         _clear_state(); return
-    if pid:
-        try:
-            terminate_pod(pid)
-        except Exception as e:
-            log.error("TERMINATE FAILED for %s: %s — kill it in the RunPod "
-                      "console NOW", pid, e)
-    _clear_state()
+    if not pid:
+        _clear_state(); return
+    # Clear the state file ONLY when termination is confirmed. If it failed,
+    # KEEP the id so the next `remote` call (or `remote kill`) retries — clearing
+    # it here would erase the only record of a still-running billing pod.
+    if terminate_pod(pid):
+        _clear_state()
+    else:
+        log.error("could NOT confirm termination of %s — state file KEPT for "
+                  "retry. Run `dubadabidu remote kill` or delete it in the "
+                  "RunPod console.", pid)
 
 
 def sweep_orphans() -> None:
@@ -191,6 +234,26 @@ def _ssh_base(rp: dict, host: str, port: int) -> list[str]:
 def ssh_exec(rp: dict, host: str, port: int, cmd: str, timeout: int = 7200) -> int:
     full = _ssh_base(rp, host, port) + [cmd]
     return subprocess.run(full, timeout=timeout).returncode
+
+
+def arm_pod_watchdog(rp: dict, host: str, port: int, seconds: float) -> None:
+    """Independent pod-side self-destruct: a detached process that, after
+    `seconds`, makes the pod remove ITSELF (runpodctl is self-authenticated on
+    RunPod pods). This is the backstop for the one gap the client-side design
+    can't cover — the LOCAL orchestrator dying (SIGKILL, laptop sleep) before
+    its finally runs. Best-effort: if runpodctl is absent it halts the container.
+    The client-side terminate still runs on the normal path; this only matters
+    when it never gets the chance."""
+    secs = max(60, int(seconds))
+    cmd = (f"nohup sh -c 'sleep {secs}; "
+           f"runpodctl remove pod $RUNPOD_POD_ID || shutdown -h now || "
+           f"kill -9 -1' </dev/null >/tmp/watchdog.log 2>&1 &")
+    try:
+        ssh_exec(rp, host, port, cmd, timeout=30)
+        log.info("pod self-destruct watchdog armed (~%.0f min)", secs / 60)
+    except Exception as e:
+        log.warning("could not arm pod watchdog (%s) — relying on client-side "
+                    "termination only", e)
 
 
 def wait_ssh(rp: dict, host: str, port: int, deadline: float) -> bool:
@@ -308,6 +371,9 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
     pid = None
     try:
         pid, host, port = provision(rp, deadline)
+        # arm the independent pod-side self-destruct FIRST — before the long
+        # install — so a crash during setup can't leave a billing pod
+        arm_pod_watchdog(rp, host, port, deadline - time.time())
         # 0. the base image (runpod/pytorch, Ubuntu) lacks rsync/ffmpeg — install
         # them BEFORE the project sync (rsync-over-ssh needs rsync on the pod).
         # Retry loop: the container runs its own apt at boot and can hold the
@@ -384,7 +450,12 @@ def smoke_test(cfg: dict) -> bool:
 def status() -> None:
     """Show the state file + all pods currently on the account (leak check)."""
     st = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else None
-    print("state file:", st or "(none)")
+    if st and st.get("created_at"):
+        age = (time.time() - st["created_at"]) / 60
+        print(f"state file: pod {st.get('pod_id')} (tracked {age:.0f} min ago)"
+              + ("  !! STALE — run `remote kill`" if age > 30 else ""))
+    else:
+        print("state file:", st or "(none)")
     try:
         pods = _req("GET", "/pods")
         print(f"pods on account: {len(pods)}")
