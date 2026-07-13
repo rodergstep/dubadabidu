@@ -291,6 +291,15 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
     pid = None
     try:
         pid, host, port = provision(rp, deadline)
+        # 0. the base image is minimal (no rsync/ffmpeg) — install them BEFORE
+        # the project sync (rsync-over-ssh needs rsync on the pod too)
+        if ssh_exec(rp, host, port,
+                    "export DEBIAN_FRONTEND=noninteractive; "
+                    "apt-get update -qq >/dev/null 2>&1; "
+                    "apt-get install -y -qq rsync ffmpeg >/dev/null 2>&1; "
+                    "which rsync", timeout=420) != 0:
+            raise RuntimeError("could not install rsync/ffmpeg on the pod "
+                               "(unexpected base image — check runpod.image)")
         # 1. project up (excludes .env/.venv/.git), on the pod's mapped SSH port
         rsync(rp, port, "./", f"{rp['ssh_user']}@{host}:{remote}/")
         # 2. install + verify CUDA
