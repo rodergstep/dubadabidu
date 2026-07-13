@@ -161,7 +161,7 @@ def main() -> None:
     ap.add_argument("cmd", choices=["run", "stage", "qc", "doctor", "report",
                                     "evaluate", "review", "tune", "prep",
                                     "preamble", "batch", "autopilot",
-                                    "verdicts", "bakeoff"])
+                                    "verdicts", "bakeoff", "remote"])
     ap.add_argument("rest", nargs="*")
     ap.add_argument("--langs", default=None)
     ap.add_argument("--from", dest="from_stage", default="s1_extract",
@@ -175,6 +175,9 @@ def main() -> None:
                          "translations for --langs and re-translate "
                          "(Phase B: provider switch). New text re-synthesizes "
                          "automatically via the hash cache.")
+    ap.add_argument("--budget", type=float, default=None,
+                    help="hard USD cap for `remote` (auto-terminates the pod); "
+                         "default runpod.budget_usd")
     ap.add_argument("--config", default="config.yaml")
     ap.add_argument("--overlay", action="append", default=None,
                     help="yaml deep-merged over --config; REPEATABLE, applied "
@@ -277,6 +280,20 @@ def main() -> None:
         for v in a.rest:
             bakeoff.run(cfg, v, langs)
         return
+    if a.cmd == "remote":    # M2: RunPod lifecycle. `remote <task> [video]`
+        from pipeline import runpod_infra as rpi
+        task = a.rest[0] if a.rest else "status"
+        if task == "status":
+            rpi.status(); return
+        if task == "kill":
+            rpi.sweep_orphans(); print("[remote] swept orphaned pods"); return
+        if task == "smoke":
+            sys.exit(0 if rpi.smoke_test(cfg) else 1)
+        vids = a.rest[1:]
+        if not vids:
+            ap.error(f"remote {task} needs a video path")
+        ok = all(rpi.remote_run(cfg, v, langs, task, a.budget) for v in vids)
+        sys.exit(0 if ok else 1)
     if a.cmd == "prep":
         for v in a.rest:
             prep_mod.run(cfg, v)

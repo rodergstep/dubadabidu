@@ -22,3 +22,6 @@ scratch_*.log
 
 # credentials (.env.example is the committed template)
 .env
+
+# M2 runpod state (never commit a live pod id)
+work/.runpod_active.json

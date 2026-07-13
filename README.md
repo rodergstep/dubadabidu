@@ -74,10 +74,12 @@ CUDA 12.x driver. Stages run sequentially, so ASR and TTS never share VRAM.
 Rent a box (RunPod / vast.ai, ~$0.3–0.5/h; pick a "CUDA 12.x / PyTorch" template).
 
 **1. Send the project up** (include `work/` so cached translations aren't redone,
-`ref/` for your voice, `input/` for the video):
+`ref/` for your voice, `input/` for the video). **Exclude `.env`** — a rented pod
+must never hold your RunPod full-access key; the only key the pod needs is
+`TRANSLATE_API_KEY`, exported directly in step 3:
 
 ```bash
-rsync -avz --exclude .venv --exclude __pycache__ \
+rsync -avz --exclude .venv --exclude __pycache__ --exclude .env \
   ./ user@GPU_HOST:~/dubadabidu/
 ```
 

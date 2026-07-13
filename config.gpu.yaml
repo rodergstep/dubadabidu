@@ -28,3 +28,19 @@ bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
   engines: [chatterbox, cosyvoice]   # add indextts for en-only comparisons
   subset_size: 6               # stratified by source length
   takes: 3                     # averaged per segment to beat TTS variance
+
+runpod:                        # M2 infra agent — `dubadabidu remote <task> <video>`
+  # Cheapest adequate community GPUs (>=16GB), tried in order (checked 2026-07:
+  # A5000 $0.16/hr, 3090 $0.22/hr). Chatterbox ~7GB + whisper ~5GB load
+  # sequentially, so 16-24GB is ample.
+  gpu_type_ids: ["NVIDIA RTX A5000", "NVIDIA GeForce RTX 3090",
+                 "NVIDIA RTX A4500", "NVIDIA RTX A4000"]
+  image: runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04
+  interruptible: true          # spot; cheapest, resumable + cached
+  budget_usd: 10.0             # HARD cap -> auto-terminate; override with --budget
+  assumed_price_per_hr: 0.25   # deadline = budget / this (conservative)
+  max_runtime_hours: 3.0       # absolute ceiling regardless of budget
+  ssh_key: ~/.ssh/id_ed25519_runpod
+  # SAFETY: pod id persisted to work/.runpod_active.json on create; `remote kill`
+  # or the next `remote` call sweeps orphans; the run always terminates in a
+  # finally block. .env (RunPod key) is NEVER rsync'd to the pod.
