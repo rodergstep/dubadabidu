@@ -25,6 +25,19 @@ def test_gate_margin():
     assert not beats_incumbent(tie, inc, sim_eps=0.01)   # margin demanded
 
 
+def test_wer_veto_disqualifies_sim_mos_winner():
+    inc = {"sim": 0.74, "mos": 4.5, "wer": 0.05}
+    # wins sim+mos but hallucinates (WER far worse) -> vetoed
+    assert not beats_incumbent({"sim": 0.80, "mos": 4.7, "wer": 0.20}, inc)
+    # wins sim+mos and holds intelligibility within tolerance -> adopts
+    assert beats_incumbent({"sim": 0.80, "mos": 4.7, "wer": 0.06}, inc)
+
+
+def test_wer_veto_skipped_when_absent():
+    inc = {"sim": 0.74, "mos": 4.5}          # legacy/partial scorecard, no wer
+    assert beats_incumbent({"sim": 0.76, "mos": 4.6}, inc)  # gates on sim+mos only
+
+
 # --- cosyvoice mode resolution ---
 
 def test_cosyvoice_default_cross_lingual():
