@@ -55,6 +55,48 @@ def save(cfg: dict, video: str | Path, man: dict) -> None:
     tmp.replace(p)
 
 
+# tr[lang] keys written by the synth/fit/mix/qc stages (s4..s6 + qc). clear_synth
+# drops these; it deliberately KEEPS text/variants/adequacy (translation work) and
+# human_verdict/human_rating (human labels — recoverable, and preserved so a forced
+# re-synth doesn't silently discard review effort).
+_SYNTH_KEYS = ("takes", "synth_engine", "synth", "synth_dur",
+               "fitted", "fitted_text", "tempo", "fit", "placed",
+               "placed_start", "placed_end", "drift", "drift_exceeded",
+               "norm_gain_db", "reroll_wer")
+
+
+def clear_synth(cfg: dict, video: str | Path, langs: list[str]) -> int:
+    """Discard synthesized takes + fit/mix/qc state for `langs` so a re-run of
+    s4..s7 re-synthesizes from scratch. Needed after changing a take-SELECTION
+    param — best_of, rank_takes, retake_mos_below, min_f0st, f0_reroll_max,
+    best_of_early_accept, early_accept_* — because synth_hash intentionally omits
+    those: they don't change a single take's inputs, only which of several takes
+    WINS. The content-hash cache would otherwise serve the previously-picked take
+    and silently ignore the new setting, contaminating any A/B. Returns the number
+    of segment wavs removed."""
+    import shutil
+    wd = video_workdir(cfg, video)
+    man = load(cfg, video)
+    removed = 0
+    for lang in langs:
+        seg_dir = wd / "seg" / lang
+        if seg_dir.exists():
+            removed += sum(1 for _ in seg_dir.rglob("*.wav"))
+            shutil.rmtree(seg_dir)
+        for u in man["utterances"]:
+            tr = u["tr"].get(lang)
+            if not tr:
+                continue
+            for k in _SYNTH_KEYS:
+                tr.pop(k, None)
+            for k in [k for k in tr if k.startswith("qc_")]:
+                del tr[k]
+        for st in ("s4", "s5", "s6", "s7"):
+            man["stages"].pop(f"{st}_{lang}", None)
+    save(cfg, video, man)
+    return removed
+
+
 def edge_langs(man: dict, langs: list[str]) -> list[str]:
     """Languages whose synthesis used the edge fallback (generic MS voices,
     no cloning). Edge output validates plumbing ONLY — it must never be

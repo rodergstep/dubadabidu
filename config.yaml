@@ -84,6 +84,13 @@ tts:
   reference_text: ""          # transcript of reference_wav — REQUIRED by
                               # cosyvoice; `dubadabidu prep` fills refs.json
   cosyvoice_model_dir: pretrained_models/Fun-CosyVoice3-0.5B
+  # NOTE: the take-SELECTION params in this block (best_of, rank_takes, min_f0st,
+  # f0_reroll_max, retake_mos_below, best_of_early_accept, early_accept_*) are NOT
+  # part of synth_hash — they pick among takes, they don't change a take's inputs.
+  # So changing one and re-running does NOTHING on already-cached segments (the
+  # old winning take is reused). To actually re-apply a change, clear the takes:
+  #   dubadabidu run <video> --langs <l> --force        (or: stage s4_synthesize --force)
+  # This is essential when A/B-ing these levers, or the comparison is stale.
   best_of: 3                  # auto-repair: re-roll low-scoring takes, keep the best
   rank_takes: true            # synth ALL best_of takes; pick by composite
   # monotony re-roll: if every best_of take is flatter than min_f0st (pitch std
