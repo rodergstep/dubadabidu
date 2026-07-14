@@ -63,6 +63,16 @@ MOS + the ear before adoption.
 - [ ] Also worth one cheap look while at it: **Chatterbox-Turbo** for en
       (license must be verified MIT before any use — blog benchmark claims are
       Resemble-adjacent, trust only our own harness).
+- [ ] **VoxCPM2** added as a 4th lane (2026-07-13): pip-installable (pins in
+      THIRD_PARTY.md), Apache-2.0, all 5 targets in one engine, 48 kHz out,
+      ~8 GB VRAM, top published SIM scores. UA ref → audio-only cloning path
+      (its transcript modes need one of its 30 languages; uk isn't one). Same
+      rule applies: the harness decides, not the model card.
+- [ ] **Qwen3-TTS** added as a 5th lane (2026-07-13): git-clone (THIRD_PARTY.md),
+      Apache-2.0, 10 languages incl. all 5 targets, 3 s clone, ~4 GB VRAM (the
+      lightest challenger — cheapest to run). UA ref → x_vector_only (embedding
+      only, no ref transcript). Full bake-off roster is now chatterbox +
+      cosyvoice + voxcpm + qwen (+ indextts for en/zh). The harness decides.
 - [ ] Decision gate: an engine wins a language only if it beats the incumbent
       on BOTH raw similarity and MOS, or ties metrics and wins the ear test.
       French additionally needs the native-speaker listen (no self-QC there).
@@ -91,8 +101,12 @@ MOS + the ear before adoption.
 
 ## Deferred — each has an explicit trigger, none built preemptively
 
-- Number/abbreviation expansion in `text_norm.py` — trigger: backcheck WER
-  flags numerals (watch fr/de first).
+- ~~Number/abbreviation expansion in `text_norm.py`~~ **DONE 2026-07-13**:
+  `localize_numbers` expands digits + %/° to target-language words for all 5
+  langs (engine-agnostic, salted into synth_hash via `NUM_VERSIONS`). Letter
+  units (ml/cm) deliberately left as abbreviations — language-correct inflection
+  (esp. ru case) is error-prone; extend `_SYMBOLS`/add a unit map if the ear
+  flags them.
 - Enhancement/bandwidth pass (Resemble Enhance or similar; verify license) —
   trigger: 24 kHz dullness audible on full-video listen through real speakers.
   Note CosyVoice3 outputs 24 kHz too — this is engine-independent.

@@ -18,6 +18,14 @@ Engines:
                dubbing: DISENTANGLED emotion (a separate emotion_wav prompt — set
                it to the source UA slice for real per-segment prosody transfer)
                and duration control. English-track challenger.
+  voxcpm     — VoxCPM2 (Apache-2.0, pip `voxcpm`). 2B, 30 languages auto-detected
+               (covers all 5 targets; UA is NOT among them — clone from the ref
+               audio alone, transcript-free). 48 kHz output, ~8 GB VRAM. Style
+               control via instruct_text -> the "(...)" text prefix it parses.
+  qwen       — Qwen3-TTS 12Hz Base (Apache-2.0, git-clone `qwen_tts`). 0.6B/1.7B,
+               10 languages incl. all 5 targets, 3 s clone, ~4 GB VRAM. UA ref
+               -> x_vector_only_mode (speaker embedding only, no ref transcript).
+               The reusable clone prompt is built once per ref and cached.
   edge       — edge-tts 7.2.8, free MS neural voices, CPU-only, no cloning.
 
 The cosyvoice/indextts backends are GPU-only git-clone installs — see
@@ -33,13 +41,18 @@ import asyncio, logging, subprocess
 from pathlib import Path
 from .device import torch_device
 from .manifest import resolve_engine
-from .text_norm import normalize_for_tts
+from .text_norm import normalize_for_tts, localize_numbers
 
 log = logging.getLogger("dubadabidu.tts")
 INDEXTTS_LANGS = {"en", "zh"}   # IndexTTS-2 native coverage; others need finetune
 _chatterbox_model = None
 _cosyvoice_model = None
 _indextts_model = None
+_voxcpm_model = None
+_qwen_model = None
+_qwen_prompt = None   # (cache_key, prompt_items) — reused across all segments
+QWEN_LANGS = {"en": "English", "fr": "French", "de": "German",
+              "es": "Spanish", "ru": "Russian"}
 
 
 def _load_chatterbox():
@@ -181,6 +194,100 @@ def _synth_indextts(text: str, lang: str, out: Path, t: dict) -> None:
     m.infer(**kw)   # writes output_path itself
 
 
+def _load_voxcpm(model_dir: str):
+    global _voxcpm_model
+    if _voxcpm_model is None:
+        try:
+            from voxcpm import VoxCPM  # type: ignore
+        except ImportError as e:
+            raise FileNotFoundError(
+                "voxcpm package not importable — on the torch-2.6 stack install "
+                "it WITH pins: pip install voxcpm==2.0.3 torchcodec==0.2.1 "
+                "torch==2.6.0 torchaudio==2.6.0 'numpy<2'. See THIRD_PARTY.md. "
+                f"({e})")
+        log.info("loading VoxCPM2 from %s ...", model_dir)
+        _voxcpm_model = VoxCPM.from_pretrained(model_dir, load_denoiser=False)
+    return _voxcpm_model
+
+
+def _synth_voxcpm(text: str, lang: str, out: Path, t: dict) -> None:
+    """VoxCPM2 cloning from the reference audio ALONE (reference_wav_path) —
+    Ukrainian is not among its 30 languages, so the transcript-based 'ultimate
+    cloning' mode (prompt_wav_path + prompt_text) is unusable with a UA ref.
+    Language of `text` is auto-detected; no seed is passed so best_of takes
+    vary. instruct_text becomes the "(...)" style prefix VoxCPM2 parses."""
+    import soundfile as sf
+    ref = t["reference_wav"]
+    if not Path(ref).exists():
+        raise FileNotFoundError(f"reference_wav not found: {ref}")
+    m = _load_voxcpm(t.get("voxcpm_model_dir", "openbmb/VoxCPM2"))
+    if t.get("instruct_text"):
+        text = f"({t['instruct_text']})" + text
+    wav = m.generate(text=text, reference_wav_path=ref,
+                     cfg_value=float(t.get("voxcpm_cfg_value", 2.0)),
+                     inference_timesteps=int(t.get("voxcpm_timesteps", 10)))
+    sf.write(str(out), wav, m.tts_model.sample_rate)
+
+
+def _load_qwen(t: dict):
+    global _qwen_model
+    if _qwen_model is None:
+        try:
+            import torch
+            from qwen_tts import Qwen3TTSModel  # type: ignore
+        except ImportError as e:
+            raise FileNotFoundError(
+                "qwen_tts not importable — git clone "
+                "https://github.com/QwenLM/Qwen3-TTS (pin the commit), "
+                "pip install -e . (add flash-attn only on CUDA). See "
+                f"THIRD_PARTY.md. ({e})")
+        dev = torch_device()
+        model_id = t.get("qwen_model_dir", "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
+        kw = {"device_map": "cuda:0" if dev == "cuda" else dev,
+              "dtype": torch.bfloat16 if dev == "cuda" else torch.float32}
+        # flash-attn is a heavy CUDA-only build; opt-in (qwen_flash_attn) so a
+        # missing wheel can't fail the load on a fresh pod
+        if dev == "cuda" and t.get("qwen_flash_attn", False):
+            kw["attn_implementation"] = "flash_attention_2"
+        log.info("loading Qwen3-TTS from %s on %s ...", model_id, dev)
+        _qwen_model = Qwen3TTSModel.from_pretrained(model_id, **kw)
+    return _qwen_model
+
+
+def _qwen_clone_prompt(m, t: dict):
+    """Reusable clone prompt for the current reference, built once and cached
+    (a full video is hundreds of segments off ONE ref). x_vector_only_mode:
+    speaker embedding only, no ref transcript — the path for a Ukrainian ref
+    (its transcript can't be tokenized). Full mode needs a target-lang ref +
+    reference_text and is opt-in via qwen_x_vector_only: false."""
+    global _qwen_prompt
+    ref = t["reference_wav"]
+    ref_text = t.get("reference_text", "")
+    x_only = bool(t.get("qwen_x_vector_only", True)) or not ref_text
+    key = (ref, x_only, ref_text if not x_only else "")
+    if _qwen_prompt is None or _qwen_prompt[0] != key:
+        kw = {"ref_audio": ref, "x_vector_only_mode": x_only}
+        if not x_only:
+            kw["ref_text"] = ref_text
+        _qwen_prompt = (key, m.create_voice_clone_prompt(**kw))
+    return _qwen_prompt[1]
+
+
+def _synth_qwen(text: str, lang: str, out: Path, t: dict) -> None:
+    """Qwen3-TTS Base voice clone. Covers all 5 targets; UA ref cloned via the
+    speaker-embedding-only path (see _qwen_clone_prompt). Returns (wavs, sr)."""
+    import soundfile as sf
+    ref = t["reference_wav"]
+    if not Path(ref).exists():
+        raise FileNotFoundError(f"reference_wav not found: {ref}")
+    m = _load_qwen(t)
+    prompt = _qwen_clone_prompt(m, t)
+    wavs, sr = m.generate_voice_clone(
+        text=text, language=QWEN_LANGS.get(lang, "Auto"),
+        voice_clone_prompt=prompt)
+    sf.write(str(out), wavs[0], sr)
+
+
 def _synth_edge(text: str, lang: str, out: Path, t: dict) -> None:
     import edge_tts
     voice = t["edge_voices"][lang]
@@ -189,6 +296,34 @@ def _synth_edge(text: str, lang: str, out: Path, t: dict) -> None:
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(mp3),
                     "-ar", str(t["sample_rate"]), "-ac", "1", str(out)], check=True)
     mp3.unlink(missing_ok=True)
+
+
+MIN_EMO_SLICE_S = 1.0   # shorter source slices carry no usable prosody
+
+
+def with_source_emotion(t: dict, wd: Path, u: dict, lang: str) -> dict:
+    """Per-segment prosody transfer (tts.emotion_from_source, IndexTTS-2 only):
+    the emotion prompt becomes THIS utterance's slice of the source vocals, so
+    the dub carries the speaker's original delivery segment by segment —
+    IndexTTS-2 disentangles it from timbre. Slices are cut once into
+    work/<video>/emo/ and synth_hash keys on emotion_wav, so every segment
+    caches under its own slice. No-op for other engines or when disabled."""
+    if not t.get("emotion_from_source") or resolve_engine(t, lang) != "indextts":
+        return t
+    if u["end"] - u["start"] < MIN_EMO_SLICE_S:
+        return t
+    src = wd / "vocals.wav"
+    if not src.exists():
+        log.warning("emotion_from_source: %s missing — run s1 first; "
+                    "synthesizing without emotion prompt", src)
+        return t
+    out = wd / "emo" / f"{u['id']}.wav"
+    if not out.exists():
+        out.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error",
+                        "-ss", str(u["start"]), "-to", str(u["end"]),
+                        "-i", str(src), str(out)], check=True)
+    return {**t, "emotion_wav": str(out)}
 
 
 PACE_TOL = 0.35        # |dur/target - 1| that zeroes the pace term
@@ -264,11 +399,27 @@ def synth_best_of(text: str, lang: str, out: Path, t: dict,
                and ref and Path(ref).exists() else None)
     wer_max = (float(verify_cfg["qc"]["wer_flag_threshold"])
                if verify_cfg and verify_text else None)
+    # adaptive best_of (ranked mode): if an early take already clears a HIGH bar
+    # AND fits the slot AND passes any WER veto, stop rolling — the extra takes
+    # rarely beat an already-excellent one and each costs GPU time. Quality-safe
+    # because the bar is well above the retake floor; disable with
+    # tts.best_of_early_accept: false to always synthesize all best_of takes.
+    early = ranked and bool(t.get("best_of_early_accept", True))
+    early_mos = float(t.get("early_accept_mos", 3.6))   # worst-3s window scores low
+    early_sim = float(t.get("early_accept_sim", 0.50))
 
-    takes = []  # (path, metrics)
-    for take in range(best_of):
-        cand = out.with_name(f"{out.stem}_take{take}.wav") if take else out
-        synthesize(text, lang, cand, t)
+    def _early_ok(m: dict) -> bool:
+        if m["mos_min"] < early_mos:
+            return False
+        if target_dur and m["dur"] > target_dur * FIT_SLACK:
+            return False
+        if m.get("sim") is not None and m["sim"] < early_sim:
+            return False
+        if wer_max is not None and m.get("wer", 1.0) > wer_max:
+            return False
+        return True
+
+    def _measure(cand: Path) -> dict:
         info = sf.info(str(cand))
         m = {"mos_min": round(mos_min_window(cand), 2),
              "dur": round(info.frames / info.samplerate, 2)}
@@ -279,13 +430,45 @@ def synth_best_of(text: str, lang: str, out: Path, t: dict,
         if wer_max is not None:
             from qc.backcheck import segment_wer
             m["wer"] = round(segment_wer(verify_cfg, verify_text, cand, lang), 3)
+        return m
+
+    takes = []  # (path, metrics)
+    for take in range(best_of):
+        cand = out.with_name(f"{out.stem}_take{take}.wav") if take else out
+        synthesize(text, lang, cand, t)
+        m = _measure(cand)
         takes.append((cand, m))
         if not ranked and m["mos_min"] >= threshold \
                 and (wer_max is None or m["wer"] <= wer_max):
             break
+        if early and _early_ok(m):
+            log.info("early-accept take %d/%d for %r (mos %.2f)",
+                     take + 1, best_of, text[:40], m["mos_min"])
+            break
         if take + 1 < best_of and not ranked:
             log.info("retake %d for %r (mos %.2f < %.2f)",
                      take + 1, text[:40], m["mos_min"], threshold)
+
+    # monotony re-roll (ranked mode): if EVERY take so far is flatter than
+    # tts.min_f0st, the ranker has no lively read to choose from — roll more.
+    # Take-to-take f0 variance is real (~0.4 st on sketch60) so extra samples
+    # actually find a livelier take; the exaggeration parameter does NOT reliably
+    # move f0 (measured 2026-07-14), so we sample instead of twiddling. The
+    # composite ranker still picks the winner (a livelier take must also hold up
+    # on MOS/sim), so this only ADDS candidates — it can't force a bad take in.
+    min_f0st = float(t.get("min_f0st", 0.0))
+    reroll_max = int(t.get("f0_reroll_max", 0))
+    if ranked and min_f0st > 0 and reroll_max > 0:
+        rr = 0
+        while rr < reroll_max and max(
+                (tk[1].get("f0st", 0.0) for tk in takes), default=0.0) < min_f0st:
+            rr += 1
+            cand = out.with_name(f"{out.stem}_reroll{rr}.wav")
+            synthesize(text, lang, cand, t)
+            takes.append((cand, _measure(cand)))
+            best_f0 = max(tk[1].get("f0st", 0.0) for tk in takes)
+            log.info("monotony re-roll %d/%d for %r (best f0st %.2f, floor %.2f)",
+                     rr, reroll_max, text[:40], best_f0, min_f0st)
 
     # eligibility gates, relaxed only when they would eliminate every take
     pool = takes
@@ -297,6 +480,13 @@ def synth_best_of(text: str, lang: str, out: Path, t: dict,
         pool = fits or pool
     gated = [tk for tk in pool if tk[1]["mos_min"] >= threshold]
     pool = gated or pool
+    if ranked and min_f0st > 0:
+        # prefer takes that clear the monotony floor — otherwise a flat take can
+        # win the composite on MOS alone and the re-roll's lively take is wasted.
+        # Relaxed only if none qualify (then rank picks the least-flat via its
+        # f0 term). Applied after the MOS gate so a lively pick still holds up.
+        lively = [tk for tk in pool if tk[1].get("f0st", 0.0) >= min_f0st]
+        pool = lively or pool
     key = (lambda m: _take_rank(m, target_dur)) if ranked \
         else (lambda m: m["mos_min"])
     winner = max(pool, key=lambda tk: key(tk[1]))
@@ -324,9 +514,13 @@ def synthesize(text: str, lang: str, out: Path, tts_cfg: dict,
     out.parent.mkdir(parents=True, exist_ok=True)
     engine = resolve_engine(tts_cfg, lang)
     fn = {"chatterbox": _synth_chatterbox, "cosyvoice": _synth_cosyvoice,
-          "indextts": _synth_indextts, "edge": _synth_edge}[engine]
+          "indextts": _synth_indextts, "voxcpm": _synth_voxcpm,
+          "qwen": _synth_qwen, "edge": _synth_edge}[engine]
+    # number/symbol localization is engine-agnostic (digits read wrong-language
+    # otherwise) — apply to every engine; manifest/subs/QC keep clean digits.
+    text = localize_numbers(text, lang)
     if engine == "chatterbox":
-        # accent marks etc. exist only here — manifest/subs/QC keep clean text.
+        # acute stress marks exist only here — chatterbox training quirk.
         # NOT applied to cosyvoice yet: whether it honors acute marks needs its
         # own A/B (IMPROVEMENT_PLAN.md Phase C).
         text = normalize_for_tts(text, lang)

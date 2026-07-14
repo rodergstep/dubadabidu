@@ -61,6 +61,73 @@ Verify on the pinned commit; adjust `_synth_indextts` if the API differs.
 
 Pinned commit: `__________`  (fill after validation)
 
+## VoxCPM2 — 30 languages incl. all 5 targets, 48 kHz (Apache-2.0)
+
+The only challenger that is a plain PyPI install (`voxcpm==2.0.3`) — no git
+clone. 2B params, ~8 GB VRAM, language auto-detected from the text, published
+speaker-similarity scores top-tier across our targets (see the model README's
+Minimax-MLS SIM table). Ukrainian is NOT among its 30 languages, so:
+- **clone from the ref audio alone** (`reference_wav_path`) — the adapter's
+  only mode; the transcript-based "ultimate cloning" (`prompt_wav_path` +
+  `prompt_text`) is unusable with a Ukrainian reference.
+- style/emotion per segment: `tts.instruct_text` becomes the `"(...)"` text
+  prefix VoxCPM2 parses (e.g. "warm, unhurried teaching tone").
+
+Install — MUST carry the torch pins on the same command line, or its resolver
+moves torch 2.6.0 -> 2.13 and pulls torchcodec 0.14 (needs torchaudio>=2.9);
+on our stack torchcodec must be 0.2.1 (the torch-2.6-era build):
+
+```bash
+pip install voxcpm==2.0.3 torchcodec==0.2.1 torch==2.6.0 torchaudio==2.6.0 "numpy>=1.24,<2"
+pip check    # chatterbox pins must be untouched; if it complains, separate venv
+```
+
+Config (`config.gpu.yaml` → `tts`): `voxcpm_model_dir` (HF id `openbmb/VoxCPM2`
+auto-downloads, or a local dir), `voxcpm_cfg_value` (default 2.0),
+`voxcpm_timesteps` (default 10 — more = slower/better).
+
+API used: `VoxCPM.from_pretrained(dir, load_denoiser=False).generate(text=,
+reference_wav_path=, cfg_value=, inference_timesteps=)` → numpy wav at
+`model.tts_model.sample_rate` (48 kHz; s6 handles mixed rates). No seed is
+passed so best_of takes vary. Verify on first pod run; adjust `_synth_voxcpm`
+if the 2.0.x API differs.
+
+Validated version: `voxcpm==2.0.3` (resolver-checked vs torch 2.6.0 2026-07-13;
+runtime validation pending first GPU run)
+
+## Qwen3-TTS — 10 languages incl. all 5 targets, 3 s clone (Apache-2.0)
+
+Alibaba's open-weights TTS (0.6B/1.7B), ~4 GB VRAM, released 2026-01-22.
+git-clone install like CosyVoice/IndexTTS. Covers en/de/fr/es/ru (+ zh/ja/ko/
+pt/it). Ukrainian is not a supported language, so:
+- **x_vector_only_mode** (`tts.qwen_x_vector_only: true`, default) clones from
+  the reference's speaker embedding ALONE — no ref transcript, the UA-ref path.
+  Full clone (ref audio + `reference_text`) is opt-in for a target-lang ref.
+- the reusable clone prompt is built ONCE per reference and cached in the
+  adapter (a full video is hundreds of segments off one ref).
+
+```bash
+git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS
+cd third_party/Qwen3-TTS && git checkout <PIN_COMMIT>
+pip check                         # must not disturb torch 2.6.0
+pip install -e .
+# flash-attn is CUDA-only and a heavy build — install it separately and set
+# tts.qwen_flash_attn: true only if you want it; the model runs without it:
+#   pip install -U flash-attn --no-build-isolation
+```
+
+Config (`config.gpu.yaml` → `tts`): `qwen_model_dir` (HF id
+`Qwen/Qwen3-TTS-12Hz-1.7B-Base` auto-downloads, or `-0.6B-Base` / a local dir),
+`qwen_x_vector_only` (default true), `qwen_flash_attn` (default false).
+
+API used: `Qwen3TTSModel.from_pretrained(model_id, device_map=, dtype=)`,
+`create_voice_clone_prompt(ref_audio=, x_vector_only_mode=[, ref_text=])`,
+`generate_voice_clone(text=, language=, voice_clone_prompt=)` → `(wavs, sr)`,
+`wavs[0]` numpy. Verify on the pinned commit; adjust `_synth_qwen` if the API
+differs.
+
+Pinned commit: `__________`  (fill after validation)
+
 ## Running the bake-off
 
 Locally (engines installed by hand):
@@ -85,6 +152,6 @@ setting `tts.engine_by_lang`.
 
 ## License hygiene (unchanged)
 
-CosyVoice and IndexTTS-2 are Apache-2.0 (commercial OK). XTTS-v2 (CPML) and
-Fish-Speech weights (CC-BY-NC) stay OUT. Verify any new candidate's license
-before first use.
+CosyVoice, IndexTTS-2, VoxCPM2 and Qwen3-TTS are Apache-2.0 (commercial OK).
+XTTS-v2 (CPML) and Fish-Speech weights (CC-BY-NC) stay OUT. Verify any new
+candidate's license before first use.

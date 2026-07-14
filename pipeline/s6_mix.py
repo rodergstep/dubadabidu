@@ -4,7 +4,14 @@ normalized), mix with background stem, loudnorm to target LUFS.
 Segment hygiene: edges are trimmed at TRIM_DB and faded (synth takes carry
 leading silence and can end at full level -> clicks between sentences).
 Loudness: two-pass loudnorm with linear=true — the one-pass default is
-dynamic compression, which audibly squashes speech."""
+dynamic compression, which audibly squashes speech.
+
+Background ducking (mix.duck): the background is the separation INSTRUMENTAL
+stem, which still carries a faint residual of the original Ukrainian voice
+(no separator is perfect). Mixed back flat, that residual plays under the dub
+— the classic 'two voices' AI-dub tell. We sidechain-compress the background
+against the dub vocals, so it ducks exactly while the dub speaks (which is
+where the residual would be exposed) and returns in the real gaps."""
 from __future__ import annotations
 import json, logging, subprocess
 from pathlib import Path
@@ -18,12 +25,92 @@ FADE_IN_MS, FADE_OUT_MS = 10, 60  # long fade-out: end-of-generation garble hide
                                   # above the trim threshold right at sentence joins
 
 
+def _mix_filter(mix: dict) -> str:
+    """filter_complex mixing dub vocals [0:a] with background [1:a].
+    With mix.duck (default on), sidechaincompress ducks the background using
+    the vocals as the key; otherwise the background plays at a flat gain."""
+    bg_gain = mix["bg_gain_db"]
+    if not mix.get("duck", True):
+        return (f"[0:a]aresample=44100[v];"
+                f"[1:a]volume={bg_gain}dB,apad[bg];"
+                f"[v][bg]amix=inputs=2:duration=first:normalize=0[out]")
+    thr = mix.get("duck_threshold", 0.03)   # ~ -30 dB key level opens the duck
+    ratio = mix.get("duck_ratio", 8)
+    attack = mix.get("duck_attack_ms", 5)
+    release = mix.get("duck_release_ms", 300)
+    return (f"[0:a]aresample=44100,asplit=2[v][key];"
+            f"[1:a]volume={bg_gain}dB,apad[bgpad];"
+            f"[bgpad][key]sidechaincompress=threshold={thr}:ratio={ratio}:"
+            f"attack={attack}:release={release}:makeup=1[bg];"
+            f"[v][bg]amix=inputs=2:duration=first:normalize=0[out]")
+
+
 def _clean(seg: AudioSegment) -> AudioSegment:
     lead = silence.detect_leading_silence(seg, silence_threshold=TRIM_DB)
     tail = silence.detect_leading_silence(seg.reverse(), silence_threshold=TRIM_DB)
     seg = seg[max(0, lead - TRIM_CUSHION_MS):
               len(seg) - max(0, tail - TRIM_CUSHION_MS)]
     return seg.fade_in(FADE_IN_MS).fade_out(FADE_OUT_MS)
+
+
+def _normalize_segment(seg: AudioSegment, target_dbfs: float) -> tuple[AudioSegment, float]:
+    """Level each utterance to a common target with a PURE GAIN SHIFT (one
+    multiply, not dynamics processing) -> (segment, applied_gain_db).
+
+    best_of picks each segment's take independently, so consecutive utterances
+    drift in level run-to-run — the 'pasted-in segments' tell. A single gain
+    per segment removes that drift while leaving the dynamics INSIDE each
+    segment untouched (unlike a compressor, which would flatten prosody and
+    feed the monotony complaint). Sets relative consistency only; the s6
+    loudnorm still sets absolute program loudness, and the master limiter
+    still backstops peaks. Near-silent segments have no reliable level to
+    match, so they pass through unchanged."""
+    if seg.dBFS == float("-inf"):
+        return seg, 0.0
+    gain = target_dbfs - seg.dBFS
+    return seg.apply_gain(gain), gain
+
+
+def _master(inp: Path, out: Path, m: dict) -> None:
+    """Light mastering chain on the dub vocals BEFORE the background mix
+    (Spotify pedalboard). best_of takes are picked per segment, so consecutive
+    utterances drift in level and brightness — the 'pasted-in segments' tell.
+    A gentle high-pass + compressor evens that out; a small high-shelf cut
+    tames TTS sibilance; an optional tiny room lets the voice sit in space
+    instead of dead-dry. Conservative by design — loudnorm still runs on the
+    full mix afterward, and a brickwall limiter guards the intermediate wav
+    from clipping. Opt-in (mix.master.enabled); no-op otherwise.
+
+    pedalboard is GPLv3, but it only processes audio — the WAV it emits is not
+    a derivative of the library, so course output stays unencumbered. It is an
+    OPT-IN extra (`.[master]`) so the default install carries no GPL dep."""
+    try:
+        from pedalboard import (Pedalboard, HighpassFilter, Compressor,
+                                HighShelfFilter, Reverb, Limiter)
+        from pedalboard.io import AudioFile
+    except ImportError as e:
+        raise FileNotFoundError(
+            "pedalboard not importable — mix.master.enabled needs it: "
+            f"pip install .[master] (or set mix.master.enabled: false). ({e})")
+    chain = [
+        HighpassFilter(cutoff_frequency_hz=m.get("hpf_hz", 80)),
+        Compressor(threshold_db=m.get("comp_threshold_db", -18.0),
+                   ratio=m.get("comp_ratio", 2.5),
+                   attack_ms=m.get("comp_attack_ms", 5),
+                   release_ms=m.get("comp_release_ms", 120)),
+        HighShelfFilter(cutoff_frequency_hz=m.get("deess_hz", 7000),
+                        gain_db=m.get("deess_gain_db", -2.0)),
+    ]
+    wet = float(m.get("reverb_wet", 0.0))
+    if wet > 0:   # subtle room; matching the source acoustic is hard, keep it low
+        chain.append(Reverb(room_size=m.get("reverb_room", 0.1),
+                            wet_level=wet, dry_level=1.0 - wet))
+    chain.append(Limiter(threshold_db=m.get("limiter_db", -1.0)))
+    board = Pedalboard(chain)
+    with AudioFile(str(inp)) as f:
+        audio, sr = f.read(f.frames), f.samplerate
+    with AudioFile(str(out), "w", sr, audio.shape[0]) as f:
+        f.write(board(audio, sr))
 
 
 def _loudnorm_two_pass(premix: Path, out: Path, lufs: int) -> None:
@@ -52,10 +139,16 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         # in ffmpeg below (swr) — pydub's per-segment ratecv audibly aliases
         rate = cfg["tts"]["sample_rate"]
         track = AudioSegment.silent(duration=total_ms, frame_rate=rate)
+        norm = cfg["mix"].get("segment_norm", {})
         for u in man["utterances"]:
             tr = u["tr"][lang]
             seg = _clean(AudioSegment.from_wav(wd / tr["fitted"])
                          .set_channels(1))
+            # per-segment loudness normalization: kill take-to-take level drift
+            # (the 'pasted-in' tell) with a pure gain shift, dynamics-preserving
+            if norm.get("enabled", True):
+                seg, gain = _normalize_segment(seg, norm.get("target_dbfs", -20.0))
+                tr["norm_gain_db"] = round(gain, 2)
             # persist the exact audio that lands in the mix — evaluate/review/
             # backcheck grade this, not the pre-trim fitted file
             placed = (wd / tr["fitted"]).with_name(f"{u['id']}_placed.wav")
@@ -68,15 +161,16 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 seg, position=int(tr.get("placed_start", u["start"]) * 1000))
         voc = wd / f"dub_{lang}_vocals.wav"
         track.export(voc, format="wav")
+        if cfg["mix"].get("master", {}).get("enabled"):
+            mastered = wd / f"dub_{lang}_vocals_master.wav"
+            _master(voc, mastered, cfg["mix"]["master"])
+            voc = mastered
 
         premix = wd / f"dub_{lang}_premix.wav"
         subprocess.run([
             "ffmpeg", "-y", "-loglevel", "error",
             "-i", str(voc), "-i", str(wd / "background.wav"),
-            "-filter_complex",
-            f"[0:a]aresample=44100[v];"
-            f"[1:a]volume={cfg['mix']['bg_gain_db']}dB,apad[bg];"
-            f"[v][bg]amix=inputs=2:duration=first:normalize=0[out]",
+            "-filter_complex", _mix_filter(cfg["mix"]),
             "-map", "[out]", str(premix)], check=True)
         mixed = wd / f"dub_{lang}.m4a"
         _loudnorm_two_pass(premix, mixed, cfg["mix"]["lufs"])

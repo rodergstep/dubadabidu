@@ -47,8 +47,16 @@ def doctor(cfg: dict) -> int:
     check("ffmpeg", shutil.which("ffmpeg"), "install ffmpeg and add to PATH")
     check("ffprobe", shutil.which("ffprobe"), "comes with ffmpeg")
     dev = torch_device()
-    wdev, wct = whisper_device(cfg["asr"].get("device", "auto"))
-    print(f"  [i ] torch device: {dev} | whisper: {wdev}/{wct}")
+    from pipeline.asr import resolve_backend
+    backend = resolve_backend(cfg["asr"])
+    if backend == "mlx":
+        print(f"  [i ] torch device: {dev} | whisper: mlx-whisper (Metal/ANE)")
+    else:
+        wdev, wct = whisper_device(cfg["asr"].get("device", "auto"))
+        print(f"  [i ] torch device: {dev} | whisper: faster-whisper {wdev}/{wct}")
+        if dev == "mps":
+            print("  [i ] ASR on CPU int8: `pip install .[mac]` for mlx-whisper "
+                  "(~4-5x on Apple Silicon).")
     if dev != "cuda":
         print("  [i ] no CUDA: use tts.engine=edge for pipeline validation; "
               "run the Chatterbox batch on a CUDA machine (RunPod/vast.ai).")
@@ -57,6 +65,13 @@ def doctor(cfg: dict) -> int:
             __import__(mod); check(f"python: {mod}", True)
         except ImportError:
             check(f"python: {mod}", False, "pip install -r requirements.txt")
+    sep = cfg.get("separation", {})
+    if sep.get("enabled") and sep.get("backend", "roformer") == "roformer":
+        try:
+            __import__("audio_separator"); check("python: audio_separator", True)
+        except ImportError:
+            check("python: audio_separator", False,
+                  'pip install "audio-separator[cpu]" (or separation.backend: demucs)')
     engines = {cfg["tts"]["engine"], *cfg["tts"].get("engine_by_lang", {}).values(),
                *cfg.get("bakeoff", {}).get("engines", [])}
     if "chatterbox" in engines:
@@ -78,6 +93,19 @@ def doctor(cfg: dict) -> int:
             check("python: indextts", False,
                   "git clone index-tts/index-tts + checkpoints + PYTHONPATH "
                   "(THIRD_PARTY.md)")
+    if "voxcpm" in engines:
+        try:
+            __import__("voxcpm"); check("python: voxcpm", True)
+        except ImportError:
+            check("python: voxcpm", False,
+                  "pip install voxcpm==2.0.3 torchcodec==0.2.1 WITH torch pins "
+                  "(THIRD_PARTY.md)")
+    if "qwen" in engines:
+        try:
+            __import__("qwen_tts"); check("python: qwen_tts", True)
+        except ImportError:
+            check("python: qwen_tts", False,
+                  "git clone QwenLM/Qwen3-TTS + pip install -e . (THIRD_PARTY.md)")
     if engines - {"edge"}:
         check("reference_wav", Path(cfg["tts"]["reference_wav"]).exists(),
               f"put a 15-20s clean voice clip at {cfg['tts']['reference_wav']} "
@@ -146,8 +174,9 @@ def report(cfg: dict, video: str) -> None:
           f"{man['duration']:.0f}s | stages: {man.get('stages', {})}")
     langs = sorted({l for u in man["utterances"] for l in u["tr"]})
     score_flag = cfg["qc"].get("eval", {}).get("score_flag", 0.55)
+    adeq_flag = cfg["translation"].get("adequacy_flag", 3)
     hdr = f"{'lang':5} {'engine':>10} {'ok':>4} {'stretch':>8} {'shorten':>8} " \
-          f"{'overflow':>9} {'overlap':>8} {'wer>thr':>8} {'score<f':>8}"
+          f"{'overflow':>9} {'overlap':>8} {'wer>thr':>8} {'score<f':>8} {'adeq<f':>7}"
     print(hdr); print("-" * len(hdr))
     for lang in langs:
         trs = [u["tr"][lang] for u in man["utterances"]]
@@ -158,13 +187,16 @@ def report(cfg: dict, video: str) -> None:
                       if t.get("qc_wer", 0) > cfg["qc"]["wer_flag_threshold"])
         score_bad = sum(1 for t in trs if "qc_score" in t
                         and t["qc_score"] < score_flag)
+        # translation faithfulness flags (s3 adequacy judge), if scored
+        adeq_bad = sum(1 for t in trs if "adequacy" in t
+                       and t["adequacy"].get("score", 5) < adeq_flag)
         # drift_exceeded superseded overrun_s when s5 went soft-anchor
         # (overlap in the mix is impossible now); old manifests keep overrun_s
         overlaps = sum(1 for t in trs
                        if t.get("overrun_s") or t.get("drift_exceeded"))
         print(f"{lang:5} {engine:>10} {fits.count('ok'):>4} {fits.count('stretched'):>8} "
               f"{fits.count('shortened'):>8} {fits.count('overflow'):>9} "
-              f"{overlaps:>8} {wer_bad:>8} {score_bad:>8}")
+              f"{overlaps:>8} {wer_bad:>8} {score_bad:>8} {adeq_bad:>7}")
 
 
 def main() -> None:
@@ -308,6 +340,11 @@ def main() -> None:
             rpi.sweep_orphans(); print("[remote] swept orphaned pods"); return
         if task == "smoke":
             sys.exit(0 if rpi.smoke_test(cfg) else 1)
+        if task in ("setup-check", "setup_check"):
+            # dry-run the bake-off install path on a cheap pod (no comparison):
+            # reports which engine_setup snippets import. Run before a real
+            # `remote bakeoff` to avoid debugging installs on a billing run.
+            sys.exit(0 if rpi.setup_check(cfg, a.budget) else 1)
         vids = a.rest[1:]
         if not vids:
             ap.error(f"remote {task} needs a video path")

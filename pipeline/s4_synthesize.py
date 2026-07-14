@@ -15,7 +15,7 @@ import logging
 from pathlib import Path
 import soundfile as sf
 from . import manifest as M
-from .tts_engine import synth_best_of
+from .tts_engine import synth_best_of, with_source_emotion
 
 log = logging.getLogger("dubadabidu.s4")
 
@@ -35,13 +35,16 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             tr = u["tr"].get(lang)
             if not tr or not tr.get("text"):
                 raise SystemExit(f"{u['id']} missing {lang} translation — run s3.")
-            h = M.synth_hash(tr["text"], lang, t)
+            # per-segment IndexTTS-2 emotion prompt (no-op otherwise); the
+            # merged dict feeds BOTH hash and synth so caches stay consistent
+            tu = with_source_emotion(t, wd, u, lang)
+            h = M.synth_hash(tr["text"], lang, tu)
             out = seg_dir / f"{u['id']}_{h}.wav"
             fresh = not out.exists()
             if fresh:
                 takes: list[dict] = []
                 verify = bool(tr.get("reroll_wer"))
-                synth_best_of(tr["text"], lang, out, t, meta=takes,
+                synth_best_of(tr["text"], lang, out, tu, meta=takes,
                               verify_cfg=cfg if verify else None,
                               verify_text=tr["text"] if verify else None,
                               # source slot: rank takes toward the speaker's

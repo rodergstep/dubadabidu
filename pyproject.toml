@@ -5,7 +5,7 @@ description = "Ukrainian -> multilingual AI video dubbing with voice cloning (Ch
 requires-python = ">=3.10,<3.13"
 dependencies = [
   "faster-whisper==1.2.1",
-  "demucs==4.0.1",
+  "demucs==4.1.0",
   # torchcodec is intentionally NOT a base dep: it must match the torch version.
   # The `clone` extra pins torch 2.6.0 (ta.save is native there — no torchcodec needed).
   # For an edge-only install on torch>=2.9, add the `hifi` extra below.
@@ -14,7 +14,7 @@ dependencies = [
   "soundfile==0.14.0",
   "librosa==0.11.0",
   "pydub==0.25.1",
-  "openai==2.44.0",
+  "openai==2.45.0",
   "jiwer",
   "num2words",            # digit->word expansion in backcheck WER normalization
   "speechbrain==1.1.0",   # ECAPA-TDNN speaker similarity (qc), Apache-2.0
@@ -26,6 +26,21 @@ dependencies = [
 [project.optional-dependencies]
 clone = ["chatterbox-tts==0.1.7"]   # install first / separately: pins torch/torchaudio 2.6.0
 hifi = ["torchcodec==0.14.0"]       # ta.save backend for torch>=2.9; do NOT combine with `clone`
+# RoFormer separation backend (s1, local-only: the remote flow runs s1/s2 on the
+# Mac, so pods install plain .[dev]). [cpu] only picks the onnxruntime flavor —
+# RoFormer ckpts run on torch and auto-use CUDA/MPS either way.
+# CAUTION: when combined with `clone`, install with explicit torch/numpy pins
+# on the same command line or the resolver moves torch 2.6.0 (see requirements.txt).
+# 0.30.2 = the numpy<2 ceiling forced by chatterbox; 0.44.3 needs numpy>=2.
+sep = ["audio-separator[cpu]==0.30.2"]
+# Apple-Silicon-only ASR accel: Whisper via MLX (Metal/ANE), ~4-5x vs CPU int8.
+# mlx is macOS/arm64-only — keep it OUT of core requirements (it won't resolve on
+# the Linux CUDA box, which auto-uses faster-whisper anyway).
+mac = ["mlx-whisper"]
+# s6 mastering chain (mix.master.enabled). pedalboard is GPLv3 — kept opt-in so
+# the default install stays permissive; it only processes audio, so the mixed
+# WAV output is not a derivative and course output stays unencumbered.
+master = ["pedalboard"]
 dev = ["pytest"]
 
 [project.scripts]
