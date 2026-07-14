@@ -11,12 +11,18 @@ Methodology — the honest cross-engine metric:
   Per-ref calibrated similarity is biased ACROSS refs/engines (evaluate.py), so
   the bake-off scores each take's ECAPA cosine against a COMMON anchor: the mean
   embedding of your REAL UA voice (ground truth). MOS and f0 are engine-
-  independent. `takes` takes per segment are averaged to beat autoregressive
-  take-to-take variance (same method that validated the ref A/B).
+  independent. Two more dimensions, because sim/mos/f0 are all blind to them:
+  wer (back-transcription vs the requested text — catches hallucination and
+  dropped/invented words) and pace (synth_dur / source slot — natural speaking
+  rate, the overflow/timing risk s5 has to stretch away). `takes` takes per
+  segment are averaged to beat autoregressive take-to-take variance (same method
+  that validated the ref A/B).
 
 Decision gate (inherited invariant): a challenger wins a language only if it
-beats the incumbent (chatterbox) on sim-to-real AND MOS — or ties and wins the
-ear on the HTML page. French additionally needs a native-speaker listen.
+beats the incumbent (chatterbox) on sim-to-real AND MOS, AND does not regress
+wer (an intelligibility VETO) — or ties and wins the ear on the HTML page. pace
+is reported, not gated (s5 retimes within limits). French additionally needs a
+native-speaker listen.
 
 Engines that aren't installed (cosyvoice/indextts are GPU-only git-clone deps)
 are reported as unavailable and skipped, so a partial bake-off still runs.
@@ -35,9 +41,18 @@ INCUMBENT = "chatterbox"
 
 
 def beats_incumbent(challenger: dict, incumbent: dict,
-                    sim_eps: float = 0.0, mos_eps: float = 0.0) -> bool:
-    """True if challenger wins on BOTH sim-to-real and MOS (the adoption gate).
-    eps lets a caller demand a margin rather than a bare tie-break."""
+                    sim_eps: float = 0.0, mos_eps: float = 0.0,
+                    wer_eps: float = 0.02) -> bool:
+    """The adoption gate. A challenger wins only if it beats the incumbent on
+    BOTH sim-to-real and MOS AND does not regress intelligibility: WER is a VETO,
+    not a win condition — a fluent, on-voice take that drops or invents words is
+    still a bad dub, and sim/mos/f0 are all blind to it. pace is deliberately NOT
+    gated (s5 retimes within limits; the ear/HTML page judges timing feel).
+    sim/mos/wer_eps let a caller demand a margin. WER veto is skipped when either
+    side lacks a `wer` key, so a partial/legacy scorecard still gates on sim+mos."""
+    if (challenger.get("wer") is not None and incumbent.get("wer") is not None
+            and challenger["wer"] > incumbent["wer"] + wer_eps):
+        return False   # intelligibility regressed beyond tolerance -> disqualified
     return (challenger["sim"] >= incumbent["sim"] + sim_eps
             and challenger["mos"] >= incumbent["mos"] + mos_eps)
 
@@ -58,9 +73,11 @@ def _mean_stat(rows: list[dict], key: str) -> float:
 
 def run(cfg: dict, video: str, langs: list[str]) -> None:
     import torch
+    import soundfile as sf
     from pipeline.tts_engine import synthesize
     from pipeline.tune import _subset
     from qc import metrics as X
+    from qc.backcheck import segment_wer
     from qc.evaluate import _ua_slices
     from qc.review_page import _ua_slice
 
@@ -92,7 +109,11 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             rows, unavailable = [], None
             for u in subset:
                 text = u["tr"][lang].get("fitted_text") or u["tr"][lang]["text"]
-                sims, moss, f0s = [], [], []
+                # source speech slot: same text goes to every engine, so pace
+                # DIFFERENCES between engines isolate the engine's speaking rate
+                # (the shared translation-length bias cancels in the comparison).
+                slot = max(u["end"] - u["start"], 0.1)
+                sims, moss, f0s, wers, paces = [], [], [], [], []
                 first = None
                 for k in range(takes):
                     w = seg_dir / f"{u['id']}_t{k}.wav"
@@ -105,13 +126,21 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                     sims.append(X.cosine(anchor, X.ecapa_embed(w)))
                     moss.append(X.mos_min_window(w))
                     f0s.append(X.f0_semitone_std(w))
+                    # WER: back-transcribe and compare to the text we asked for —
+                    # catches hallucination/dropped words that sim/mos/f0 miss.
+                    wers.append(segment_wer(cfg, text, w, lang))
+                    # pace: synth_dur / source slot (>1 = slower than source,
+                    # overflow-prone; s5 would have to stretch it to fit).
+                    paces.append(sf.info(str(w)).duration / slot)
                 if unavailable:
                     break
                 # relative to bo/ (where the .html lives), not wd/
                 seg_audio[u["id"]][engine] = str(first.relative_to(bo))
                 rows.append({"sim": sum(sims) / len(sims),
                              "mos": sum(moss) / len(moss),
-                             "f0": sum(f0s) / len(f0s)})
+                             "f0": sum(f0s) / len(f0s),
+                             "wer": sum(wers) / len(wers),
+                             "pace": sum(paces) / len(paces)})
             if unavailable:
                 per_engine[engine] = {"unavailable": unavailable}
                 log.warning("%s unavailable: %s", engine, unavailable)
@@ -119,6 +148,8 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             per_engine[engine] = {"sim": _mean_stat(rows, "sim"),
                                   "mos": _mean_stat(rows, "mos"),
                                   "f0": _mean_stat(rows, "f0"),
+                                  "wer": _mean_stat(rows, "wer"),
+                                  "pace": _mean_stat(rows, "pace"),
                                   "segs": len(rows)}
             log.info("%s/%s: %s", engine, lang, per_engine[engine])
 
@@ -143,20 +174,25 @@ def _write_reports(bo, video, lang, subset, per_engine, seg_audio, wd,
 
     lines = [f"# bake-off — {name} / {lang}", "",
              "sim = ECAPA cosine to your REAL UA voice (higher=more like you); "
-             "mos = windowed Distill-MOS; f0st = pitch liveliness. "
+             "mos = windowed Distill-MOS; f0st = pitch liveliness (anti-monotony); "
+             "wer = back-transcription WER, LOWER=fewer hallucinations/dropped "
+             "words; pace = synth_dur / source-slot, >1 = speaks slower than the "
+             "source (overflow-prone; same text per engine, so it's the engine). "
              f"Averaged over takes on {len(subset)} segments.", "",
-             "| engine | sim→real | mos | f0st | verdict |",
-             "|---|---|---|---|---|"]
+             "| engine | sim→real | mos | f0st | wer | pace | verdict |",
+             "|---|---|---|---|---|---|---|"]
     for e in engines:
         s = per_engine[e]
         if "unavailable" in s:
-            lines.append(f"| {e} | - | - | - | {_verdict(e, s, inc)} |")
+            lines.append(f"| {e} | - | - | - | - | - | {_verdict(e, s, inc)} |")
         else:
             lines.append(f"| {e} | {s['sim']} | {s['mos']} | {s['f0']} "
-                         f"| {_verdict(e, s, inc)} |")
+                         f"| {s['wer']} | {s['pace']} | {_verdict(e, s, inc)} |")
     lines += ["", "Adoption gate: a challenger must beat chatterbox on sim→real "
-              "AND mos, or tie and win the ear on the .html page. Then set "
-              "`tts.engine_by_lang: {" + lang + ": <winner>}`."]
+              "AND mos, AND not regress wer beyond tolerance (intelligibility "
+              "veto), or tie and win the ear on the .html page. pace is "
+              "informational — s5 retimes within limits and the ear judges timing "
+              "feel. Then set `tts.engine_by_lang: {" + lang + ": <winner>}`."]
     (bo / f"bakeoff_{lang}.md").write_text("\n".join(lines) + "\n",
                                            encoding="utf-8")
 
