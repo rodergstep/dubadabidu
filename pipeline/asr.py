@@ -68,6 +68,25 @@ def _mlx_repo(a: dict) -> str:
     return repo
 
 
+def _norm_words(raw) -> list[dict]:
+    """Keep only fully-timestamped words, from either backend's shape (faster-
+    whisper Word objects with attributes, or mlx-whisper dicts). A word missing
+    start/end/text is DROPPED rather than crashing: mlx occasionally emits a word
+    without timestamps, and a None would KeyError here or feed the pause splitter
+    (s2 -> logic.split_at_pauses) arithmetic on None downstream."""
+    out = []
+    for w in (raw or []):
+        if isinstance(w, dict):
+            ws, we, wt = w.get("start"), w.get("end"), w.get("word")
+        else:  # faster-whisper Word (attribute access)
+            ws, we, wt = (getattr(w, "start", None), getattr(w, "end", None),
+                          getattr(w, "word", None))
+        if ws is None or we is None or wt is None:
+            continue
+        out.append({"start": ws, "end": we, "word": wt})
+    return out
+
+
 def _transcribe_faster(a: dict, audio: Path, language: str,
                        prompt: str | None) -> list[dict]:
     from faster_whisper import WhisperModel
@@ -77,13 +96,12 @@ def _transcribe_faster(a: dict, audio: Path, language: str,
     segments, _ = model.transcribe(
         str(audio), language=language, vad_filter=a["vad_filter"],
         word_timestamps=True, initial_prompt=prompt,
+        no_speech_threshold=a.get("no_speech_threshold", 0.6),
         temperature=0.0)  # no fallback sampling: segmentation must be reproducible
     out = []
     for s in segments:
-        words = [{"start": w.start, "end": w.end, "word": w.word}
-                 for w in (s.words or [])]
         out.append({"start": s.start, "end": s.end, "text": s.text,
-                    "words": words})
+                    "words": _norm_words(s.words)})
     return out
 
 
@@ -95,17 +113,21 @@ def _transcribe_mlx(a: dict, audio: Path, language: str,
     if a.get("vad_filter"):
         log.info("mlx-whisper has no VAD; relying on s1 vocal separation "
                  "(non-speech already removed)")
+    # no VAD here, so lean on Whisper's own no-speech gate to suppress phantom
+    # text in the residual the separator left behind (a known VAD-less failure
+    # mode). condition_on_previous_text is exposed too: True keeps context but can
+    # propagate a hallucination into a repetition loop — flip it off per-config if
+    # a transcript shows runaway repeats.
     res = mlx_whisper.transcribe(
         str(audio), path_or_hf_repo=repo, language=language,
         word_timestamps=True, initial_prompt=prompt,
         temperature=0.0,   # disable fallback sampling -> reproducible segmentation
-        condition_on_previous_text=True)
+        no_speech_threshold=a.get("no_speech_threshold", 0.6),
+        condition_on_previous_text=a.get("condition_on_previous_text", True))
     out = []
     for s in res.get("segments", []):
-        words = [{"start": w["start"], "end": w["end"], "word": w["word"]}
-                 for w in (s.get("words") or [])]
         out.append({"start": s["start"], "end": s["end"],
-                    "text": s["text"], "words": words})
+                    "text": s["text"], "words": _norm_words(s.get("words"))})
     return out
 
 

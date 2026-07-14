@@ -13,7 +13,7 @@ stem, which still carries a faint residual of the original Ukrainian voice
 against the dub vocals, so it ducks exactly while the dub speaks (which is
 where the residual would be exposed) and returns in the real gaps."""
 from __future__ import annotations
-import json, logging, subprocess
+import json, logging, math, subprocess
 from pathlib import Path
 from pydub import AudioSegment, silence
 from . import manifest as M
@@ -120,13 +120,30 @@ def _loudnorm_two_pass(premix: Path, out: Path, lufs: int) -> None:
          "-f", "null", "-"], capture_output=True, text=True, check=True)
     stats = json.loads(probe.stderr[probe.stderr.rindex("{"):
                                     probe.stderr.rindex("}") + 1])
+
+    def _encode(af: str) -> None:
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(premix),
+                        "-af", af, "-c:a", "aac", "-b:a", "192k", str(out)],
+                       check=True)
+
+    # loudnorm reports input_i = -inf (or a floor around -70) for (near-)silent
+    # input; feeding measured_I=-inf into the linear second pass yields garbage or
+    # an ffmpeg error. When the measurement isn't usable, fall back to a single
+    # dynamic pass (still hits the target loudness, just without linear scaling).
+    try:
+        measured_i = float(stats["input_i"])
+    except (KeyError, ValueError):
+        measured_i = float("-inf")
+    if not math.isfinite(measured_i) or measured_i < -70.0:
+        log.warning("loudnorm: premix too quiet (measured_I=%s) — single-pass "
+                    "fallback (no linear correction)", stats.get("input_i"))
+        _encode(spec)
+        return
     measured = (f":measured_I={stats['input_i']}:measured_TP={stats['input_tp']}"
                 f":measured_LRA={stats['input_lra']}"
                 f":measured_thresh={stats['input_thresh']}"
                 f":offset={stats['target_offset']}:linear=true")
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(premix),
-                    "-af", spec + measured, "-c:a", "aac", "-b:a", "192k",
-                    str(out)], check=True)
+    _encode(spec + measured)
 
 
 def run(cfg: dict, video: str, langs: list[str]) -> None:
@@ -138,8 +155,13 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         # timeline stays at the TTS rate; the single upsample to 44.1k happens
         # in ffmpeg below (swr) — pydub's per-segment ratecv audibly aliases
         rate = cfg["tts"]["sample_rate"]
-        track = AudioSegment.silent(duration=total_ms, frame_rate=rate)
         norm = cfg["mix"].get("segment_norm", {})
+        # PASS 1: clean/normalize/persist each segment and record its placement.
+        # The timeline is sized AFTER this, to hold every segment in full: pydub's
+        # overlay TRUNCATES whatever extends past the base length, so a track cut
+        # to the source-video duration silently clips the tail of the final dub
+        # segment when it runs long or drifts late under s5's soft-anchor retiming.
+        placements = []   # (position_ms, seg)
         for u in man["utterances"]:
             tr = u["tr"][lang]
             seg = _clean(AudioSegment.from_wav(wd / tr["fitted"])
@@ -157,8 +179,16 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             # s5's soft-anchored timeline: overlay at placed_start (may drift
             # within fit.drift_max_s of the source start); overlap-free by
             # construction. Fall back to the source start for old manifests.
-            track = track.overlay(
-                seg, position=int(tr.get("placed_start", u["start"]) * 1000))
+            placements.append(
+                (int(tr.get("placed_start", u["start"]) * 1000), seg))
+        # PASS 2: build the timeline long enough for the source AND every segment,
+        # then overlay. Normally need_ms == total_ms (no change); it only grows
+        # when a late/long segment would otherwise be clipped — a fraction of a
+        # second past the video, which the ffmpeg mix (bg apad) tolerates.
+        need_ms = max([total_ms] + [pos + len(seg) for pos, seg in placements])
+        track = AudioSegment.silent(duration=need_ms, frame_rate=rate)
+        for pos, seg in placements:
+            track = track.overlay(seg, position=pos)
         voc = wd / f"dub_{lang}_vocals.wav"
         track.export(voc, format="wav")
         if cfg["mix"].get("master", {}).get("enabled"):
