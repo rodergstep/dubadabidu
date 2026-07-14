@@ -222,10 +222,13 @@ def main() -> None:
                          "the remote GPU path muxes locally so the source video "
                          "never uploads")
     ap.add_argument("--force", action="store_true",
-                    help="with `stage s3_translate`: discard cached "
-                         "translations for --langs and re-translate "
-                         "(Phase B: provider switch). New text re-synthesizes "
-                         "automatically via the hash cache.")
+                    help="discard a cache so a changed setting re-applies. "
+                         "`stage s3_translate`: drop translations + terms for "
+                         "--langs (provider switch). `stage s4_synthesize` or a "
+                         "`run` reaching s4: drop cached takes for --langs so "
+                         "take-SELECTION params (best_of, min_f0st, ...) re-apply "
+                         "— they're not in synth_hash, so the cache ignores them "
+                         "otherwise. Keeps translations + human verdicts.")
     ap.add_argument("--budget", type=float, default=None,
                     help="hard USD cap for `remote` (auto-terminates the pod); "
                          "default runpod.budget_usd")
@@ -302,6 +305,13 @@ def main() -> None:
                 M.save(cfg, v, man)
                 logging.info("--force: cleared %s translations for %s",
                              langs, v)
+            elif a.force and stage == "s4_synthesize":
+                # take-SELECTION params (best_of, min_f0st, ...) are NOT in
+                # synth_hash, so the cache would serve the old winning take and
+                # ignore the new setting; clear the takes so s4 re-synthesizes.
+                n = M.clear_synth(cfg, v, langs)
+                logging.info("--force: cleared %d cached takes for %s %s — "
+                             "take-selection params re-apply", n, langs, v)
             STAGES[stage](cfg, v, langs)
         return
     if a.cmd == "qc":
@@ -362,11 +372,21 @@ def main() -> None:
         autopilot_mod.main(cfg, a.rest, langs, a.spec, mux=a.mux)
         return
 
+    s4_idx = ORDER.index("s4_synthesize")
     for v in a.rest:  # run
         # allow running without the source video when s1/s2 are already cached
         # (the remote GPU path uploads work/ + ref/, never the 4K video)
         if not Path(v).exists() and not M.manifest_path(cfg, v).exists():
             sys.exit(f"not found: {v} (and no cached manifest — run s1+s2 first)")
+        # --force on a run that reaches s4: discard cached takes so changed
+        # take-selection params (best_of, min_f0st, ...) actually re-apply
+        # (synth_hash omits them by design). Guarded so it can't wipe state a
+        # from-a-later-stage run depends on, or run before s1/s2 exist.
+        if a.force and M.manifest_path(cfg, v).exists() \
+                and ORDER.index(a.from_stage) <= s4_idx:
+            n = M.clear_synth(cfg, v, langs)
+            logging.info("--force: cleared %d cached takes for %s %s — "
+                         "take-selection params re-apply", n, langs, v)
         logging.info("=== %s ===", v)
         started = False
         for name in ORDER:
