@@ -28,11 +28,12 @@ def _initial_prompt(a: dict) -> str | None:
     if a.get("glossary_prompt", True):
         terms: list[str] = []
         for p in sorted(Path("glossary").glob("*.csv")):
-            for r in csv.reader(p.open(encoding="utf-8")):
-                if r and len(r) >= 2 and not r[0].startswith("#"):
-                    t = r[0].strip()
-                    if t and t not in terms:
-                        terms.append(t)
+            with p.open(encoding="utf-8") as fh:
+                for r in csv.reader(fh):
+                    if r and len(r) >= 2 and not r[0].startswith("#"):
+                        t = r[0].strip()
+                        if t and t not in terms:
+                            terms.append(t)
         if terms:
             parts.append("Словник уроку: " + ", ".join(terms) + ".")
     prompt = " ".join(parts)[:600]

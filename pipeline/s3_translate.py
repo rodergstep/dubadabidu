@@ -74,8 +74,9 @@ def _glossary(lang: str) -> str:
     p = Path("glossary") / f"{lang}.csv"
     if not p.exists():
         return ""
-    rows = [f"  {r[0]} -> {r[1]}" for r in csv.reader(p.open(encoding="utf-8"))
-            if len(r) >= 2 and not r[0].startswith("#")]
+    with p.open(encoding="utf-8") as fh:
+        rows = [f"  {r[0]} -> {r[1]}" for r in csv.reader(fh)
+                if len(r) >= 2 and not r[0].startswith("#")]
     return ("Mandatory terminology (Ukrainian -> target):\n" + "\n".join(rows)) if rows else ""
 
 
