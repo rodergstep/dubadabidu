@@ -28,7 +28,7 @@ s4 — hash mismatch re-synthesizes automatically), and re-run from s4.
 from __future__ import annotations
 import json, hashlib
 from pathlib import Path
-from .text_norm import NORM_VERSIONS
+from .text_norm import NORM_VERSIONS, NUM_VERSIONS
 
 
 def video_workdir(cfg: dict, video: str | Path) -> Path:
@@ -93,9 +93,27 @@ def synth_hash(text: str, lang: str, tts_cfg: dict) -> str:
             key_data["ins"] = tts_cfg["instruct_text"]
         if tts_cfg.get("indextts_duration_ratio"):
             key_data["dr"] = tts_cfg["indextts_duration_ratio"]
+    if engine == "qwen":  # clone mode (+ ref transcript when used) change output
+        x_only = bool(tts_cfg.get("qwen_x_vector_only", True)) \
+            or not tts_cfg.get("reference_text")
+        key_data["xv"] = x_only
+        if not x_only:
+            key_data["rt"] = tts_cfg.get("reference_text", "")
+    if engine == "voxcpm":  # style prefix + sampler params change output
+        if tts_cfg.get("instruct_text"):
+            key_data["ins"] = tts_cfg["instruct_text"]
+        if tts_cfg.get("voxcpm_cfg_value") is not None:
+            key_data["vcfg"] = tts_cfg["voxcpm_cfg_value"]
+        if tts_cfg.get("voxcpm_timesteps") is not None:
+            key_data["vts"] = tts_cfg["voxcpm_timesteps"]
     if engine == "chatterbox":  # only chatterbox applies normalize_for_tts
         nv = NORM_VERSIONS.get(lang, 1)
         if nv > 1:  # v1 adds no key so pre-existing caches stay valid
             key_data["nv"] = nv
+    # number localization is applied to EVERY engine, so its version salts all
+    # engines' hashes (v1/absent adds no key -> pre-existing caches stay valid)
+    numv = NUM_VERSIONS.get(lang, 1)
+    if numv > 1:
+        key_data["numv"] = numv
     key = json.dumps(key_data, sort_keys=True, ensure_ascii=False)
     return hashlib.sha1(key.encode()).hexdigest()[:8]

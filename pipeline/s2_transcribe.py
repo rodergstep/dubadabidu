@@ -1,21 +1,45 @@
-"""s2: faster-whisper 1.2.1 (large-v3, uk) -> manifest utterances.
+"""s2: Whisper large-v3 (uk) -> manifest utterances.
 
-Merging logic lives in pipeline/logic.py (unit-tested). AFTER THIS STAGE:
-hand-review text_uk in the manifest — one terminology fix here propagates
-to all target languages.
+Transcription backend (faster-whisper on CUDA/CPU, mlx-whisper on Apple
+Silicon) is chosen in pipeline/asr.py; this stage only shapes the normalized
+segments into the manifest. Merging logic lives in pipeline/logic.py
+(unit-tested). AFTER THIS STAGE: hand-review text_uk in the manifest — one
+terminology fix here propagates to all target languages.
 """
 from __future__ import annotations
-import logging, subprocess
+import csv, logging, subprocess
+from pathlib import Path
 from . import manifest as M
-from .device import whisper_device
+from .asr import transcribe
 from .logic import merge_segments, split_at_pauses
 
 log = logging.getLogger("dubadabidu.s2")
 
 
-def run(cfg: dict, video: str) -> None:
-    from faster_whisper import WhisperModel
+def _initial_prompt(a: dict) -> str | None:
+    """Bias the decoder toward the course's domain terms — the exact words
+    otherwise fixed by hand in the manifest review. Built from the UKRAINIAN
+    side of glossary/*.csv (deduped across languages) plus any free-text
+    asr.initial_prompt. Whisper reads only its last ~224 tokens, so keep it
+    short; deterministic, so segmentation stays reproducible."""
+    parts = []
+    if a.get("initial_prompt", "").strip():
+        parts.append(a["initial_prompt"].strip())
+    if a.get("glossary_prompt", True):
+        terms: list[str] = []
+        for p in sorted(Path("glossary").glob("*.csv")):
+            for r in csv.reader(p.open(encoding="utf-8")):
+                if r and len(r) >= 2 and not r[0].startswith("#"):
+                    t = r[0].strip()
+                    if t and t not in terms:
+                        terms.append(t)
+        if terms:
+            parts.append("Словник уроку: " + ", ".join(terms) + ".")
+    prompt = " ".join(parts)[:600]
+    return prompt or None
 
+
+def run(cfg: dict, video: str) -> None:
     wd = M.video_workdir(cfg, video)
     old = M.manifest_path(cfg, video)
     if old.exists():
@@ -31,22 +55,18 @@ def run(cfg: dict, video: str) -> None:
             log.warning("re-transcribing DISCARDS existing translations/synth "
                         "state (%s) — old manifest kept at %s", done, bak.name)
     a = cfg["asr"]
-    dev, ctype = whisper_device(a.get("device", "auto"))
-    log.info("ASR %s on %s/%s", a["model"], dev, ctype)
-    model = WhisperModel(a["model"], device=dev, compute_type=ctype)
-    segments, _ = model.transcribe(
-        str(wd / "vocals.wav"), language=cfg["source_language"],
-        vad_filter=a["vad_filter"], word_timestamps=True,
-        temperature=0.0)  # no fallback sampling: segmentation must be reproducible
+    prompt = _initial_prompt(a)
+    if prompt:
+        log.info("initial_prompt (%d chars): %s", len(prompt), prompt[:80])
+    segments = transcribe(a, wd / "vocals.wav", cfg["source_language"], prompt)
 
     raw = []
     for s in segments:
-        words = [{"start": w.start, "end": w.end, "word": w.word}
-                 for w in (s.words or [])]
+        words = s.get("words") or []
         if words and a.get("pause_split_s"):
             raw += split_at_pauses(words, a["pause_split_s"])
         else:
-            raw.append({"start": s.start, "end": s.end, "text": s.text})
+            raw.append({"start": s["start"], "end": s["end"], "text": s["text"]})
     merged = merge_segments(raw, a["max_chars"], a["max_seconds"])
 
     dur = float(subprocess.check_output(

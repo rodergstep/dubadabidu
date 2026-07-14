@@ -10,7 +10,9 @@ stretch" stack from the automatic-dubbing literature.
 ## Stages (each independently re-runnable, cached via manifest)
 
 ```
-s1_extract     ffmpeg audio extraction + Demucs vocal/background separation
+s1_extract     ffmpeg audio extraction + BS-RoFormer vocal/background separation
+               (audio-separator; ~12.9 dB vocal SDR vs htdemucs' ~9 — Demucs
+               stays as the fallback backend, separation.backend: demucs)
 s2_transcribe  faster-whisper large-v3 (uk) → utterance manifest (EDIT THIS BY HAND!)
 s3_translate   LLM translation, ±10% isometric constraint, glossary, per-segment
 s4_synthesize  Chatterbox Multilingual v3, cloned from your reference clip, cfg=0
@@ -26,18 +28,21 @@ The central data structure is `work/<video>/manifest.json` — one editable JSON
 (idea borrowed from Softcatala/open-dubbing's utterance_metadata). Fix a mistranslation
 there, re-run from s4, and only the changed segments are re-synthesized (content-hash cache).
 
-## Verified versions (checked on PyPI/GitHub 2026-07-07)
+## Verified versions (checked on PyPI/GitHub 2026-07-13)
 
 | Component | Version | Notes |
 |---|---|---|
 | Python | 3.11.x | recommended |
-| torch / torchaudio | 2.12.1 / 2.11.0 | let chatterbox-tts resolve its own pin if it conflicts |
+| torch / torchaudio | **2.6.0 / 2.6.0** | the CEILING, not stale: chatterbox-tts 0.1.7 (latest) hard-pins 2.6.0 on py<3.14; torch>=2.9 needs a py3.14 venv (untested migration — see requirements.txt) |
 | faster-whisper | 1.2.1 | model `large-v3` |
 | chatterbox-tts | 0.1.7 | MIT; Multilingual **v3** weights auto-download from HF `ResembleAI/chatterbox` |
 | whisperx | 3.8.6 | optional, word-level alignment for tighter subs |
-| demucs | 4.0.1 | model `htdemucs` |
+| audio-separator | 0.30.2 | BS-RoFormer separation; numpy<2 ceiling (chatterbox), install WITH pins (requirements.txt) |
+| demucs | 4.1.0 | fallback backend, model `htdemucs` |
+| voxcpm | 2.0.3 | VoxCPM2 bake-off engine (GPU); install WITH pins (THIRD_PARTY.md) |
+| qwen_tts | git-clone | Qwen3-TTS bake-off engine (GPU); Apache-2.0, ~4 GB VRAM (THIRD_PARTY.md) |
 | edge-tts | 7.2.8 | free fallback voices (no cloning) |
-| openai SDK | 2.44.0 | universal client → DeepSeek / OpenAI / LM Studio / Ollama via `base_url` |
+| openai SDK | 2.45.0 | universal client → DeepSeek / OpenAI / LM Studio / Ollama via `base_url` |
 | anthropic SDK | 0.116.0 | optional alternative translator |
 | jiwer | latest | WER for QC |
 | ffmpeg | 7.x system binary | required in PATH |
@@ -54,7 +59,12 @@ dubadabidu doctor                    # validates everything before you start
 ```
 
 ### macOS reality check
-Your Mac has no CUDA. faster-whisper runs CPU (int8) — OK but slow for 1h videos;
+Your Mac has no CUDA. For ASR, `pip install .[mac]` pulls in **mlx-whisper**
+(Whisper via Apple's Metal/ANE, ~4-5× vs CPU int8) and `asr.backend: auto`
+picks it up automatically — makes local transcription of full lessons
+tolerable. mlx-whisper has no VAD, but s1 already isolates vocals so that gap
+is minor; the rented CUDA box auto-resolves back to faster-whisper + VAD.
+Without `.[mac]`, faster-whisper runs CPU (int8) — OK but slow for 1h videos;
 Chatterbox DOES run on MPS (validated 2026-07-09 on test60, ~16 it/s sampling —
 fine for short clips, slow for full lessons). Recommended split:
 **prototype on the Mac with `--engine edge`** (free MS voices, CPU, validates the
@@ -146,13 +156,17 @@ export TRANSLATE_API_KEY=...   # real key for remote; any non-empty string for l
 
 | Provider | `base_url` | `model` | `response_format` | `TRANSLATE_API_KEY` |
 |---|---|---|---|---|
-| DeepSeek (remote) | `https://api.deepseek.com` | `deepseek-v4-flash` | `json_object` | real key |
+| **DeepSeek (remote, DEFAULT)** | `https://api.deepseek.com` | `deepseek-v4-flash` | `json_object` | real key |
 | OpenAI (remote) | `https://api.openai.com/v1` | `gpt-5-mini` | `json_object` | real key |
-| **LM Studio (local)** | `http://127.0.0.1:1234/v1` | e.g. `google/gemma-4-e4b` | `json_schema` | any non-empty string |
+| LM Studio (local) | `http://127.0.0.1:1234/v1` | e.g. `google/gemma-4-e4b` | `json_schema` | any non-empty string |
 | Ollama (local) | `http://localhost:11434/v1` | e.g. `qwen3:32b` | `json_object` | any non-empty string |
 
-Remote and local are interchangeable — switch back to DeepSeek/OpenAI anytime by
-restoring its `base_url`/`model`/`response_format` triple and setting a real key.
+DeepSeek is the default: every downstream stage inherits translation quality,
+it costs <$1/video with automatic context caching, and small local models were
+the weakest link of the whole chain. Local endpoints remain a pure config swap
+(restore a `base_url`/`model`/`response_format` triple above) for offline work.
+Optional `translation.reflect_model` runs only the reflect (critic) pass of the
+3-pass scheme on a stronger model — the cheapest known quality lever.
 
 **`response_format`** — providers diverge on how they enforce JSON output:
 `json_object` (DeepSeek/OpenAI/Ollama), `json_schema` (LM Studio — strict schema,
@@ -202,6 +216,10 @@ your SSH key registered with RunPod.
 
 ```bash
 dubadabidu remote smoke                            # ~$0.02 lifecycle check
+dubadabidu remote setup-check                      # ~$0.30: dry-run the bake-off
+                                                   #   installs, report which
+                                                   #   engines import (do this
+                                                   #   BEFORE a real bakeoff)
 dubadabidu remote run  input/a.mp4 --langs fr --budget 10   # translate+synth on GPU
 dubadabidu remote bakeoff input/a.mp4 --langs en   # engine bake-off on GPU
 dubadabidu remote autopilot input/a.mp4            # accept/fix loop on GPU

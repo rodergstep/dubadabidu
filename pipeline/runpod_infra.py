@@ -357,6 +357,58 @@ REMOTE_TASK = {
            "--overlay config.gpu.yaml --overlay config.deepseek.yaml",
 }
 
+# The base image (runpod/pytorch, Ubuntu) lacks rsync/ffmpeg — install them
+# BEFORE the project sync (rsync-over-ssh needs rsync on the pod). The retry loop
+# rides out the container's own boot-time apt holding the dpkg lock. Ubuntu's apt
+# ffmpeg carries librubberband, so s5 auto-selects the rubberband stretcher
+# (cleaner than atempo); probe it and log NON-fatally (atempo is a valid
+# fallback, so a missing filter must not fail setup — the probe block exits 0).
+APT_SETUP = ("export DEBIAN_FRONTEND=noninteractive; "
+             "for i in 1 2 3 4 5 6; do "
+             "apt-get update && apt-get install -y rsync ffmpeg && break; "
+             "echo \"[apt] attempt $i failed (lock?), retrying in 10s\"; "
+             "sleep 10; done; which rsync && which ffmpeg && "
+             "{ ffmpeg -hide_banner -filters 2>/dev/null | grep -q rubberband "
+             "&& echo '[ffmpeg] rubberband filter present — s5 clean stretch' "
+             "|| echo '[ffmpeg] WARNING: no rubberband filter, s5 uses atempo'; }")
+
+# faster-whisper short name -> import module, for the engines the bake-off/run
+# may need on the pod. edge is CPU/PyPI (no git-clone) so it's not probed here.
+ENGINE_MODULE = {"chatterbox": "chatterbox", "cosyvoice": "cosyvoice",
+                 "indextts": "indextts", "voxcpm": "voxcpm", "qwen": "qwen_tts"}
+
+
+def _install_engines(rp: dict, host: str, port: int, remote: str,
+                     needed: list[str], fail_note: str) -> None:
+    """Run each engine's engine_setup snippet on the pod (in the venv). chatterbox
+    /edge have no snippet and are skipped. A failure is non-fatal here — the
+    snippet's own guard restores the torch pin, and the caller decides what an
+    unavailable engine means (bake-off skips it; a run's s4 raises)."""
+    for eng in needed:
+        snip = rp.get("engine_setup", {}).get(eng)
+        if not snip:
+            continue
+        log.info("installing engine on pod: %s", eng)
+        if ssh_exec(rp, host, port,
+                    f"cd {remote}; . .venv/bin/activate; {snip}",
+                    timeout=2400) != 0:
+            log.warning("engine %s setup failed — %s", eng, fail_note)
+
+
+def _assert_baseline(rp: dict, host: str, port: int, remote: str) -> bool:
+    """Confirm the chatterbox incumbent still imports after the challenger
+    installs. The per-snippet guards restore the torch pin on a DETECTED break,
+    but engine B installed after A can still clobber A's already-verified deps —
+    so re-check once here before spending compute. Reinstalls the pins if broken;
+    returns True only if chatterbox imports at the end."""
+    probe = (f"cd {remote}; . .venv/bin/activate; "
+             "if ! python -c 'import chatterbox' 2>/dev/null; then "
+             "echo '[baseline] chatterbox broke after engine installs — "
+             "restoring torch/numpy pins'; "
+             "pip install -q torch==2.6.0 torchaudio==2.6.0 'numpy>=1.24,<2'; "
+             "python -c 'import chatterbox'; fi")
+    return ssh_exec(rp, host, port, probe, timeout=600) == 0
+
 
 def remote_run(cfg: dict, video: str, langs: list[str], task: str,
                budget_usd: float | None = None) -> bool:
@@ -393,16 +445,9 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # arm the independent pod-side self-destruct FIRST — before the long
         # install — so a crash during setup can't leave a billing pod
         arm_pod_watchdog(rp, host, port, deadline - time.time())
-        # 0. the base image (runpod/pytorch, Ubuntu) lacks rsync/ffmpeg — install
-        # them BEFORE the project sync (rsync-over-ssh needs rsync on the pod).
-        # Retry loop: the container runs its own apt at boot and can hold the
-        # dpkg lock briefly, which failed an earlier single-shot attempt.
-        apt = ("export DEBIAN_FRONTEND=noninteractive; "
-               "for i in 1 2 3 4 5 6; do "
-               "apt-get update && apt-get install -y rsync ffmpeg && break; "
-               "echo \"[apt] attempt $i failed (lock?), retrying in 10s\"; "
-               "sleep 10; done; which rsync && which ffmpeg")
-        if ssh_exec(rp, host, port, apt, timeout=600) != 0:
+        # 0. base image lacks rsync/ffmpeg — install them BEFORE the project sync
+        # (rsync-over-ssh needs rsync on the pod). See APT_SETUP.
+        if ssh_exec(rp, host, port, APT_SETUP, timeout=600) != 0:
             raise RuntimeError("could not install rsync/ffmpeg on the pod after "
                                "retries (see log for the apt error)")
         # 1. project up — EXCLUDE input/ (the 4K source video is never needed on
@@ -414,20 +459,33 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
                     timeout=1800) != 0:
             raise RuntimeError("remote setup failed: dependency install error "
                                "OR CUDA unavailable (check the log's CUDA: line)")
-        # 2.5 bake-off challengers (cosyvoice/indextts) are git-clone installs;
-        # run each configured engine_setup snippet. A failure is non-fatal — the
-        # bake-off just marks that engine unavailable and compares the rest.
+        # 2.5 git-clone engines (cosyvoice/indextts/qwen) must be installed on the
+        # pod before the task runs. The bake-off lists them explicitly; run and
+        # autopilot need whatever engine_by_lang routes the requested langs to
+        # (e.g. en -> indextts for emotion_from_source). chatterbox/edge need no
+        # snippet and are skipped. A failure is non-fatal: the bake-off marks the
+        # engine unavailable, and for a run s4 raises an actionable error for the
+        # langs that needed it.
         if task == "bakeoff":
-            for eng in cfg.get("bakeoff", {}).get("engines", []):
-                snip = rp.get("engine_setup", {}).get(eng)
-                if not snip:
-                    continue
-                log.info("installing bake-off engine on pod: %s", eng)
-                if ssh_exec(rp, host, port,
-                            f"cd {remote}; . .venv/bin/activate; {snip}",
-                            timeout=2400) != 0:
-                    log.warning("engine %s setup failed — bake-off will mark it "
-                                "unavailable", eng)
+            needed = list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
+        else:
+            tc = cfg.get("tts", {})
+            ebl = tc.get("engine_by_lang", {})
+            needed = list(dict.fromkeys(ebl.get(lg, tc.get("engine")) for lg in langs))
+        _install_engines(rp, host, port, remote, needed,
+                         "bake-off will mark it unavailable" if task == "bakeoff"
+                         else "s4 will fail for langs routed to it")
+        # if a challenger install collided with chatterbox's deps, the incumbent
+        # baseline may be dead. For a bake-off that makes every verdict
+        # meaningless, so verify (and restore) before spending compute; fail fast
+        # if it can't be healed rather than run a comparison with no incumbent.
+        if any(rp.get("engine_setup", {}).get(e) for e in needed):
+            if not _assert_baseline(rp, host, port, remote) and task == "bakeoff":
+                raise RuntimeError(
+                    "chatterbox baseline unimportable after engine installs "
+                    "(even post-restore) — aborting bake-off: no incumbent means "
+                    "no valid verdict. Bake off FEWER engines per pod run, or run "
+                    "`remote setup-check` first to see which challenger collided.")
         # 3. run the task, self-capped by remote `timeout` to the deadline.
         # Pass the (low-privilege) translation key inline — an SSH session may
         # not inherit the pod's container env, and s3 needs it. Not logged.
@@ -492,6 +550,69 @@ def smoke_test(cfg: dict) -> bool:
     finally:
         _terminate_tracked()   # state-file driven: fires even if provision crashed
         print("[smoke] cleanup done (pod terminated, state cleared)")
+
+
+def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
+    """Dry-run the bake-off's install path on ONE cheap pod, then report which
+    engines actually import — WITHOUT running a comparison. Provisions, installs
+    the same base deps + every engine_setup snippet a `remote bakeoff` would, runs
+    an import probe (torch version + CUDA + one line per engine), and terminates.
+    ~$0.30 and ~15 min to surface unpinned-repo drift, a wrong checkpoint id, or a
+    torch-pin collision BEFORE a full billing bake-off hits them. Returns True iff
+    the incumbent (chatterbox) imports at the end — a False means the shared venv
+    is already poisoned and a bake-off from it would be worthless.
+    Terminates on every path (state-file driven)."""
+    rp = {**DEFAULTS, **cfg.get("runpod", {})}
+    budget = float(budget_usd if budget_usd is not None else rp["budget_usd"])
+    sweep_orphans()
+    engines = list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
+    remote = ("/workspace/dubadabidu" if rp.get("network_volume_id")
+              else rp["remote_dir"])
+    # always probe chatterbox (the incumbent) even if it's not in bakeoff.engines
+    probe_mods = list(dict.fromkeys(
+        ["chatterbox"] + [ENGINE_MODULE[e] for e in engines if e in ENGINE_MODULE]))
+    deadline = _deadline(rp, budget)
+    pid = None
+    try:
+        pid, host, port = provision(rp, deadline)
+        arm_pod_watchdog(rp, host, port, deadline - time.time())
+        if ssh_exec(rp, host, port, APT_SETUP, timeout=600) != 0:
+            raise RuntimeError("apt rsync/ffmpeg install failed")
+        # code + ref only — no work/ needed for an install check (skip the upload)
+        rsync(rp, port, "./", f"{rp['ssh_user']}@{host}:{remote}/",
+              extra_excludes=("input", "output", "work"))
+        if ssh_exec(rp, host, port, REMOTE_SETUP.format(dir=remote),
+                    timeout=1800) != 0:
+            raise RuntimeError("remote setup failed: dependency install error OR "
+                               "CUDA unavailable (check the log's CUDA: line)")
+        _install_engines(rp, host, port, remote, engines,
+                         "will report FAIL in the probe below")
+        # import probe: one line per engine so the scorecard is skimmable. The
+        # loop swallows per-engine errors so a missing engine doesn't hide the
+        # others; the final chatterbox check sets the exit code.
+        probe = (
+            "import torch\n"
+            "print('[probe] torch', torch.__version__, '| cuda', "
+            "torch.cuda.is_available())\n"
+            f"mods = {probe_mods!r}\n"
+            "for m in mods:\n"
+            "    try:\n"
+            "        __import__(m); print('[probe] OK  ', m)\n"
+            "    except Exception as e:\n"
+            "        print('[probe] FAIL', m, '->', repr(e)[:100])\n"
+            "import importlib.util, sys\n"
+            "sys.exit(0 if importlib.util.find_spec('chatterbox') else 1)\n")
+        cmd = (f"cd {remote}; . .venv/bin/activate; "
+               f"python3 - <<'PYEOF'\n{probe}\nPYEOF")
+        rc = ssh_exec(rp, host, port, cmd, timeout=600)
+        print(f"[setup-check] probe rc={rc} "
+              f"({'chatterbox baseline OK' if rc == 0 else 'BASELINE BROKEN'})")
+        print("[setup-check] read the [probe] lines above: an engine marked FAIL "
+              "would be skipped (unavailable) in a real bake-off.")
+        return rc == 0
+    finally:
+        _terminate_tracked()
+        print("[setup-check] cleanup done (pod terminated, state cleared)")
 
 
 def status() -> None:

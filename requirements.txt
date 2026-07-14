@@ -1,7 +1,23 @@
-# Verified on PyPI 2026-07-07. Install chatterbox-tts FIRST (it pins torch/torchaudio).
+# Verified on PyPI 2026-07-13. Install chatterbox-tts FIRST (it pins torch/torchaudio).
+# TORCH CEILING: chatterbox-tts 0.1.7 (the LATEST release) hard-pins
+# torch/torchaudio==2.6.0 on python <3.14; its own metadata allows torch>=2.9
+# only on python >=3.14. So on py3.11 torch 2.6.0 is not stale — it is the
+# newest torch this stack can run. The escape hatch (py3.14 venv: ctranslate2 +
+# onnxruntime ship cp314 wheels) is an untested migration — attempt it only in
+# a THROWAWAY venv, never in this one.
 chatterbox-tts==0.1.7
 faster-whisper==1.2.1
-demucs==4.0.1
+demucs==4.1.0            # fallback separation backend (separation.backend: demucs)
+# RoFormer separation (s1 default; validated 2026-07-13 on test30). [cpu] only
+# picks the onnxruntime flavor — RoFormer ckpts run on torch (CUDA/MPS auto).
+# 0.30.2 is the numpy<2 CEILING (latest 0.44.3 needs numpy>=2, which chatterbox
+# forbids on py<3.13) — another chatterbox-imposed ceiling, not a stale pin.
+# MUST be installed WITH the torch/numpy constraints on the same command line,
+# or its resolver bumps torch 2.6.0 -> 2.13 and numpy -> 2.x:
+#   uv pip install "audio-separator[cpu]==0.30.2" "torch==2.6.0" "torchaudio==2.6.0" "numpy>=1.24,<2"
+# Its dep resemblyzer declares the ancient `typing` backport — leave `typing`
+# UNINSTALLED on py>=3.5 (the lone pip-check complaint about it is harmless).
+audio-separator[cpu]==0.30.2
 # NOTE: chatterbox-tts 0.1.7 pins torch/torchaudio 2.6.0, on which torchaudio.save
 # works natively — torchcodec is NOT needed. torchcodec==0.14.0 requires torchaudio>=2.9
 # and fails to load (libtorchcodec ABI mismatch) on 2.6.0, so it is intentionally omitted.
@@ -11,7 +27,7 @@ srt==3.5.3
 soundfile==0.14.0
 librosa==0.11.0
 pydub==0.25.1
-openai==2.44.0           # universal client: OpenAI / DeepSeek / Ollama via base_url
+openai==2.45.0           # universal client: OpenAI / DeepSeek / Ollama via base_url
 anthropic==0.116.0       # optional alternative translator
 jiwer                    # WER for qc/backcheck
 num2words                # digit->word expansion in backcheck WER normalization

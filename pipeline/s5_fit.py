@@ -12,7 +12,7 @@ import soundfile as sf
 from . import manifest as M
 from .logic import choose_placement, retime_step
 from .s3_translate import shorten as llm_shorten
-from .tts_engine import synth_best_of
+from .tts_engine import synth_best_of, with_source_emotion
 
 log = logging.getLogger("dubadabidu.s5")
 
@@ -22,9 +22,34 @@ def _dur(p: Path) -> float:
     return i.frames / i.samplerate
 
 
-def _atempo(src: Path, dst: Path, tempo: float) -> None:
+_STRETCH_FILTER: str | None = None
+
+
+def _stretch_filter(fit_cfg: dict) -> str:
+    """rubberband (R3 engine — keeps consonant transients cleaner than atempo's
+    WSOLA) when ffmpeg is built with librubberband, else atempo. Probed once.
+    fit.stretcher: auto (default) | rubberband | atempo."""
+    global _STRETCH_FILTER
+    want = fit_cfg.get("stretcher", "auto")
+    if want == "atempo":
+        return "atempo"
+    if _STRETCH_FILTER is None:
+        filters = subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
+                                 capture_output=True, text=True).stdout
+        _STRETCH_FILTER = "rubberband" if "rubberband" in filters else "atempo"
+        if _STRETCH_FILTER == "atempo":
+            (log.warning if want == "rubberband" else log.info)(
+                "ffmpeg lacks the rubberband filter (needs a librubberband "
+                "build); stretching with atempo")
+    return _STRETCH_FILTER
+
+
+def _atempo(src: Path, dst: Path, tempo: float, fit_cfg: dict) -> None:
+    flt = _stretch_filter(fit_cfg)
+    spec = (f"rubberband=tempo={tempo:.4f}" if flt == "rubberband"
+            else f"atempo={tempo:.4f}")
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(src),
-                    "-filter:a", f"atempo={tempo:.4f}", str(dst)], check=True)
+                    "-filter:a", spec, str(dst)], check=True)
 
 
 def run(cfg: dict, video: str, langs: list[str]) -> None:
@@ -52,16 +77,18 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 u["start"], prev_end, next_start, drift_max,
                 0.0 if last else min_gap, hard_end=man["duration"])
             candidates = [tr["text"]] + tr.get("variants", [])
+            # same per-segment emotion prompt as s4, so variant hashes match
+            tu = with_source_emotion(t, wd, u, lang)
 
             def seg_wav(text: str) -> Path:
-                h = M.synth_hash(text, lang, t)
+                h = M.synth_hash(text, lang, tu)
                 wav = wd / "seg" / lang / f"{u['id']}_{h}.wav"
                 if not wav.exists():
                     # same gate/ranking as s4: a variant that replaces the
                     # primary in the mix must not be an ungated single take.
                     # target = this segment's actual slot: a variant exists
                     # to FIT, so fitting takes are preferred outright.
-                    synth_best_of(text, lang, wav, t, target_dur=slot or None)
+                    synth_best_of(text, lang, wav, tu, target_dur=slot or None)
                 return wav
 
             soft = f.get("soft_tempo", 1.06)
@@ -98,11 +125,11 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 placed = (wav, 1.0, "ok" if ci == 0 else "shortened")
             elif verdict == "stretch":
                 fitted = wav.with_name(wav.stem + "_fit.wav")
-                _atempo(wav, fitted, tempo)
+                _atempo(wav, fitted, tempo, f)
                 placed = (fitted, tempo, "stretched" if ci == 0 else "shortened")
             else:
                 fitted = wav.with_name(wav.stem + "_fit.wav")
-                _atempo(wav, fitted, f["max_tempo"])
+                _atempo(wav, fitted, f["max_tempo"], f)
                 placed = (fitted, f["max_tempo"], "overflow")
                 log.warning("%s %s overflow (slot %.1fs)", lang, u["id"], slot)
             tr["fitted"] = str(placed[0].relative_to(wd))

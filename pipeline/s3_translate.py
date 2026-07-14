@@ -30,6 +30,9 @@ _JSON_SCHEMA = _segments_schema(
     ["id", "text", "variants"])
 _REFLECT_SCHEMA = _segments_schema(
     {"id": {"type": "string"}, "issues": {"type": "string"}}, ["id", "issues"])
+_ADEQUACY_SCHEMA = _segments_schema(
+    {"id": {"type": "string"}, "score": {"type": "integer"},
+     "issue": {"type": "string"}}, ["id", "score", "issue"])
 _TERMS_SCHEMA = {
     "type": "object",
     "properties": {"terms": {"type": "array", "items": {
@@ -178,13 +181,13 @@ def shorten(cfg: dict, lang: str, text_uk: str, text: str, max_chars: int,
 
 
 def _chat(client, tcfg, sysmsg: str, user: str, retries: int = 4,
-          schema: dict = _JSON_SCHEMA) -> dict:
+          schema: dict = _JSON_SCHEMA, model: str | None = None) -> dict:
     rformat = _response_format(tcfg, schema)
     delay = 2.0
     for attempt in range(retries + 1):
         try:
             resp = client.chat.completions.create(
-                model=tcfg["model"], temperature=0.3, timeout=120,
+                model=model or tcfg["model"], temperature=0.3, timeout=120,
                 response_format=rformat,
                 messages=[{"role": "system", "content": sysmsg},
                           {"role": "user", "content": user}])
@@ -195,6 +198,46 @@ def _chat(client, tcfg, sysmsg: str, user: str, retries: int = 4,
             log.warning("LLM call failed (%s); retry in %.0fs", e, delay)
             time.sleep(delay)
             delay *= 2
+
+
+def _adequacy(ask, shared: str, batch: list, lang: str, flag: int,
+              tcfg: dict) -> None:
+    """LLM-judge each FINAL translation against its Ukrainian source; store
+    {score 1-5, issue} in tr[lang]['adequacy'] and log sub-threshold segments.
+    Never fatal — a judge failure must not abort a translated batch."""
+    sysmsg = (
+        f"You are a bilingual QA judge for Ukrainian -> {LANG_NAMES[lang]} "
+        f"dubbing of a painting course. For each segment, compare the "
+        f"{LANG_NAMES[lang]} translation ('tr') against the Ukrainian source "
+        f"('uk') and rate FAITHFULNESS 1-5 (5 = complete, accurate, natural "
+        f"dubbing; 3 = minor drift; 1 = wrong meaning or a dropped "
+        f"instruction). Weigh mistranslation, omitted instructions, wrong "
+        f"terminology, invented content — NOT length or word choice for timing. "
+        f"'issue' = a short reason, or 'ok' when the score is 5.\n"
+        f'Output STRICT JSON: {{"segments":[{{"id":"..","score":5,"issue":"ok"}}]}}'
+        + (("\n\n" + shared) if shared else ""))
+    payload = [{"id": u["id"], "uk": u["text_uk"], "tr": u["tr"][lang]["text"]}
+               for u in batch]
+    try:
+        scored = ask(sysmsg, payload, schema=_ADEQUACY_SCHEMA,
+                     model=tcfg.get("adequacy_model"))
+    except Exception as e:                     # judge is best-effort
+        log.warning("%s: adequacy judge failed (%s); skipping batch", lang, e)
+        return
+    flagged = []
+    for u in batch:
+        s = scored.get(u["id"])
+        if not s:
+            continue
+        score = int(s.get("score", 0))
+        u["tr"][lang]["adequacy"] = {"score": score,
+                                     "issue": s.get("issue", "").strip()}
+        if score < flag:
+            flagged.append((u["id"], score, s.get("issue", "")))
+    if flagged:
+        log.warning("%s: %d/%d below adequacy %d: %s", lang, len(flagged),
+                    len(batch), flag,
+                    ", ".join(f"{i}({sc}:{iss[:40]})" for i, sc, iss in flagged))
 
 
 def run(cfg: dict, video: str, langs: list[str]) -> None:
@@ -244,11 +287,15 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         sys_draft = _prompt(lang, tol, nvar) + "\n\n" + shared
         sys_reflect = _prompt(lang, tol, nvar, "translate_reflect") + "\n\n" + shared
         sys_adapt = _prompt(lang, tol, nvar, "translate_adapt") + "\n\n" + shared
+        # adequacy judge sees terminology (glossary + terms) but not the full
+        # transcript/pace context — it grades faithfulness, not length.
+        adeq_shared = "\n\n".join(x for x in [_glossary(lang), terms] if x)
+        flag = int(tcfg.get("adequacy_flag", 3))
 
-        def _ask(sysmsg, payload, schema=_JSON_SCHEMA):
+        def _ask(sysmsg, payload, schema=_JSON_SCHEMA, model=None):
             data = _chat(client, tcfg, sysmsg,
                          json.dumps({"segments": payload}, ensure_ascii=False),
-                         schema=schema)
+                         schema=schema, model=model)
             by_id = {s["id"]: s for s in data.get("segments", [])}
             dropped = [p for p in payload if p["id"] not in by_id]
             if dropped:  # small models drop segments; a singleton request is
@@ -258,7 +305,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 for p in dropped:
                     data = _chat(client, tcfg, sysmsg,
                                  json.dumps({"segments": [p]}, ensure_ascii=False),
-                                 schema=schema)
+                                 schema=schema, model=model)
                     by_id.update({s["id"]: s for s in data.get("segments", [])})
             missing = [p["id"] for p in payload if p["id"] not in by_id]
             if missing:
@@ -273,7 +320,10 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             final = _ask(sys_draft, payload)
             if passes >= 3:  # translate -> reflect -> adapt
                 drafted = [dict(p, draft=final[p["id"]]["text"]) for p in payload]
-                critique = _ask(sys_reflect, drafted, schema=_REFLECT_SCHEMA)
+                # a stronger critic on the reflect pass only (~1/3 of tokens) is
+                # the cheapest known quality lever; unset => same model
+                critique = _ask(sys_reflect, drafted, schema=_REFLECT_SCHEMA,
+                                model=tcfg.get("reflect_model"))
                 adapted = [dict(d, issues=critique[d["id"]]["issues"])
                            for d in drafted]
                 n_ok = sum(1 for d in adapted if d["issues"].strip().lower() == "ok")
@@ -285,6 +335,12 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 u["tr"].setdefault(lang, {})
                 u["tr"][lang]["text"] = r["text"].strip()
                 u["tr"][lang]["variants"] = [v.strip() for v in r.get("variants", [])]
+            # adequacy gate: judge the FINAL text against the source. QC only
+            # ever checked the AUDIO (WER/sim/MOS) — a mistranslation passes all
+            # of those and only a human reading the review page caught it. Here
+            # a cheap LLM-judge flags unfaithful segments BEFORE synthesis.
+            if tcfg.get("adequacy_check", True):
+                _adequacy(_ask, adeq_shared, batch, lang, flag, tcfg)
             man["stages"][f"s3_{lang}"] = f"{min(i+bs, len(todo))}/{len(todo)}"
             M.save(cfg, video, man)
             log.info("%s: %d/%d", lang, min(i + bs, len(todo)), len(todo))

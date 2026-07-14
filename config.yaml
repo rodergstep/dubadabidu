@@ -8,6 +8,12 @@ asr:
   model: large-v3            # faster-whisper 1.2.1
   device: auto            # auto -> cuda | mps | cpu (mps unsupported by faster-whisper -> cpu)
   # compute_type is chosen automatically: float16 on cuda, int8 on cpu
+  # backend: auto -> mlx-whisper on Apple Silicon (Metal/ANE, ~4-5x vs CPU int8;
+  # `pip install .[mac]`), faster-whisper on cuda/cpu. Force with faster | mlx.
+  # mlx has no VAD — s1 vocal separation covers that on the local prototype path.
+  backend: auto
+  # mlx_model: optional MLX Whisper HF repo override (default: mapped from `model`,
+  # e.g. large-v3 -> mlx-community/whisper-large-v3-mlx)
   vad_filter: true
   # segment merging. Longer units = fewer prosody resets ("reading list" effect);
   # measured on sketch60: an 18s unit scored best-of-clip MOS 4.57, so the old
@@ -15,9 +21,23 @@ asr:
   max_chars: 300
   max_seconds: 20.0
   pause_split_s: 0.6   # split segments at word gaps > this; dub keeps source rhythm
+  # bias the decoder toward the course's domain terms (initial_prompt): the
+  # Ukrainian side of glossary/*.csv is injected automatically — the same terms
+  # you'd otherwise fix by hand in the manifest review
+  glossary_prompt: true
+  initial_prompt: ""   # optional extra style/vocabulary hint, prepended
 
 separation:
-  enabled: true              # false => skip Demucs, use denoised original as vocals
+  enabled: true              # false => skip separation, use denoised original as vocals
+  # roformer (default): BS-RoFormer via audio-separator — ~12.9 dB vocal SDR vs
+  # htdemucs' ~9 dB. Pays off 4x: cleaner ASR input, cleaner ref candidates
+  # (prep slices vocals.wav!), less UA voice ghosting in background.wav, and
+  # cleaner per-segment emotion slices. demucs stays as the fallback backend.
+  # NOTE: stems are cached per video — delete work/<video>/vocals.wav +
+  # background.wav and re-run s1 to re-separate after switching backends.
+  backend: roformer          # roformer | demucs
+  roformer_model: model_bs_roformer_ep_317_sdr_12.9755.ckpt
+  # vocals-specialist alternative: model_mel_band_roformer_ep_3005_sdr_11.4360.ckpt
   demucs_model: htdemucs
 
 translation:
@@ -27,28 +47,38 @@ translation:
   #   Ollama:     base_url http://localhost:11434/v1   model qwen3:32b
   #   LM Studio:  base_url http://127.0.0.1:1234/v1   model google/gemma-4-e4b
   #   OpenAI:     base_url https://api.openai.com/v1   model gpt-5-mini
-  # NOTE: LM Studio's default port is 1234; if it differs, match base_url to the
-  # "listening on ..." line in its server log. Switch back to a remote provider
-  # by restoring a URL/model pair above (+ its real API key).
-  base_url: http://127.0.0.1:1234/v1
-  model: google/gemma-4-e4b
+  # DEFAULT: DeepSeek — everything downstream (TTS, fit, subs, all 5 langs)
+  # inherits translation quality, and at <$1/video the local-model saving was
+  # the wrong trade. LM Studio/Ollama remain config-only swaps (see the LM
+  # Studio notes in README; set response_format: json_schema for it).
+  base_url: https://api.deepseek.com
+  model: deepseek-v4-flash
+  # reflect_model: a stronger critic for the middle pass only (~1/3 of tokens;
+  # the cheapest known quality lever for the 3-pass scheme). Unset => `model`.
+  # reflect_model: deepseek-v4
   api_key_env: TRANSLATE_API_KEY
   # Structured-output mode. json_object => DeepSeek/OpenAI/Ollama;
   # json_schema => LM Studio (strict, best for small local models);
   # text => no server enforcement, relies on the prompt.
-  response_format: json_schema
+  response_format: json_object
   batch_size: 20
   max_context_chars: 12000    # transcript-context cap for LOCAL endpoints only
                               # (small models overflow silently); remote
                               # providers always get the full transcript
   passes: 3                   # 1 = single-pass; 3 = translate -> reflect -> adapt
                               # (VideoLingo-style; worth it with a capable LLM)
+  adequacy_check: true        # LLM-judge each FINAL translation vs the source
+                              # (faithfulness 1-5) — catches mistranslations that
+                              # pass every AUDIO metric. Flagged on the report.
+  adequacy_flag: 3            # score below this is flagged for review
+  # adequacy_model: deepseek-v4   # optional stronger judge (defaults to `model`)
   isometric_tolerance: 0.10   # secondary char bound; primary constraint is the
                               # per-segment "seconds" slot (duration-targeted)
   n_short_variants: 2         # pre-generate shorter variants for overflow retries
 
 tts:
-  engine: chatterbox          # chatterbox | cosyvoice | edge (no cloning)
+  engine: chatterbox          # chatterbox | cosyvoice | indextts (en) |
+                              # voxcpm | qwen | edge (no cloning)
   engine_by_lang: {}          # per-lang override, e.g. {fr: cosyvoice} — set by
                               # the GPU bake-off (IMPROVEMENT_PLAN.md Phase C)
   reference_text: ""          # transcript of reference_wav — REQUIRED by
@@ -56,6 +86,12 @@ tts:
   cosyvoice_model_dir: pretrained_models/Fun-CosyVoice3-0.5B
   best_of: 3                  # auto-repair: re-roll low-scoring takes, keep the best
   rank_takes: true            # synth ALL best_of takes; pick by composite
+  # monotony re-roll: if every best_of take is flatter than min_f0st (pitch std
+  # in semitones), roll up to f0_reroll_max extra takes to find a livelier read.
+  # Take variance is the lever that works here — exaggeration is NOT a reliable
+  # liveliness knob (measured). ~2.2-2.4 ≈ lively chatterbox narration. 0 = off.
+  min_f0st: 2.2       # FREE lever: prefer takes clearing this floor at selection
+  f0_reroll_max: 0    # COSTLY escalation: extra takes if all flat (marginal; off)
                               # (windowed MOS + f0 liveliness + ECAPA sim) among
                               # takes clearing the MOS floor. false = legacy
                               # MOS-only early-stop (cheaper, blind to monotony
@@ -63,12 +99,23 @@ tts:
   retake_mos_below: 2.6       # threshold on WORST-3s-WINDOW MOS (systematically lower
                               # than take-average; 3s windows score pessimistically —
                               # the gate is deliberately eager, the pick is relative)
+  best_of_early_accept: true  # stop rolling takes once one clears a HIGH bar
+                              # (below) AND fits the slot AND passes WER — saves
+                              # GPU time on cheap pods; false = always synth all
+                              # best_of. Quality-safe (bar >> retake floor).
+  early_accept_mos: 3.6       # worst-3s-window MOS that counts as "already great"
+  early_accept_sim: 0.50      # raw ECAPA cosine floor for early accept
   reference_wav: ref/sketch_ref_08.wav   # extracted from sketch.mp4 vocals (echo-free);
                                          # beats studio ref_04 on RAW sim + MOS — composite
                                          # favored ref_04 only via per-ref calibration bias
   cfg_weight: 0.0             # REQUIRED: reference is Ukrainian, targets are not
                               # (re-validated by tune R2: 0.2/0.3 lost on sim AND mos)
   exaggeration: 0.55          # tune winner vs 0.4 / 0.7
+  emotion_from_source: false  # IndexTTS-2 only: per-segment emotion prompt =
+                              # THIS utterance's slice of the source vocals, so
+                              # the dub carries your original delivery segment by
+                              # segment (disentangled from timbre). Slices land
+                              # in work/<video>/emo/; hashes key on them.
   sample_rate: 24000
   edge_voices:                # fallback engine voices (edge-tts 7.2.8)
     en: en-US-AndrewNeural
@@ -81,6 +128,10 @@ tts:
 fit:
   max_tempo: 1.12             # max speed-up (prosodic-alignment literature: keep mild)
   soft_tempo: 1.06            # above this, prefer a shorter variant over stretching
+  stretcher: auto             # auto | rubberband | atempo. rubberband (R3) keeps
+                              # consonant transients cleaner than atempo's WSOLA;
+                              # auto uses it when ffmpeg is built with librubberband
+                              # and silently falls back to atempo otherwise
   # soft-anchor timeline (voice-over content, loose sync): a dub may start up
   # to drift_max_s after its source start, eating pause time instead of being
   # stretched/shortened; drift decays to zero at real source pauses. Replaces
@@ -91,6 +142,39 @@ fit:
 mix:
   bg_gain_db: -6
   lufs: -16
+  # duck the background under the dub voice (sidechaincompress keyed on the
+  # dub vocals). Kills the residual Ukrainian voice the separation instrumental
+  # stem still carries — the 'two voices' AI-dub tell. false = flat bg_gain_db.
+  duck: true
+  duck_threshold: 0.03   # key level (linear ~ -30 dB) that opens the duck
+  duck_ratio: 8          # how hard the background is pushed down under speech
+  duck_attack_ms: 5
+  duck_release_ms: 300   # how fast the background returns in gaps
+  # per-segment loudness normalization: level every utterance to target_dbfs
+  # with a pure gain shift BEFORE placement, so best_of take-to-take level
+  # drift (the 'pasted-in' tell) disappears. Dynamics INSIDE each segment are
+  # untouched (unlike a compressor) so prosody/monotony are unaffected. The
+  # loudnorm below still sets absolute program loudness. Applied gain per
+  # segment is recorded in the manifest (tr.norm_gain_db).
+  segment_norm:
+    enabled: true
+    target_dbfs: -20.0     # RMS target each segment is shifted to
+  # light mastering chain on the dub vocals before the background mix
+  # (pedalboard; opt-in via `pip install .[master]`). Evens take-to-take level
+  # drift + tames TTS sibilance so segments stop sounding pasted-in. loudnorm
+  # still runs on the full mix after this. Start conservative and A/B by ear.
+  master:
+    enabled: true
+    hpf_hz: 80              # high-pass: drop sub-rumble/DC
+    comp_threshold_db: -18  # gentle leveling across segments
+    comp_ratio: 2.5
+    comp_attack_ms: 5
+    comp_release_ms: 120
+    deess_hz: 7000          # high-shelf cut to soften sibilance
+    deess_gain_db: -2.0
+    reverb_wet: 0.0         # 0 = off; try ~0.05 for a hair of room
+    reverb_room: 0.1
+    limiter_db: -1.0        # brickwall guard on the intermediate wav
 
 mux:
   subtitle_codec: mov_text
@@ -103,6 +187,19 @@ qc:
     weights: {sim: 0.25, mos: 0.40, f0: 0.20, tempo: 0.15}
     score_flag: 0.55                # review page flags segments below this
     sim_floor_default: 0.35         # fallback if edge floor-synth is offline
+
+prep:                               # `dubadabidu prep` reference-clip extraction
+  min_s: 12.0                       # candidate span length band (seconds)
+  max_s: 20.0
+  n_refs: 3                         # keep the pool WIDE — tune R1 makes the call
+  max_candidates: 12                # cap gated spans (each = a cut + MOS/f0 pass)
+  # quality GATE — rejects only genuinely broken spans, does NOT rank clone
+  # quality (a focused tune R1 showed acoustic scores don't predict clone sim;
+  # `tune` R1's ECAPA similarity is the arbiter). Keep these lenient so a good
+  # ref is never filtered out.
+  clip_peak: 0.99                   # peak >= this = clipped, rejected
+  min_voiced: 0.25                  # < this fraction voiced = mostly silence, rejected
+  min_mos: 3.0                      # DistillMOS below this = noisy/artifacty, rejected
 
 tune:                               # `dubadabidu tune` search space
   subset_size: 8
