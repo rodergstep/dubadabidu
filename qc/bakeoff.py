@@ -16,7 +16,9 @@ Methodology — the honest cross-engine metric:
   dropped/invented words) and pace (synth_dur / source slot — natural speaking
   rate, the overflow/timing risk s5 has to stretch away). `takes` takes per
   segment are averaged to beat autoregressive take-to-take variance (same method
-  that validated the ref A/B).
+  that validated the ref A/B) — and the spread that averaging hides is itself
+  reported: mos± (take-to-take MOS std = how much best_of an engine needs) and
+  s/take (median synth wall-clock = engine speed/cost for the batch).
 
 Decision gate (inherited invariant): a challenger wins a language only if it
 beats the incumbent (chatterbox) on sim-to-real AND MOS, AND does not regress
@@ -72,6 +74,8 @@ def _mean_stat(rows: list[dict], key: str) -> float:
 
 
 def run(cfg: dict, video: str, langs: list[str]) -> None:
+    import statistics
+    import time
     import torch
     import soundfile as sf
     from pipeline.tts_engine import synthesize
@@ -107,6 +111,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             seg_dir = bo / "seg" / engine / lang
             seg_dir.mkdir(parents=True, exist_ok=True)
             rows, unavailable = [], None
+            synth_secs = []   # raw wall-clock of every synth call (engine speed)
             for u in subset:
                 text = u["tr"][lang].get("fitted_text") or u["tr"][lang]["text"]
                 # source speech slot: same text goes to every engine, so pace
@@ -118,7 +123,9 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 for k in range(takes):
                     w = seg_dir / f"{u['id']}_t{k}.wav"
                     try:
+                        t0 = time.perf_counter()
                         synthesize(text, lang, w, t, retries=1)
+                        synth_secs.append(time.perf_counter() - t0)
                     except FileNotFoundError as e:  # engine not installed
                         unavailable = str(e).split(" — ")[0]
                         break
@@ -140,7 +147,12 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                              "mos": sum(moss) / len(moss),
                              "f0": sum(f0s) / len(f0s),
                              "wer": sum(wers) / len(wers),
-                             "pace": sum(paces) / len(paces)})
+                             "pace": sum(paces) / len(paces),
+                             # take-to-take MOS spread for THIS segment: how much a
+                             # single roll's quality is a dice-throw (drives how much
+                             # best_of the engine needs). 0 when takes==1.
+                             "mos_sd": statistics.stdev(moss) if len(moss) > 1
+                                       else 0.0})
             if unavailable:
                 per_engine[engine] = {"unavailable": unavailable}
                 log.warning("%s unavailable: %s", engine, unavailable)
@@ -150,6 +162,13 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                                   "f0": _mean_stat(rows, "f0"),
                                   "wer": _mean_stat(rows, "wer"),
                                   "pace": _mean_stat(rows, "pace"),
+                                  "mos_sd": _mean_stat(rows, "mos_sd"),
+                                  # MEDIAN synth wall-clock per take — median so the
+                                  # one-time model load on the first call (and any
+                                  # occasional slow roll) doesn't skew steady-state
+                                  # engine speed.
+                                  "s_take": round(statistics.median(synth_secs), 2)
+                                            if synth_secs else 0.0,
                                   "segs": len(rows)}
             log.info("%s/%s: %s", engine, lang, per_engine[engine])
 
@@ -177,22 +196,29 @@ def _write_reports(bo, video, lang, subset, per_engine, seg_audio, wd,
              "mos = windowed Distill-MOS; f0st = pitch liveliness (anti-monotony); "
              "wer = back-transcription WER, LOWER=fewer hallucinations/dropped "
              "words; pace = synth_dur / source-slot, >1 = speaks slower than the "
-             "source (overflow-prone; same text per engine, so it's the engine). "
+             "source (overflow-prone; same text per engine, so it's the engine); "
+             "mos± = take-to-take MOS std (reliability — LOWER = a single roll is "
+             "less of a dice-throw, needs less best_of); s/take = median seconds "
+             "per synthesis (engine speed/cost, model-load excluded via median). "
              f"Averaged over takes on {len(subset)} segments.", "",
-             "| engine | sim→real | mos | f0st | wer | pace | verdict |",
-             "|---|---|---|---|---|---|---|"]
+             "| engine | sim→real | mos | f0st | wer | pace | mos± | s/take "
+             "| verdict |",
+             "|---|---|---|---|---|---|---|---|---|"]
     for e in engines:
         s = per_engine[e]
         if "unavailable" in s:
-            lines.append(f"| {e} | - | - | - | - | - | {_verdict(e, s, inc)} |")
+            lines.append(f"| {e} | - | - | - | - | - | - | - "
+                         f"| {_verdict(e, s, inc)} |")
         else:
             lines.append(f"| {e} | {s['sim']} | {s['mos']} | {s['f0']} "
-                         f"| {s['wer']} | {s['pace']} | {_verdict(e, s, inc)} |")
+                         f"| {s['wer']} | {s['pace']} | {s['mos_sd']} "
+                         f"| {s['s_take']} | {_verdict(e, s, inc)} |")
     lines += ["", "Adoption gate: a challenger must beat chatterbox on sim→real "
               "AND mos, AND not regress wer beyond tolerance (intelligibility "
-              "veto), or tie and win the ear on the .html page. pace is "
-              "informational — s5 retimes within limits and the ear judges timing "
-              "feel. Then set `tts.engine_by_lang: {" + lang + ": <winner>}`."]
+              "veto), or tie and win the ear on the .html page. pace, mos± and "
+              "s/take are informational (timing feel / reliability / cost) — they "
+              "inform the choice but do not gate it. Then set "
+              "`tts.engine_by_lang: {" + lang + ": <winner>}`."]
     (bo / f"bakeoff_{lang}.md").write_text("\n".join(lines) + "\n",
                                            encoding="utf-8")
 
