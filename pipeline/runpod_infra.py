@@ -63,8 +63,10 @@ DEFAULTS = {
     "remote_dir": "~/dubadabidu",
     "provision_timeout_s": 420,   # wait this long for the pod to reach RUNNING+SSH
     # per-engine install snippets for the bake-off (git-clone challengers —
-    # THIRD_PARTY.md). Each runs on the pod in the venv; empty => that engine is
-    # marked unavailable and skipped. Fill with PINNED commands once validated.
+    # THIRD_PARTY.md). Each runs on the pod in that engine's OWN venv
+    # (venvs/<engine>, created by engine_install_cmd — the incumbent's .venv is
+    # untouchable by construction); empty => that engine is marked unavailable
+    # and skipped. Fill with PINNED commands once validated.
     "engine_setup": {},           # e.g. {"cosyvoice": "git clone ... && pip install ..."}
 }
 
@@ -282,7 +284,7 @@ def rsync(rp: dict, port: int, src: str, dst: str, check: bool = True,
     public port — omitting -p hits default 22 and fails auth)."""
     key = os.path.expanduser(rp["ssh_key"])
     args = ["rsync", "-az"]
-    for e in (".venv", "__pycache__", ".env", ".git", *extra_excludes):
+    for e in (".venv", "venvs", "__pycache__", ".env", ".git", *extra_excludes):
         args += ["--exclude", e]
     args += ["-e", f"ssh -i {key} -p {port} -o StrictHostKeyChecking=no "
                    f"-o UserKnownHostsFile=/dev/null", src, dst]
@@ -377,37 +379,42 @@ APT_SETUP = ("export DEBIAN_FRONTEND=noninteractive; "
 ENGINE_MODULE = {"chatterbox": "chatterbox", "cosyvoice": "cosyvoice",
                  "indextts": "indextts", "voxcpm": "voxcpm", "qwen": "qwen_tts"}
 
+# installed into every engine venv alongside the snippet: soundfile because
+# the voxcpm/qwen adapters write via sf and not every engine's own requirements
+# carry it. Deliberately minimal — the venv is the ENGINE's resolver's turf.
+WORKER_PIP = "soundfile"
+
+
+def engine_install_cmd(remote: str, engine: str, snippet: str) -> str:
+    """The pod command that installs `engine` into its OWN venv
+    (venvs/<engine>), created here and active while the snippet runs — the
+    engine's resolver can then pick whatever torch it wants; the incumbent's
+    .venv is untouchable by construction (this isolation replaced the old
+    best-effort torch-pin guards). s4/bakeoff auto-route the engine through a
+    worker in this venv the moment it exists (pipeline/engine_client.py)."""
+    return (f"set -e; cd {remote}; "
+            f"python3 -m venv venvs/{engine}; "
+            f". venvs/{engine}/bin/activate; "
+            f"pip install -q --upgrade pip; pip install -q {WORKER_PIP}; "
+            f"{snippet}")
+
 
 def _install_engines(rp: dict, host: str, port: int, remote: str,
                      needed: list[str], fail_note: str) -> None:
-    """Run each engine's engine_setup snippet on the pod (in the venv). chatterbox
-    /edge have no snippet and are skipped. A failure is non-fatal here — the
-    snippet's own guard restores the torch pin, and the caller decides what an
-    unavailable engine means (bake-off skips it; a run's s4 raises)."""
+    """Run each engine's engine_setup snippet on the pod, each in its own
+    venv (engine_install_cmd). chatterbox/edge have no snippet and are
+    skipped (they live in the main venv). A failure is non-fatal and cannot
+    hurt the other engines — the caller decides what an unavailable engine
+    means (bake-off skips it; a run's s4 raises)."""
     for eng in needed:
         snip = rp.get("engine_setup", {}).get(eng)
         if not snip:
             continue
-        log.info("installing engine on pod: %s", eng)
-        if ssh_exec(rp, host, port,
-                    f"cd {remote}; . .venv/bin/activate; {snip}",
+        log.info("installing engine on pod: %s (isolated venv venvs/%s)",
+                 eng, eng)
+        if ssh_exec(rp, host, port, engine_install_cmd(remote, eng, snip),
                     timeout=2400) != 0:
             log.warning("engine %s setup failed — %s", eng, fail_note)
-
-
-def _assert_baseline(rp: dict, host: str, port: int, remote: str) -> bool:
-    """Confirm the chatterbox incumbent still imports after the challenger
-    installs. The per-snippet guards restore the torch pin on a DETECTED break,
-    but engine B installed after A can still clobber A's already-verified deps —
-    so re-check once here before spending compute. Reinstalls the pins if broken;
-    returns True only if chatterbox imports at the end."""
-    probe = (f"cd {remote}; . .venv/bin/activate; "
-             "if ! python -c 'import chatterbox' 2>/dev/null; then "
-             "echo '[baseline] chatterbox broke after engine installs — "
-             "restoring torch/numpy pins'; "
-             "pip install -q torch==2.6.0 torchaudio==2.6.0 'numpy>=1.24,<2'; "
-             "python -c 'import chatterbox'; fi")
-    return ssh_exec(rp, host, port, probe, timeout=600) == 0
 
 
 def remote_run(cfg: dict, video: str, langs: list[str], task: str,
@@ -472,20 +479,12 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
             tc = cfg.get("tts", {})
             ebl = tc.get("engine_by_lang", {})
             needed = list(dict.fromkeys(ebl.get(lg, tc.get("engine")) for lg in langs))
+        # each challenger installs into its own venv, so a collision with the
+        # chatterbox baseline is impossible by construction — no post-install
+        # baseline check needed (REMOTE_SETUP already verified the main venv).
         _install_engines(rp, host, port, remote, needed,
                          "bake-off will mark it unavailable" if task == "bakeoff"
                          else "s4 will fail for langs routed to it")
-        # if a challenger install collided with chatterbox's deps, the incumbent
-        # baseline may be dead. For a bake-off that makes every verdict
-        # meaningless, so verify (and restore) before spending compute; fail fast
-        # if it can't be healed rather than run a comparison with no incumbent.
-        if any(rp.get("engine_setup", {}).get(e) for e in needed):
-            if not _assert_baseline(rp, host, port, remote) and task == "bakeoff":
-                raise RuntimeError(
-                    "chatterbox baseline unimportable after engine installs "
-                    "(even post-restore) — aborting bake-off: no incumbent means "
-                    "no valid verdict. Bake off FEWER engines per pod run, or run "
-                    "`remote setup-check` first to see which challenger collided.")
         # 3. run the task, self-capped by remote `timeout` to the deadline.
         # Pass the (low-privilege) translation key inline — an SSH session may
         # not inherit the pod's container env, and s3 needs it. Not logged.
@@ -555,12 +554,12 @@ def smoke_test(cfg: dict) -> bool:
 def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
     """Dry-run the bake-off's install path on ONE cheap pod, then report which
     engines actually import — WITHOUT running a comparison. Provisions, installs
-    the same base deps + every engine_setup snippet a `remote bakeoff` would, runs
-    an import probe (torch version + CUDA + one line per engine), and terminates.
-    ~$0.30 and ~15 min to surface unpinned-repo drift, a wrong checkpoint id, or a
-    torch-pin collision BEFORE a full billing bake-off hits them. Returns True iff
-    the incumbent (chatterbox) imports at the end — a False means the shared venv
-    is already poisoned and a bake-off from it would be worthless.
+    the same base deps + every engine_setup snippet a `remote bakeoff` would
+    (each challenger into its OWN venv), probes each engine inside its venv
+    (module + engine_worker + torch/CUDA, one line per engine), and terminates.
+    ~$0.30 and ~15 min to surface unpinned-repo drift, a wrong checkpoint id, or
+    a broken install BEFORE a full billing bake-off hits them. Returns True iff
+    the incumbent (chatterbox, main venv) imports at the end.
     Terminates on every path (state-file driven)."""
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
     budget = float(budget_usd if budget_usd is not None else rp["budget_usd"])
@@ -568,9 +567,11 @@ def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
     engines = list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
     remote = ("/workspace/dubadabidu" if rp.get("network_volume_id")
               else rp["remote_dir"])
-    # always probe chatterbox (the incumbent) even if it's not in bakeoff.engines
-    probe_mods = list(dict.fromkeys(
-        ["chatterbox"] + [ENGINE_MODULE[e] for e in engines if e in ENGINE_MODULE]))
+    # challengers are probed INSIDE their own venvs (venvs/<engine>) — each via
+    # its venv python, importing the engine module AND pipeline.engine_worker
+    # (the exact combination a real synth call needs). (engine, module, has_snippet)
+    probe_engines = [(e, ENGINE_MODULE[e], bool(rp.get("engine_setup", {}).get(e)))
+                     for e in engines if e != "chatterbox" and e in ENGINE_MODULE]
     deadline = _deadline(rp, budget)
     pid = None
     try:
@@ -587,21 +588,44 @@ def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
                                "CUDA unavailable (check the log's CUDA: line)")
         _install_engines(rp, host, port, remote, engines,
                          "will report FAIL in the probe below")
-        # import probe: one line per engine so the scorecard is skimmable. The
-        # loop swallows per-engine errors so a missing engine doesn't hide the
-        # others; the final chatterbox check sets the exit code.
+        # import probe: one line per engine so the scorecard is skimmable.
+        # Runs in the MAIN venv; each challenger is probed by subprocessing
+        # into ITS venv python (import errors there can't hide the others).
+        # The chatterbox check sets the exit code — the challengers can't
+        # poison the main venv anymore, but its own install can still fail.
         probe = (
+            "import subprocess, sys\n"
             "import torch\n"
-            "print('[probe] torch', torch.__version__, '| cuda', "
+            "print('[probe] main venv: torch', torch.__version__, '| cuda', "
             "torch.cuda.is_available())\n"
-            f"mods = {probe_mods!r}\n"
-            "for m in mods:\n"
+            "try:\n"
+            "    import chatterbox; ok = True\n"
+            "    print('[probe] OK   chatterbox (main venv)')\n"
+            "except Exception as e:\n"
+            "    ok = False\n"
+            "    print('[probe] FAIL chatterbox ->', repr(e)[:100])\n"
+            f"for eng, mod, has_snip in {probe_engines!r}:\n"
+            "    if not has_snip:\n"
+            "        print('[probe] SKIP', eng, '(no engine_setup snippet)')\n"
+            "        continue\n"
+            "    code = ('import ' + mod + ', pipeline.engine_worker, torch; '\n"
+            "            'print(torch.__version__, torch.cuda.is_available())')\n"
             "    try:\n"
-            "        __import__(m); print('[probe] OK  ', m)\n"
-            "    except Exception as e:\n"
-            "        print('[probe] FAIL', m, '->', repr(e)[:100])\n"
-            "import importlib.util, sys\n"
-            "sys.exit(0 if importlib.util.find_spec('chatterbox') else 1)\n")
+            "        r = subprocess.run(['venvs/' + eng + '/bin/python', '-c',\n"
+            "                            code], capture_output=True, text=True)\n"
+            "    except FileNotFoundError:\n"
+            "        print('[probe] FAIL', eng, '-> venvs/' + eng + ' missing "
+            "(install snippet failed?)')\n"
+            "        continue\n"
+            "    if r.returncode == 0:\n"
+            "        v, cuda = r.stdout.split()\n"
+            "        print('[probe] OK  ', eng, '(venv torch', v, '| cuda', "
+            "cuda + ')')\n"
+            "    else:\n"
+            "        tail = (r.stderr or r.stdout).strip().splitlines()\n"
+            "        print('[probe] FAIL', eng, '->', "
+            "(tail[-1] if tail else '?')[:120])\n"
+            "sys.exit(0 if ok else 1)\n")
         cmd = (f"cd {remote}; . .venv/bin/activate; "
                f"python3 - <<'PYEOF'\n{probe}\nPYEOF")
         rc = ssh_exec(rp, host, port, cmd, timeout=600)

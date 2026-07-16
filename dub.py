@@ -74,38 +74,35 @@ def doctor(cfg: dict) -> int:
                   'pip install "audio-separator[cpu]" (or separation.backend: demucs)')
     engines = {cfg["tts"]["engine"], *cfg["tts"].get("engine_by_lang", {}).values(),
                *cfg.get("bakeoff", {}).get("engines", [])}
-    if "chatterbox" in engines:
-        try:
-            __import__("chatterbox"); check("python: chatterbox", True)
-        except ImportError:
-            check("python: chatterbox", False, "pip install chatterbox-tts==0.1.7")
-    if "cosyvoice" in engines:
-        try:
-            __import__("cosyvoice"); check("python: cosyvoice", True)
-        except ImportError:
-            check("python: cosyvoice", False,
-                  "git clone --recursive FunAudioLLM/CosyVoice + PYTHONPATH "
-                  "(THIRD_PARTY.md)")
-    if "indextts" in engines:
-        try:
-            __import__("indextts"); check("python: indextts", True)
-        except ImportError:
-            check("python: indextts", False,
-                  "git clone index-tts/index-tts + checkpoints + PYTHONPATH "
-                  "(THIRD_PARTY.md)")
-    if "voxcpm" in engines:
-        try:
-            __import__("voxcpm"); check("python: voxcpm", True)
-        except ImportError:
-            check("python: voxcpm", False,
-                  "pip install voxcpm==2.0.3 torchcodec==0.2.1 WITH torch pins "
-                  "(THIRD_PARTY.md)")
-    if "qwen" in engines:
-        try:
-            __import__("qwen_tts"); check("python: qwen_tts", True)
-        except ImportError:
-            check("python: qwen_tts", False,
-                  "git clone QwenLM/Qwen3-TTS + pip install -e . (THIRD_PARTY.md)")
+    # each engine is probed where synthesis would actually run it: inside
+    # venvs/<engine> when that isolated venv exists (engine_client routes
+    # through a worker there), otherwise in THIS venv (in-process).
+    for eng, mod, hint in [
+        ("chatterbox", "chatterbox", "pip install chatterbox-tts==0.1.7"),
+        ("cosyvoice", "cosyvoice",
+         "git clone --recursive FunAudioLLM/CosyVoice into its own venv "
+         "(THIRD_PARTY.md)"),
+        ("indextts", "indextts",
+         "git clone index-tts/index-tts + checkpoints into its own venv "
+         "(THIRD_PARTY.md)"),
+        ("voxcpm", "voxcpm",
+         "pip install voxcpm==2.0.3 in its own venv (THIRD_PARTY.md)"),
+        ("qwen", "qwen_tts",
+         "git clone QwenLM/Qwen3-TTS + pip install -e . in its own venv "
+         "(THIRD_PARTY.md)"),
+    ]:
+        if eng not in engines:
+            continue
+        vpy = ROOT / "venvs" / eng / "bin" / "python"
+        if vpy.exists():
+            r = subprocess.run([str(vpy), "-c", f"import {mod}"],
+                               capture_output=True)
+            check(f"python: {mod} (venvs/{eng})", r.returncode == 0, hint)
+        else:
+            try:
+                __import__(mod); check(f"python: {mod}", True)
+            except ImportError:
+                check(f"python: {mod}", False, hint)
     if engines - {"edge"}:
         check("reference_wav", Path(cfg["tts"]["reference_wav"]).exists(),
               f"put a 15-20s clean voice clip at {cfg['tts']['reference_wav']} "
