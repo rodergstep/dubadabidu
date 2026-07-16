@@ -77,14 +77,22 @@ def segment_wer(cfg: dict, spoken: str, wav: str | Path, lang: str) -> float:
     return wer(_norm(spoken, lang), _norm(hyp, lang))
 
 
-def run(cfg: dict, video: str, langs: list[str]) -> None:
+def run(cfg: dict, video: str, langs: list[str],
+        only: list[str] | None = None) -> None:
+    """only: utterance ids to (re)check; None = all. The autopilot passes the
+    handful of re-rolled segments so a fix round doesn't re-transcribe the
+    whole video (minutes of Whisper per round on a 1h lesson)."""
     man = M.load(cfg, video)
     wd = M.video_workdir(cfg, video)
     thr = cfg["qc"]["wer_flag_threshold"]
 
     for lang in langs:
         flagged = []
+        checked = 0
         for u in man["utterances"]:
+            if only is not None and u["id"] not in only:
+                continue
+            checked += 1
             tr = u["tr"][lang]
             # Score against the text TTS actually spoke: s5 may substitute a shorter
             # variant to fit the slot (fit=shortened), recorded as fitted_text. Falling
@@ -96,6 +104,9 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             if score > thr or tr.get("fit") == "overflow":
                 flagged.append((u["id"], tr["qc_wer"], tr.get("fit")))
         M.save(cfg, video, man)
-        print(f"[qc] {lang}: {len(flagged)} flagged (WER>{thr} or overflow)")
+        scope = f"{checked}/{len(man['utterances'])} segments, " \
+            if only is not None else ""
+        print(f"[qc] {lang}: {scope}{len(flagged)} flagged "
+              f"(WER>{thr} or overflow)")
         for fid, w, fit in flagged:
             print(f"      {fid}  wer={w}  fit={fit}")
