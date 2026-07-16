@@ -109,7 +109,7 @@ dubadabidu doctor                       # should report 'torch device: cuda'
 skip the LLM entirely (no LM Studio / API key needed on the GPU box):
 
 ```bash
-dubadabidu run input/test/test.mp4 --from s4_synthesize   # cloned voice, all langs
+dubadabidu run input/sketch60/sketch60.mp4 --from s4_synthesize   # cloned voice, all langs
 ```
 
 If you instead run from scratch (`run ...` without `--from`), stage s3 still validates
