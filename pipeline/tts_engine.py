@@ -288,6 +288,24 @@ def _synth_qwen(text: str, lang: str, out: Path, t: dict) -> None:
     sf.write(str(out), wavs[0], sr)
 
 
+def release_models() -> None:
+    """Drop every in-process engine singleton and flush the CUDA cache. The
+    bake-off switches engines sequentially and pairs this with
+    engine_client.shutdown(engine); without both, models accumulate in VRAM
+    (chatterbox ~7 GB + voxcpm ~8 GB) and a 16 GB card OOMs mid-comparison.
+    The next synthesize() through a released engine just reloads it."""
+    global _chatterbox_model, _cosyvoice_model, _indextts_model, \
+        _voxcpm_model, _qwen_model, _qwen_prompt
+    _chatterbox_model = _cosyvoice_model = _indextts_model = None
+    _voxcpm_model = _qwen_model = _qwen_prompt = None
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:   # torch absent (edge-only env) — nothing was resident
+        pass
+
+
 def _synth_edge(text: str, lang: str, out: Path, t: dict) -> None:
     import edge_tts
     voice = t["edge_voices"][lang]
@@ -516,6 +534,18 @@ def synthesize(text: str, lang: str, out: Path, tts_cfg: dict,
     fn = {"chatterbox": _synth_chatterbox, "cosyvoice": _synth_cosyvoice,
           "indextts": _synth_indextts, "voxcpm": _synth_voxcpm,
           "qwen": _synth_qwen, "edge": _synth_edge}[engine]
+    # per-engine venv isolation (engine_client): when this engine has its own
+    # venv (venvs/<engine> or tts.engine_venvs), synthesize through its worker
+    # process instead of importing it here — its deps then cannot collide with
+    # the incumbent's torch pin. A configured-but-missing venv raises the same
+    # FileNotFoundError contract as a missing package (-> engine unavailable).
+    # Everything below (normalization, .part atomicity, retries) is engine-
+    # agnostic and stays in THIS process; only the raw synth call crosses over.
+    from .engine_client import isolated_python, synth as _worker_synth
+    worker_py = isolated_python(engine, tts_cfg)
+    if worker_py is not None:
+        def fn(text, lang, out, t, _py=worker_py):  # noqa: F811 — same signature
+            _worker_synth(engine, _py, text, lang, out, t)
     # number/symbol localization is engine-agnostic (digits read wrong-language
     # otherwise) — apply to every engine; manifest/subs/QC keep clean digits.
     text = localize_numbers(text, lang)

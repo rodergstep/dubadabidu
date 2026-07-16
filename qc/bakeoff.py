@@ -78,7 +78,8 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     import time
     import torch
     import soundfile as sf
-    from pipeline.tts_engine import synthesize
+    from pipeline import engine_client
+    from pipeline.tts_engine import release_models, synthesize
     from pipeline.tune import _subset
     from qc import metrics as X
     from qc.backcheck import segment_wer
@@ -153,6 +154,12 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                              # best_of the engine needs). 0 when takes==1.
                              "mos_sd": statistics.stdev(moss) if len(moss) > 1
                                        else 0.0})
+            # free this engine before the next loads: stop its isolated-venv
+            # worker (if any) and drop in-process singletons + CUDA cache —
+            # otherwise engines pile up in VRAM and a 16 GB card OOMs by the
+            # third challenger. qc models (ECAPA/MOS/whisper) stay resident.
+            engine_client.shutdown(engine)
+            release_models()
             if unavailable:
                 per_engine[engine] = {"unavailable": unavailable}
                 log.warning("%s unavailable: %s", engine, unavailable)

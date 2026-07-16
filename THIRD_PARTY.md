@@ -1,11 +1,18 @@
 # Third-party TTS engines (bake-off candidates)
 
-Chatterbox (the incumbent) and edge install from PyPI. The bake-off challengers
-are **git-clone installs, GPU-only**, with their own heavy dependencies. Install
-each in the **same venv ONLY after `pip check`** so they cannot silently move the
-chatterbox torch pin (torch/torchaudio 2.6.0). If a conflict appears, install the
-challenger in a **separate venv** and run the bake-off from there — the manifest
-cache is shared via the work/ dir, so engines don't need to coexist in one env.
+Chatterbox (the incumbent) and edge install from PyPI into the main venv. The
+bake-off challengers are **git-clone installs, GPU-only**, with their own heavy
+dependencies — and each installs into its **own venv: `venvs/<engine>`**. The
+pipeline routes any engine with a `venvs/<engine>` dir through a persistent
+worker subprocess in that venv automatically (`pipeline/engine_client.py` /
+`engine_worker.py`), so a challenger's resolver can pick whatever torch it
+wants and the chatterbox pin (torch/torchaudio 2.6.0) is untouchable by
+construction. On the pod, `remote bakeoff`/`remote setup-check` create these
+venvs from the `runpod.engine_setup` snippets; locally, create one by hand
+(below) and the routing kicks in the moment the venv exists. The engine venv
+needs NOTHING of the project installed — the worker runs `-m
+pipeline.engine_worker` from the project root — only the engine's own deps
+(plus `soundfile`, which the automated install adds).
 
 Pin the commit you validate on (record it below) — these repos move fast and
 their inference APIs drift; `pipeline/tts_engine.py` targets the APIs noted here.
@@ -13,13 +20,18 @@ their inference APIs drift; `pipeline/tts_engine.py` targets the APIs noted here
 ## CosyVoice 2/3 — all 5 target languages + cross-lingual (Apache-2.0)
 
 ```bash
+# from the project root — its OWN venv; the pipeline auto-routes through it
+python3 -m venv venvs/cosyvoice && . venvs/cosyvoice/bin/activate
+pip install soundfile
 git clone --recursive https://github.com/FunAudioLLM/CosyVoice third_party/CosyVoice
-cd third_party/CosyVoice && git checkout <PIN_COMMIT> && git submodule update --init --recursive
-pip check                        # BEFORE installing — must not disturb torch 2.6.0
-pip install -r requirements.txt  # (or a fresh venv if pip check complains)
+git -C third_party/CosyVoice checkout <PIN_COMMIT>
+git -C third_party/CosyVoice submodule update --init --recursive
+pip install -r third_party/CosyVoice/requirements.txt
 # model weights (pick one):
 #   modelscope download iic/CosyVoice2-0.5B --local_dir pretrained_models/CosyVoice2-0.5B
-export PYTHONPATH=$PWD:$PWD/third_party/Matcha-TTS:$PYTHONPATH
+# make the clone importable in THIS venv with no PYTHONPATH (a .pth file —
+# the worker spawns in a fresh process, so an exported PYTHONPATH won't reach it):
+python -c 'import sysconfig,os;p=sysconfig.get_paths()["purelib"];r=os.getcwd();open(os.path.join(p,"cosyvoice.pth"),"w").write(r+"/third_party/CosyVoice\n"+r+"/third_party/CosyVoice/third_party/Matcha-TTS\n")'
 ```
 
 Config (`config.gpu.yaml` → `tts`): `cosyvoice_model_dir`, `cosyvoice_mode`.
@@ -39,12 +51,13 @@ Pinned commit: `__________`  (fill after validation)
 ## IndexTTS-2 — EN + Mandarin only, dubbing-native (Apache-2.0)
 
 ```bash
+# from the project root — its OWN venv; the pipeline auto-routes through it
+python3 -m venv venvs/indextts && . venvs/indextts/bin/activate
+pip install soundfile
 git clone https://github.com/index-tts/index-tts third_party/index-tts
-cd third_party/index-tts && git checkout <PIN_COMMIT>
-pip check
-pip install -r requirements.txt
+git -C third_party/index-tts checkout <PIN_COMMIT>
+pip install -e third_party/index-tts
 # download checkpoints into ./checkpoints (config.yaml + weights) per the repo
-export PYTHONPATH=$PWD:$PYTHONPATH
 ```
 
 Config (`config.gpu.yaml` → `tts`): `indextts_model_dir` (holds `config.yaml`).
@@ -73,13 +86,14 @@ Minimax-MLS SIM table). Ukrainian is NOT among its 30 languages, so:
 - style/emotion per segment: `tts.instruct_text` becomes the `"(...)"` text
   prefix VoxCPM2 parses (e.g. "warm, unhurried teaching tone").
 
-Install — MUST carry the torch pins on the same command line, or its resolver
-moves torch 2.6.0 -> 2.13 and pulls torchcodec 0.14 (needs torchaudio>=2.9);
-on our stack torchcodec must be 0.2.1 (the torch-2.6-era build):
+Install — in its OWN venv its resolver is free to pick its preferred
+torch/torchcodec (the old same-line pins existed only to defend the shared
+venv's torch 2.6.0):
 
 ```bash
-pip install voxcpm==2.0.3 torchcodec==0.2.1 torch==2.6.0 torchaudio==2.6.0 "numpy>=1.24,<2"
-pip check    # chatterbox pins must be untouched; if it complains, separate venv
+# from the project root — its OWN venv; the pipeline auto-routes through it
+python3 -m venv venvs/voxcpm && . venvs/voxcpm/bin/activate
+pip install soundfile voxcpm==2.0.3
 ```
 
 Config (`config.gpu.yaml` → `tts`): `voxcpm_model_dir` (HF id `openbmb/VoxCPM2`
@@ -107,10 +121,12 @@ pt/it). Ukrainian is not a supported language, so:
   adapter (a full video is hundreds of segments off one ref).
 
 ```bash
+# from the project root — its OWN venv; the pipeline auto-routes through it
+python3 -m venv venvs/qwen && . venvs/qwen/bin/activate
+pip install soundfile
 git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS
-cd third_party/Qwen3-TTS && git checkout <PIN_COMMIT>
-pip check                         # must not disturb torch 2.6.0
-pip install -e .
+git -C third_party/Qwen3-TTS checkout <PIN_COMMIT>
+pip install -e third_party/Qwen3-TTS
 # flash-attn is CUDA-only and a heavy build — install it separately and set
 # tts.qwen_flash_attn: true only if you want it; the model runs without it:
 #   pip install -U flash-attn --no-build-isolation
@@ -130,19 +146,22 @@ Pinned commit: `__________`  (fill after validation)
 
 ## Running the bake-off
 
-Locally (engines installed by hand):
+Locally (engine venvs created by hand as above):
 ```bash
-# translations must exist first (s3). On the pod, with the engine(s) installed:
+# translations must exist first (s3). With venvs/<engine> present the pipeline
+# routes each challenger through its own venv automatically:
 dubadabidu bakeoff input/sketch60/sketch60.mp4 --langs en --overlay config.gpu.yaml
 ```
 
 Remotely (M2 installs the challengers automatically): put the PINNED install
 command for each engine in `runpod.engine_setup` (config.gpu.yaml). `dubadabidu
-remote bakeoff <video>` runs it on the pod before the comparison. Each snippet
-must make the engine importable in the venv — either `pip install -e` the cloned
-repo or drop a `.pth` file into site-packages (so no PYTHONPATH is needed at run
-time). An engine whose snippet is empty or fails is reported unavailable and
-skipped, so a partial bake-off still runs.
+remote bakeoff <video>` creates `venvs/<engine>` on the pod and runs the snippet
+inside it before the comparison. Each snippet must make the engine importable
+in ITS venv — either `pip install -e` the cloned repo or drop a `.pth` file
+into site-packages (the worker spawns with no PYTHONPATH). An engine whose
+snippet is empty or fails is reported unavailable and skipped, so a partial
+bake-off still runs — and a failed install can no longer damage any other
+engine's environment.
 
 Writes `work/<video>/bakeoff/bakeoff_<lang>.md` (scorecard + ADOPT/keep verdict
 vs chatterbox) and `bakeoff_<lang>.html` (every engine side by side + your real

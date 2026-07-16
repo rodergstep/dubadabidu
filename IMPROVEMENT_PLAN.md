@@ -121,7 +121,9 @@ MOS + the ear before adoption.
 - `deepseek-chat` name dies 2026-07-24 — config must say `deepseek-v4-flash`.
 - chatterbox-tts 0.1.7 PyPI vs HF v3 weights drift — pin HF revision if a
   re-download ever changes output hashes.
-- CosyVoice is a git-clone dependency — pin the commit; its requirements may
-  conflict with ours (install in the same venv ONLY after `pip check`).
+- CosyVoice is a git-clone dependency — pin the commit; its inference API may
+  drift from what pipeline/tts_engine.py targets. (Dependency conflicts are no
+  longer a risk: every challenger installs into its own venvs/<engine> and runs
+  via a worker subprocess — pipeline/engine_client.py.)
 - License hygiene: XTTS-v2 (CPML) and Fish-Speech weights (CC-BY-NC) stay out.
   Verify Chatterbox-Turbo's license before first use.
