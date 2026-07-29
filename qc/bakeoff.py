@@ -20,6 +20,15 @@ Methodology — the honest cross-engine metric:
   reported: mos± (take-to-take MOS std = how much best_of an engine needs) and
   s/take (median synth wall-clock = engine speed/cost for the batch).
 
+Tuning parity (IMPROVEMENT_PLAN Phase C: "tune-lite ... on BOTH engines"):
+before the head-to-head, every engine runs a small parameter sweep and enters
+the comparison at ITS OWN best point. Without this the incumbent arrived with a
+tuned cfg_weight/exaggeration from a real tune run while every challenger got
+library defaults — an untuned-vs-tuned comparison whose predictable "keep
+incumbent" would have looked like evidence. Grids are config-driven
+(bakeoff.grids); an engine whose grid is a single point costs nothing extra and
+is reported as such, so the comparison stays auditable either way.
+
 Decision gate (inherited invariant): a challenger wins a language only if it
 beats the incumbent (chatterbox) on sim-to-real AND MOS, AND does not regress
 wer (an intelligibility VETO) — or ties and wins the ear on the HTML page. pace
@@ -68,6 +77,104 @@ def _engine_cfg(base_tts: dict, engine: str) -> dict:
     return t
 
 
+# Per-engine tune-lite grids. Only knobs that change a single take's OUTPUT
+# belong here (they must be in manifest.synth_hash, or the cache would serve
+# one grid point's audio for another). Take-SELECTION params (best_of,
+# min_f0st, ...) are deliberately absent: the bake-off measures engines, not
+# selection policy, and every engine gets the same selection downstream.
+#
+# Everything here is UA-REFERENCE SAFE. Modes needing a target-language ref
+# transcript are excluded on purpose: cosyvoice zero_shot and qwen's full
+# clone mode cannot tokenize a Ukrainian ref (see tts_engine), so sweeping
+# them would only produce failures.
+#
+# A single-point grid means "already tuned, nothing to sweep" and costs nothing:
+#   chatterbox — cfg_weight is FIXED at the config value (0.0 is mandatory for a
+#     UA ref -> non-UA target, re-validated by tune R2), and exaggeration does
+#     not reliably move quality (measured 2026-07-14), so the incumbent enters
+#     at its tune-selected point. Widen via bakeoff.grids to re-open it.
+#   qwen — x_vector_only is forced by the UA ref; nothing left to sweep.
+#   indextts — its one real quality knob, emo_alpha, is INERT here: the adapter
+#     only applies it alongside an emotion_wav, which s4 supplies via
+#     with_source_emotion but the bake-off does not. Sweeping it would burn GPU
+#     time re-rolling identical audio and then read as "emo_alpha doesn't
+#     matter". indextts_duration_ratio does reach the output but is a pace knob,
+#     and pace is reported-not-gated by design (s5 retimes). Left empty on
+#     purpose; wiring emotion prompts into the bake-off is a separate decision,
+#     since it would hand indextts an input the other engines can't use.
+ENGINE_GRIDS: dict[str, dict[str, list]] = {
+    "chatterbox": {},
+    "cosyvoice": {"cosyvoice_mode": ["cross_lingual"]},
+    "voxcpm": {"voxcpm_cfg_value": [1.5, 2.0, 2.5],
+               "voxcpm_timesteps": [10, 20]},
+    "qwen": {},
+    "indextts": {},
+    "edge": {},
+}
+
+
+def _grid_points(grid: dict[str, list]) -> list[dict]:
+    """Grid -> list of override dicts (cartesian product). Empty grid -> one
+    empty override, i.e. 'run at the configured defaults'."""
+    import itertools
+    keys = sorted(k for k, v in grid.items() if v)
+    if not keys:
+        return [{}]
+    return [dict(zip(keys, combo))
+            for combo in itertools.product(*(grid[k] for k in keys))]
+
+
+def _fmt_point(over: dict) -> str:
+    return " ".join(f"{k}={v}" for k, v in sorted(over.items())) or "(defaults)"
+
+
+def _tune_engine(engine: str, base_t: dict, subset: list[dict], lang: str,
+                 anchor, seg_root, takes: int, grid: dict) -> tuple:
+    """tune-lite for ONE engine: score every grid point on a small subset and
+    return its best. Scored on the two axes the adoption gate judges — cosine
+    to the REAL UA voice and MOS, weighted equally — so the point that wins
+    here is the point that maximizes what the gate measures.
+
+    WER is not scored during tuning (a Whisper pass per grid point per take is
+    the expensive part of the run, and these knobs are samplers/styles, not text
+    edits). The tuned point still faces the gate's WER veto afterwards.
+
+    Returns (best_overrides, trial_rows, unavailable_or_None).
+    """
+    from pipeline.tts_engine import synthesize
+    from qc import metrics as X
+
+    points = _grid_points(grid)
+    trials = []
+    for i, over in enumerate(points):
+        t = {**base_t, **over}
+        sims, moss = [], []
+        for u in subset:
+            text = u["tr"][lang].get("fitted_text") or u["tr"][lang]["text"]
+            for k in range(takes):
+                w = seg_root / f"p{i}_{u['id']}_t{k}.wav"
+                try:
+                    synthesize(text, lang, w, t, retries=1)
+                except FileNotFoundError as e:      # engine not installed
+                    return {}, [], str(e).split(" — ")[0]
+                sims.append(X.cosine(anchor, X.ecapa_embed(w)))
+                moss.append(X.mos_min_window(w))
+        sim = sum(sims) / len(sims)
+        mos = sum(moss) / len(moss)
+        # equal weight on the gate's two axes; mos normalized 1..5 -> 0..1 so
+        # neither term can dominate the other by scale alone
+        score = 0.5 * sim + 0.5 * max(0.0, min(1.0, (mos - 1.0) / 4.0))
+        trials.append({"point": over, "sim": round(sim, 3),
+                       "mos": round(mos, 3), "score": round(score, 4)})
+        log.info("tune-lite %s/%s %s -> sim %.3f mos %.2f (score %.4f)",
+                 engine, lang, _fmt_point(over), sim, mos, score)
+    best = max(trials, key=lambda r: r["score"])
+    if len(trials) > 1:
+        log.info("tune-lite %s/%s: %s wins %d points",
+                 engine, lang, _fmt_point(best["point"]), len(trials))
+    return best["point"], trials, None
+
+
 def _mean_stat(rows: list[dict], key: str) -> float:
     vals = [r[key] for r in rows]
     return round(sum(vals) / len(vals), 3) if vals else 0.0
@@ -90,6 +197,15 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     engines = bcfg.get("engines", [INCUMBENT, "cosyvoice"])
     takes = int(bcfg.get("takes", 3))
     n = int(bcfg.get("subset_size", 6))
+    # tune-lite: per-engine grids, overridable per engine (a config grid
+    # REPLACES the default for that engine — that is how you widen or close
+    # one). Its subset/takes are separate and smaller: the sweep is
+    # points x segments x takes, so it grows fastest.
+    grids = {**ENGINE_GRIDS, **(bcfg.get("grids") or {})}
+    tcfg = bcfg.get("tune") or {}
+    tune_on = bool(tcfg.get("enabled", True))
+    tune_n = int(tcfg.get("subset_size", 3))
+    tune_takes = int(tcfg.get("takes", 2))
 
     man = M.load(cfg, video)
     wd = M.video_workdir(cfg, video)
@@ -106,14 +222,38 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                               for w in _ua_slices(wd, man["utterances"])]).mean(0)
 
         per_engine: dict[str, dict] = {}
+        tuning: dict[str, dict] = {}
         seg_audio: dict[str, dict[str, str]] = {u["id"]: {} for u in subset}
         for engine in engines:
             t = _engine_cfg(base_tts, engine)
             seg_dir = bo / "seg" / engine / lang
             seg_dir.mkdir(parents=True, exist_ok=True)
             rows, unavailable = [], None
+
+            # tune-lite FIRST, so the comparison below runs this engine at its
+            # own best point rather than at library defaults. Same worker/model
+            # stays loaded for both phases; shutdown happens once, after.
+            grid = grids.get(engine, {})
+            points = _grid_points(grid)
+            if tune_on and len(points) > 1:
+                tune_dir = bo / "tune" / engine / lang
+                tune_dir.mkdir(parents=True, exist_ok=True)
+                over, trials, unavailable = _tune_engine(
+                    engine, t, _subset(subset, tune_n), lang, anchor,
+                    tune_dir, tune_takes, grid)
+                if not unavailable:
+                    t = {**t, **over}
+                    tuning[engine] = {"winner": over, "trials": trials,
+                                      "n_points": len(points)}
+            else:
+                tuning[engine] = {"winner": {}, "trials": [],
+                                  "n_points": len(points),
+                                  "skipped": "tuning off" if not tune_on
+                                             else "single-point grid"}
             synth_secs = []   # raw wall-clock of every synth call (engine speed)
             for u in subset:
+                if unavailable:   # tune-lite already proved it isn't installed
+                    break
                 text = u["tr"][lang].get("fitted_text") or u["tr"][lang]["text"]
                 # source speech slot: same text goes to every engine, so pace
                 # DIFFERENCES between engines isolate the engine's speaking rate
@@ -180,7 +320,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             log.info("%s/%s: %s", engine, lang, per_engine[engine])
 
         _write_reports(bo, video, lang, subset, per_engine, seg_audio, wd,
-                       _ua_slice)
+                       _ua_slice, tuning)
 
 
 def _verdict(engine: str, stats: dict, inc: dict | None) -> str:
@@ -191,8 +331,43 @@ def _verdict(engine: str, stats: dict, inc: dict | None) -> str:
     return "ADOPT" if beats_incumbent(stats, inc) else "keep incumbent"
 
 
+def _tuning_section(tuning: dict, engines: list) -> list[str]:
+    """What each engine was tuned to, and what it beat. The adoption decision
+    has to be reproducible from the report alone — a scorecard that hides which
+    settings produced it is exactly the untuned-vs-tuned trap this pass fixes."""
+    if not tuning:
+        return []
+    out = ["", "## tune-lite — each engine at its own best point", "",
+           "Every engine sweeps its own grid (bakeoff.grids) BEFORE the "
+           "comparison and enters at its winner, scored on the gate's two axes "
+           "(0.5*sim→real + 0.5*normalized mos). A single-point grid means "
+           "'already tuned, nothing to sweep' and costs nothing. Widen a grid "
+           "in config to re-open an engine's parameters.", "",
+           "| engine | points | ran at | sim→real | mos |",
+           "|---|---|---|---|---|"]
+    for e in engines:
+        tn = tuning.get(e)
+        if not tn:
+            out.append(f"| {e} | - | (not reached) | - | - |")
+            continue
+        win = next((r for r in tn["trials"] if r["point"] == tn["winner"]), None)
+        note = f" — {tn['skipped']}" if tn.get("skipped") else ""
+        out.append(f"| {e} | {tn['n_points']}{note} | "
+                   f"{_fmt_point(tn['winner'])} | "
+                   f"{win['sim'] if win else '-'} | {win['mos'] if win else '-'} |")
+    losers = [(e, r) for e in engines for r in tuning.get(e, {}).get("trials", [])
+              if r["point"] != tuning[e]["winner"]]
+    if losers:
+        out += ["", "<details><summary>grid points that lost</summary>", "",
+                "| engine | point | sim→real | mos | score |", "|---|---|---|---|---|"]
+        out += [f"| {e} | {_fmt_point(r['point'])} | {r['sim']} | {r['mos']} "
+                f"| {r['score']} |" for e, r in losers]
+        out += ["", "</details>"]
+    return out
+
+
 def _write_reports(bo, video, lang, subset, per_engine, seg_audio, wd,
-                   ua_slice_fn) -> None:
+                   ua_slice_fn, tuning=None) -> None:
     import os
     name = Path(video).stem
     inc = per_engine.get(INCUMBENT)
@@ -225,7 +400,10 @@ def _write_reports(bo, video, lang, subset, per_engine, seg_audio, wd,
               "veto), or tie and win the ear on the .html page. pace, mos± and "
               "s/take are informational (timing feel / reliability / cost) — they "
               "inform the choice but do not gate it. Then set "
-              "`tts.engine_by_lang: {" + lang + ": <winner>}`."]
+              "`tts.engine_by_lang: {" + lang + ": <winner>}` — AND the winning "
+              "engine's tuned parameters from the table below, or production "
+              "will run it at defaults the bake-off did not measure."]
+    lines += _tuning_section(tuning or {}, engines)
     (bo / f"bakeoff_{lang}.md").write_text("\n".join(lines) + "\n",
                                            encoding="utf-8")
 

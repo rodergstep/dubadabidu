@@ -38,6 +38,12 @@ def _subset(utterances: list[dict], n: int) -> list[dict]:
     us = sorted(utterances, key=lambda u: len(u["text_uk"]))
     if len(us) <= n:
         return us
+    if n <= 1:
+        # n==1 has no spread to stratify over, and the even-spacing formula
+        # divides by n-1. Take the median-length segment: the single most
+        # representative sample. (bakeoff.tune.subset_size: 1 is the natural
+        # cheapest setting, so this path is reachable from config.)
+        return us[len(us) // 2:len(us) // 2 + 1] if n == 1 else []
     step = (len(us) - 1) / (n - 1)
     return [us[round(i * step)] for i in range(n)]
 

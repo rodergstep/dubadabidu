@@ -59,8 +59,12 @@ def run(cfg: dict, videos: list[str] | None = None) -> Path:
         for lang in langs:
             trs = [u["tr"][lang] for u in man["utterances"]
                    if lang in u["tr"]]
-            rows.append((_lang_row(cfg, name, lang, trs),
-                         mp.parent / f"review_{lang}.html"))
+            row = _lang_row(cfg, name, lang, trs)
+            # scores computed on audio s5/s6 has since rewritten are not
+            # comparable to anything — mark the row rather than ranking on them
+            st = M.stale_qc(mp.parent, man, lang)
+            row["stale"] = len(set(st["score"]) | set(st["wer"]))
+            rows.append((row, mp.parent / f"review_{lang}.html"))
 
     # worst-first: rows with a score sort ascending; unevaluated rows sink last
     rows.sort(key=lambda r: (r[0]["score"] is None,
@@ -68,18 +72,22 @@ def run(cfg: dict, videos: list[str] | None = None) -> Path:
 
     lines = ["# batch report", "",
              "worst-first. flagged = qc_score below qc.eval.score_flag; "
-             "review pages exist only after `dubadabidu review <video>`.", "",
+             "review pages exist only after `dubadabidu review <video>`. "
+             "stale = segments whose scores describe audio s5/s6 has since "
+             "rewritten — anything but 0 means that row's metrics are not "
+             "current (`dubadabidu qc <video>` re-scores).", "",
              "| video | lang | engine | segs | synth | score | sim | mos | flagged "
-             "| wer>thr | overflow | overlap | review |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "| wer>thr | overflow | overlap | stale | review |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     fmt = lambda v: "-" if v is None else v  # noqa: E731
     for r, page in rows:
         link = f"[page]({page})" if page.exists() else "-"
+        stale = f"**{r['stale']}**" if r["stale"] else "0"
         lines.append(
             f"| {r['video']} | {r['lang']} | {r['engine']} | {r['segs']} | {r['synth']} "
             f"| {fmt(r['score'])} | {fmt(r['sim'])} | {fmt(r['mos'])} "
             f"| {r['flagged']} | {r['wer_bad']} | {r['overflow']} "
-            f"| {r['overlap']} | {link} |")
+            f"| {r['overlap']} | {stale} | {link} |")
     if not rows:
         lines.append("(no processed videos found)")
 

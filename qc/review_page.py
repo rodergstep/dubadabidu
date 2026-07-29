@@ -94,6 +94,12 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
 
     for lang in langs:
         edge = bool(M.edge_langs(man, [lang]))
+        # scores computed on audio s5/s6 has since rewritten: the badges would
+        # describe a different take than the one the player plays, and any
+        # verdict taken here would be refused at ingest. Say so up front rather
+        # than letting the human spend the review pass on it.
+        st = M.stale_qc(wd, man, lang)
+        stale = sorted(set(st["score"]) | set(st["wer"]))
         cal = man.get("qc_calibration", {}).get(lang)
         us = sorted(man["utterances"],
                     key=lambda u: u["tr"][lang].get("qc_score", 1.0))
@@ -142,6 +148,13 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                    "cloning. Plumbing check only: do NOT rate or judge voice "
                    "quality here; verdicts from this page will be refused."
                    "</div>" if edge else "")
+                + (f"<div class='edgewarn'>⚠ STALE METRICS — {len(stale)} of "
+                   f"{len(us)} segments show scores computed on audio that "
+                   f"s5/s6 has since rewritten. The badges describe a different "
+                   f"take than the player plays, and verdicts taken here will "
+                   f"be refused at ingest. Run <code>dubadabidu qc "
+                   f"{Path(video).stem}</code>, then regenerate this page."
+                   f"</div>" if stale else "")
                 + f"<div class='cal'>calibration: {cal_line}</div>"
                 f"{''.join(segs)}<script>{JS}</script>")
         out = wd / f"review_{lang}.html"

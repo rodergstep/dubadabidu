@@ -98,9 +98,11 @@ def run(cfg: dict, video: str, langs: list[str],
             # variant to fit the slot (fit=shortened), recorded as fitted_text. Falling
             # back to tr["text"] would wrongly flag every shortened segment.
             spoken = tr.get("fitted_text") or tr["text"]
-            score = segment_wer(cfg, spoken,
-                                wd / tr.get("placed", tr["fitted"]), lang)
+            score = segment_wer(cfg, spoken, M.scored_path(wd, tr), lang)
             tr["qc_wer"] = round(score, 3)
+            # stamp the graded audio (see manifest.stale_qc): an s5/s6 re-run
+            # rewrites the placed wav and this WER stops describing it
+            M.stamp_qc(wd, tr, "wer")
             if score > thr or tr.get("fit") == "overflow":
                 flagged.append((u["id"], tr["qc_wer"], tr.get("fit")))
         M.save(cfg, video, man)

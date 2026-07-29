@@ -97,6 +97,72 @@ def clear_synth(cfg: dict, video: str | Path, langs: list[str]) -> int:
     return removed
 
 
+# ---------- QC staleness ----------
+# evaluate/backcheck grade the PLACED segment (post-trim/normalize), but s5/s6
+# rewrite that file whenever fit or mix settings change — and nothing re-scores
+# it. The scores then describe audio that no longer exists, and every consumer
+# (report, batch_report, review pages, autopilot._assess, and the ratings rows
+# the qc-weight re-fit trains on) silently believes them. Each scoring pass
+# stamps WHICH audio it graded, so staleness is detectable instead of invisible.
+#
+# Stamps are `qc_`-prefixed, so clear_synth and autopilot._reroll already drop
+# them with the rest of the qc keys. A segment scored before stamping existed
+# reads as stale — correct: those scores are unverifiable.
+_QC_STAMPS = {
+    "score": ("qc_of", ("qc_score", "qc_sim2", "qc_sim_cal", "qc_mos",
+                        "qc_mos_min", "qc_f0st")),
+    "wer":   ("qc_wer_of", ("qc_wer",)),
+}
+
+
+def scored_path(wd: Path, tr: dict) -> Path | None:
+    """The audio QC grades: the placed segment once s6 has run, else the fitted
+    one. Single source of truth — evaluate, backcheck and the staleness check
+    must all resolve the same file or the stamp means nothing."""
+    rel = tr.get("placed") or tr.get("fitted")
+    return (wd / rel) if rel else None
+
+
+def audio_sig(path: Path) -> str:
+    """Content hash of a scored wav. Content, not mtime: work/ is rsync'd to and
+    from the GPU pod, and timestamps do not survive that reliably."""
+    h = hashlib.sha1()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()[:12]
+
+
+def stamp_qc(wd: Path, tr: dict, kind: str) -> None:
+    """Record which audio the `kind` ('score' | 'wer') results describe."""
+    p = scored_path(wd, tr)
+    if p and p.exists():
+        tr[_QC_STAMPS[kind][0]] = audio_sig(p)
+
+
+def stale_qc(wd: Path, man: dict, lang: str) -> dict[str, list[str]]:
+    """{'score': [ids], 'wer': [ids]} whose stored results were computed on
+    different audio than the segment points at now. Segments with nothing
+    scored yet are MISSING, not stale, and are omitted. Each file is hashed
+    once per call."""
+    out: dict[str, list[str]] = {"score": [], "wer": []}
+    for u in man["utterances"]:
+        tr = u["tr"].get(lang)
+        if not tr:
+            continue
+        p = scored_path(wd, tr)
+        sig = audio_sig(p) if p and p.exists() else None
+        for kind, (stamp, score_keys) in _QC_STAMPS.items():
+            if not any(k in tr for k in score_keys):
+                continue                    # nothing scored — missing, not stale
+            # `sig is None` (the graded file is gone) must not compare equal to
+            # an absent stamp, or a segment whose audio vanished would read as
+            # current. Scores with no audio behind them are always stale.
+            if sig is None or tr.get(stamp) != sig:
+                out[kind].append(u["id"])
+    return out
+
+
 def edge_langs(man: dict, langs: list[str]) -> list[str]:
     """Languages whose synthesis used the edge fallback (generic MS voices,
     no cloning). Edge output validates plumbing ONLY — it must never be
