@@ -97,6 +97,17 @@ tts:
   # in semitones), roll up to f0_reroll_max extra takes to find a livelier read.
   # Take variance is the lever that works here — exaggeration is NOT a reliable
   # liveliness knob (measured). ~2.2-2.4 ≈ lively chatterbox narration. 0 = off.
+  #
+  # min_f0st is measured in the DELIVERED domain since 2026-07-29: selection
+  # scores each take after s6's edge trim, the same audio evaluate's qc_f0st
+  # grades. Before that it read the raw take, which ran HIGH in 7 of sketch60's
+  # 8 segments — mean abs error 0.35 st, worst ru/u0001 at 3.45 raw vs 2.02
+  # delivered — so this floor was applied in the wrong units and takes clearing
+  # 2.2 at selection could ship near 2.0.
+  # The floor is therefore effectively STRICTER now at the same number — and it
+  # is also enforced in best_of_early_accept, which used to bypass it entirely.
+  # Both mean more takes get rolled per segment. If GPU cost matters more than
+  # the last of the monotony margin, lower this rather than disabling the gate.
   min_f0st: 2.2       # FREE lever: prefer takes clearing this floor at selection
   f0_reroll_max: 0    # COSTLY escalation: extra takes if all flat (marginal; off)
                               # (windowed MOS + f0 liveliness + ECAPA sim) among
@@ -107,9 +118,13 @@ tts:
                               # than take-average; 3s windows score pessimistically —
                               # the gate is deliberately eager, the pick is relative)
   best_of_early_accept: true  # stop rolling takes once one clears a HIGH bar
-                              # (below) AND fits the slot AND passes WER — saves
-                              # GPU time on cheap pods; false = always synth all
-                              # best_of. Quality-safe (bar >> retake floor).
+                              # (below) AND fits the slot AND passes WER AND
+                              # clears min_f0st — saves GPU time on cheap pods;
+                              # false = always synth all best_of. Quality-safe
+                              # (bar >> retake floor). The min_f0st term is not
+                              # optional: accepting early leaves a ONE-take pool,
+                              # and every later filter in synth_best_of is a
+                              # no-op on a single take.
   early_accept_mos: 3.6       # worst-3s-window MOS that counts as "already great"
   early_accept_sim: 0.50      # raw ECAPA cosine floor for early accept
   reference_wav: ref/sketch_ref_08.wav   # extracted from sketch.mp4 vocals (echo-free);
@@ -194,6 +209,26 @@ qc:
     weights: {sim: 0.25, mos: 0.40, f0: 0.20, tempo: 0.15}
     score_flag: 0.55                # review page flags segments below this
     sim_floor_default: 0.35         # fallback if edge floor-synth is offline
+  refit:                            # `dubadabidu refit` — AUTOPILOT M4.
+    # Re-derives the weights above from accumulated human ratings. It PROPOSES
+    # only: specs/batch.yaml forbids the agent editing eval weights, and a
+    # scoring function that rewrites itself between videos makes every
+    # cross-video number incomparable. A human pastes the block it prints.
+    min_rows: 30        # refuse to propose below this many rated segments —
+                        # 4 free parameters fit to fewer describe the noise
+    step: 0.05          # weight lattice; weights are constrained to sum to 1
+                        # because score_flag/mean_score_min are cuts on that scale
+    folds: 5            # cross-validation folds (deterministic, by row index)
+    # Three independent adoption gates, ALL required. Each alone is defeatable.
+    min_rho: 0.30       # the fitted objective must actually track your ear
+    max_p: 0.05         # ...and not by chance: permutation test over shuffled
+    permutations: 50    #    ratings, run through the SAME fit+CV procedure.
+                        #    Required because the incumbent-comparison below is
+                        #    CONFOUNDED on weak data — a fixed weighting can sit
+                        #    at a spuriously negative correlation while the
+                        #    fitted one drifts to ~0, reading as a big "gain"
+                        #    (measured on pure noise: -0.136 -> -0.015, +0.121).
+    adopt_margin: 0.02  # ...and it must still beat the incumbent out of fold
 
 prep:                               # `dubadabidu prep` reference-clip extraction
   min_s: 12.0                       # candidate span length band (seconds)

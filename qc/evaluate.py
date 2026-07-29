@@ -108,7 +108,7 @@ def run(cfg: dict, video: str, langs: list[str],
             if only is not None and u["id"] not in only:
                 continue
             tr = u["tr"][lang]
-            wav = wd / tr.get("placed", tr["fitted"])
+            wav = M.scored_path(wd, tr)
             raw = X.cosine(ref_emb, X.ecapa_embed(wav))
             sim_cal = X.calibrate_sim(raw, cal["floor"], cal["ceiling"])
             m = X.mos(wav)
@@ -120,6 +120,9 @@ def run(cfg: dict, video: str, langs: list[str],
             tr["qc_mos_min"] = round(X.mos_min_window(wav), 2)
             tr["qc_f0st"] = round(f0st, 2)
             tr["qc_score"] = X.composite_score(sim_cal, m, pen, weights, f0st)
+            # stamp WHICH audio these scores describe, so a later s5/s6 re-run
+            # (which rewrites the placed wav) is detectable instead of silent
+            M.stamp_qc(wd, tr, "score")
             rows.append((u["id"], tr))
         M.save(cfg, video, man)
 

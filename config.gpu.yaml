@@ -56,6 +56,27 @@ bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
                                # on non-en/zh langs (adapter raises -> "unavailable")
   subset_size: 6               # stratified by source length
   takes: 3                     # averaged per segment to beat TTS variance
+  # tune-lite: every engine sweeps its own grid BEFORE the head-to-head and
+  # enters at its own best point. Without this the incumbent arrived tuned
+  # (cfg_weight/exaggeration from a real tune run) and challengers arrived at
+  # library defaults — the comparison could not be lost, and "keep incumbent"
+  # would have looked like evidence. IMPROVEMENT_PLAN Phase C asked for exactly
+  # this ("tune-lite ... on BOTH engines").
+  tune:
+    enabled: true
+    subset_size: 3             # SEPARATE from the comparison subset, and smaller:
+    takes: 2                   # cost is points x segments x takes, so it grows
+                               # fastest here. 2 takes beats a single coin-flip
+                               # roll without paying for a full average.
+  # Per-engine grids. A config grid REPLACES that engine's built-in default —
+  # this is how you widen a sweep or close one. Defaults live in
+  # qc/bakeoff.py ENGINE_GRIDS; only knobs that reach manifest.synth_hash are
+  # valid (otherwise the cache serves one point's audio for another) and all of
+  # them must be Ukrainian-reference safe. An empty/single-point grid means
+  # "already tuned, nothing to sweep" and costs nothing.
+  # grids:
+  #   chatterbox: {exaggeration: [0.4, 0.55, 0.7]}   # re-open the incumbent
+  #   voxcpm: {voxcpm_cfg_value: [1.5, 2.0, 2.5], voxcpm_timesteps: [10, 20]}
 
 runpod:                        # M2 infra agent — `dubadabidu remote <task> <video>`
   # Cheapest adequate community GPUs (>=16GB), tried in order (checked 2026-07:

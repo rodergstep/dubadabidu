@@ -348,6 +348,42 @@ PACE_TOL = 0.35        # |dur/target - 1| that zeroes the pace term
 FIT_SLACK = 1.10       # takes within target*this count as "fitting the slot"
 
 
+def _f0_delivered(cand: Path) -> float:
+    """f0 liveliness of the take AS DELIVERED — i.e. after s6's edge trim.
+
+    Take selection used to measure f0 on the raw take while the ear (and
+    evaluate's qc_f0st) get the PLACED segment, which s6 trims at TRIM_DB
+    before mixing. Trimming changes which frames librosa.pyin sees as voiced,
+    and the gap is large and one-directional: measured on sketch60, raw-take
+    f0st ran 0.1-1.4 semitones ABOVE the delivered value (ru/u0001: 3.45 raw
+    vs 2.02 delivered, with no time-stretch involved at all).
+
+    That made tts.min_f0st a floor in the wrong domain — takes clearing 2.2 at
+    selection could land near 2.0 in the mix — and it fed the composite ranker
+    an f0 term that partly measured leading silence. Measuring post-trim puts
+    selection and evaluate in the same units, so min_f0st means one thing.
+
+    Only f0 moves to the delivered domain. mos_min/sim/dur keep their raw-take
+    thresholds (retake_mos_below, early_accept_*, FIT_SLACK) — those are
+    calibrated against raw takes and s5 places on raw-take durations.
+    """
+    from qc.metrics import f0_semitone_std
+    from .s6_mix import _clean               # the exact trim s6 applies
+    from pydub import AudioSegment
+    try:
+        trimmed = _clean(AudioSegment.from_wav(cand).set_channels(1))
+    except Exception as e:      # never let a measurement failure kill a synth
+        log.warning("post-trim f0 measurement failed for %s (%s); "
+                    "falling back to the raw take", cand.name, e)
+        return f0_semitone_std(cand)
+    tmp = cand.with_name(cand.stem + ".f0tmp.wav")
+    try:
+        trimmed.export(tmp, format="wav")
+        return f0_semitone_std(tmp)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def _take_rank(m: dict, target_dur: float | None = None) -> float:
     """Relative ranking of takes of the SAME text/ref. Weights follow the
     human-rating calibration (mos +.63, f0 +.48, sim kept for identity):
@@ -372,6 +408,31 @@ def _take_rank(m: dict, target_dur: float | None = None) -> float:
         parts.append((0.25, pace))
     total = sum(w for w, _ in parts)
     return sum(w * v for w, v in parts) / total
+
+
+def early_accept_ok(m: dict, mos_floor: float, sim_floor: float,
+                    min_f0st: float = 0.0, target_dur: float | None = None,
+                    wer_max: float | None = None) -> bool:
+    """Is this take good enough to stop rolling (tts.best_of_early_accept)?
+
+    Every quality floor the winner would later have to clear must appear here,
+    because accepting early leaves a ONE-take pool and every downstream filter
+    in synth_best_of degrades to a no-op on a one-element pool
+    (`pool = filtered or pool`). f0 was missing from this gate, so early-accept
+    silently bypassed tts.min_f0st entirely — worst on the GPU config, where
+    best_of is 5 and early-accept fires most often.
+    """
+    if m["mos_min"] < mos_floor:
+        return False
+    if target_dur and m["dur"] > target_dur * FIT_SLACK:
+        return False
+    if m.get("sim") is not None and m["sim"] < sim_floor:
+        return False
+    if wer_max is not None and m.get("wer", 1.0) > wer_max:
+        return False
+    if min_f0st and m.get("f0st", 0.0) < min_f0st:
+        return False
+    return True
 
 
 def synth_best_of(text: str, lang: str, out: Path, t: dict,
@@ -405,9 +466,14 @@ def synth_best_of(text: str, lang: str, out: Path, t: dict,
     rank/picked) — the per-take record the weight re-fit and FIXES.md
     diagnostics read. Used by s4 AND s5 (variant retries): a variant that
     replaces the primary in the mix must clear the same gate as the primary.
+
+    Crash-safe by construction: takes roll to their own `_take{k}.wav` files and
+    `out` (the hash-cache key) is created only by the winner's atomic rename. A
+    run killed mid-best-of therefore caches NOTHING and re-rolls cleanly on the
+    next pass — which is what makes preemptible spot pods safe to use here.
     """
     import soundfile as sf
-    from qc.metrics import ecapa_embed, cosine, f0_semitone_std, mos_min_window
+    from qc.metrics import ecapa_embed, cosine, mos_min_window
     best_of = int(t.get("best_of", 1))
     threshold = float(t.get("retake_mos_below", 0.0))
     ranked = bool(t.get("rank_takes", True)) and best_of > 1
@@ -425,24 +491,20 @@ def synth_best_of(text: str, lang: str, out: Path, t: dict,
     early = ranked and bool(t.get("best_of_early_accept", True))
     early_mos = float(t.get("early_accept_mos", 3.6))   # worst-3s window scores low
     early_sim = float(t.get("early_accept_sim", 0.50))
+    min_f0st = float(t.get("min_f0st", 0.0))
 
     def _early_ok(m: dict) -> bool:
-        if m["mos_min"] < early_mos:
-            return False
-        if target_dur and m["dur"] > target_dur * FIT_SLACK:
-            return False
-        if m.get("sim") is not None and m["sim"] < early_sim:
-            return False
-        if wer_max is not None and m.get("wer", 1.0) > wer_max:
-            return False
-        return True
+        return early_accept_ok(m, early_mos, early_sim, min_f0st,
+                               target_dur, wer_max)
 
     def _measure(cand: Path) -> dict:
         info = sf.info(str(cand))
         m = {"mos_min": round(mos_min_window(cand), 2),
              "dur": round(info.frames / info.samplerate, 2)}
         if ranked:
-            m["f0st"] = round(f0_semitone_std(cand), 2)
+            # delivered domain, so this is comparable to min_f0st and to
+            # evaluate's qc_f0st (see _f0_delivered)
+            m["f0st"] = round(_f0_delivered(cand), 2)
             if ref_emb is not None:
                 m["sim"] = round(cosine(ref_emb, ecapa_embed(cand)), 3)
         if wer_max is not None:
@@ -450,9 +512,26 @@ def synth_best_of(text: str, lang: str, out: Path, t: dict,
             m["wer"] = round(segment_wer(verify_cfg, verify_text, cand, lang), 3)
         return m
 
+    # Sweep leftovers from a previous ATTEMPT at this exact segment (a run that
+    # died mid-best-of, or one that rolled more takes than the current best_of).
+    # They are never read — every take below is overwritten before it is scored —
+    # but without this they accumulate on disk across crashed pod sessions.
+    for junk in out.parent.glob(f"{out.stem}_take*.wav"):
+        junk.unlink(missing_ok=True)
+    for junk in out.parent.glob(f"{out.stem}_reroll*.wav"):
+        junk.unlink(missing_ok=True)
+
     takes = []  # (path, metrics)
     for take in range(best_of):
-        cand = out.with_name(f"{out.stem}_take{take}.wav") if take else out
+        # EVERY take rolls to its own file — never straight to `out`. `out` is
+        # the hash-cache key: s4 treats its existence as "this segment has an
+        # accepted take" (fresh = not out.exists()). Writing take 0 there meant
+        # a run killed before the ranking finished — spot preemption, the budget
+        # deadline, the pod self-destruct watchdog, an OOM — left an UNRANKED,
+        # ungated take cached as if it had won, with no tr.takes record and no
+        # way to notice. Only --force cleared it. `out` is now created by exactly
+        # one operation: the atomic rename of the winner, below.
+        cand = out.with_name(f"{out.stem}_take{take}.wav")
         synthesize(text, lang, cand, t)
         m = _measure(cand)
         takes.append((cand, m))
@@ -474,7 +553,6 @@ def synth_best_of(text: str, lang: str, out: Path, t: dict,
     # move f0 (measured 2026-07-14), so we sample instead of twiddling. The
     # composite ranker still picks the winner (a livelier take must also hold up
     # on MOS/sim), so this only ADDS candidates — it can't force a bad take in.
-    min_f0st = float(t.get("min_f0st", 0.0))
     reroll_max = int(t.get("f0_reroll_max", 0))
     if ranked and min_f0st > 0 and reroll_max > 0:
         rr = 0
@@ -513,10 +591,13 @@ def synth_best_of(text: str, lang: str, out: Path, t: dict,
         m["picked"] = path is winner[0]
         if meta is not None:
             meta.append(m)
-    if winner[0] is not out:
-        winner[0].replace(out)
+    # Publish the winner LAST, with a single rename. Path.replace is an atomic
+    # POSIX rename within the directory, so `out` — the cache key — goes from
+    # "absent" straight to "the complete, ranked winner". There is no window in
+    # which it holds a take that has not been through the gates above.
+    winner[0].replace(out)
     for path, _ in takes:
-        if path is not winner[0] and path is not out:
+        if path is not winner[0]:
             path.unlink(missing_ok=True)
     if len(takes) > 1:
         log.info("picked take %d/%d for %r (rank %.3f, mos %.2f)",

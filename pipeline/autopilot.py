@@ -67,16 +67,28 @@ def _ensure_stages(cfg: dict, video: str, lang: str, mux: bool = True) -> None:
 
 
 def _ensure_qc(cfg: dict, video: str, lang: str) -> None:
-    """Run QC only for segments missing it. First pass: everything is missing,
-    so this is the normal full sweep. After a re-roll: _reroll stripped qc_*
-    from exactly the re-rolled segments, so only those are re-checked."""
+    """Run QC for segments missing it OR carrying stale scores. First pass:
+    everything is missing, so this is the normal full sweep. After a re-roll:
+    _reroll stripped qc_* from exactly the re-rolled segments, so only those
+    are re-checked.
+
+    Stale = scored, but on different audio than the segment points at now
+    (manifest.stale_qc). _ensure_stages may have re-run s5/s6 — e.g. a changed
+    fit/mix setting, or a resumed run whose s6 flag was missing — which rewrites
+    the placed wav that QC grades. Without this the loop would assess the new
+    audio using the old audio's scores."""
     from qc import backcheck, evaluate
     man = M.load(cfg, video)
     total = len(man["utterances"])
+    stale = M.stale_qc(M.video_workdir(cfg, video), man, lang)
+    if stale["score"] or stale["wer"]:
+        log.info("%s: re-scoring stale segments (score=%d wer=%d) — the placed "
+                 "audio changed since they were graded",
+                 lang, len(stale["score"]), len(stale["wer"]))
     need_wer = [u["id"] for u in man["utterances"]
-                if "qc_wer" not in u["tr"][lang]]
+                if "qc_wer" not in u["tr"][lang] or u["id"] in stale["wer"]]
     need_score = [u["id"] for u in man["utterances"]
-                  if "qc_score" not in u["tr"][lang]]
+                  if "qc_score" not in u["tr"][lang] or u["id"] in stale["score"]]
     if need_wer:
         backcheck.run(cfg, video, [lang],
                       only=None if len(need_wer) == total else need_wer)

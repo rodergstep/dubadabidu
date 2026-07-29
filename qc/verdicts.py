@@ -66,6 +66,24 @@ def run(cfg: dict, video: str, export_file: str) -> None:
             f"segmentation hash mismatch ({seg_hash}) — the video was "
             f"re-segmented since these ratings were taken; they describe "
             f"different utterance boundaries. Re-review and re-export.")
+    # Every row carries a QC_FEATURES snapshot — that snapshot IS the re-fit's
+    # training input. Ingesting scores that describe audio s5/s6 has since
+    # rewritten would teach the weight fit to predict the human's judgment of
+    # one take from another take's metrics. Refuse, same as above: the export
+    # file is on disk, so nothing is lost by re-scoring and running again.
+    rated = set(ratings) | set(verdicts)
+    stale = M.stale_qc(M.video_workdir(cfg, video), man, lang)
+    hit = sorted(rated & (set(stale["score"]) | set(stale["wer"])))
+    if hit:
+        raise SystemExit(
+            f"{len(hit)} rated segments carry STALE qc metrics (the audio "
+            f"changed after they were scored): "
+            f"{hit[:8]}{' ...' if len(hit) > 8 else ''}\n"
+            f"The stored metrics describe one take and these ratings describe "
+            f"another, so the pair would teach the re-fit a relationship that "
+            f"never existed. Re-score AND re-review before ingesting:\n"
+            f"  dubadabidu qc {video} --langs {lang}\n"
+            f"  dubadabidu review {video} --langs {lang}")
 
     rows_path = Path(f"ratings_{lang}.json")
     rows = (json.loads(rows_path.read_text(encoding="utf-8"))

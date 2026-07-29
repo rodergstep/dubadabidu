@@ -18,7 +18,8 @@ from pipeline import s1_extract, s2_transcribe, s3_translate, s4_synthesize, \
     autopilot as autopilot_mod, manifest as M
 from pipeline.device import torch_device, whisper_device
 from pipeline.logic import deep_merge
-from qc import backcheck, bakeoff, batch_report, evaluate, review_page, verdicts
+from qc import backcheck, bakeoff, batch_report, evaluate, refit, review_page, \
+    verdicts
 
 ROOT = Path(__file__).resolve().parent
 
@@ -167,16 +168,22 @@ def preamble(cfg: dict, video: str, langs: list[str]) -> None:
 
 def report(cfg: dict, video: str) -> None:
     man = M.load(cfg, video)
+    wd = M.video_workdir(cfg, video)
     print(f"\n{video} — {len(man['utterances'])} utterances, "
           f"{man['duration']:.0f}s | stages: {man.get('stages', {})}")
     langs = sorted({l for u in man["utterances"] for l in u["tr"]})
+    stale_note = []
     score_flag = cfg["qc"].get("eval", {}).get("score_flag", 0.55)
     adeq_flag = cfg["translation"].get("adequacy_flag", 3)
     hdr = f"{'lang':5} {'engine':>10} {'ok':>4} {'stretch':>8} {'shorten':>8} " \
           f"{'overflow':>9} {'overlap':>8} {'wer>thr':>8} {'score<f':>8} {'adeq<f':>7}"
     print(hdr); print("-" * len(hdr))
     for lang in langs:
-        trs = [u["tr"][lang] for u in man["utterances"]]
+        trs = [u["tr"].get(lang, {}) for u in man["utterances"]]
+        st = M.stale_qc(wd, man, lang)
+        if st["score"] or st["wer"]:
+            stale_note.append(f"{lang} ({len(st['score'])} score, "
+                              f"{len(st['wer'])} wer)")
         engine = "⚠EDGE" if M.edge_langs(man, [lang]) else \
             next((t["synth_engine"] for t in trs if t.get("synth_engine")), "-")
         fits = [t.get("fit") for t in trs]
@@ -194,6 +201,12 @@ def report(cfg: dict, video: str) -> None:
         print(f"{lang:5} {engine:>10} {fits.count('ok'):>4} {fits.count('stretched'):>8} "
               f"{fits.count('shortened'):>8} {fits.count('overflow'):>9} "
               f"{overlaps:>8} {wer_bad:>8} {score_bad:>8} {adeq_bad:>7}")
+    if stale_note:
+        print(f"\n  !! STALE QC — scores describe audio that s5/s6 has since "
+              f"rewritten: {', '.join(stale_note)}."
+              f"\n     The numbers above (and any review page or ratings row "
+              f"built from them) are not current."
+              f"\n     Re-score:  dubadabidu qc {video}")
 
 
 def main() -> None:
@@ -201,7 +214,7 @@ def main() -> None:
     ap.add_argument("cmd", choices=["run", "stage", "qc", "doctor", "report",
                                     "evaluate", "review", "tune", "prep",
                                     "preamble", "batch", "autopilot",
-                                    "verdicts", "bakeoff", "remote"])
+                                    "verdicts", "bakeoff", "remote", "refit"])
     ap.add_argument("rest", nargs="*")
     ap.add_argument("--langs", default=None)
     ap.add_argument("--from", dest="from_stage", default="s1_extract",
@@ -276,6 +289,8 @@ def main() -> None:
     if a.cmd == "batch":  # no args = all of work/; else the given videos
         batch_report.run(cfg, a.rest or None)
         return
+    if a.cmd == "refit":  # M4: propose qc.eval.weights from accumulated ratings
+        sys.exit(refit.run(cfg, langs))
     if not a.rest:
         ap.error("missing video path(s)")
 
