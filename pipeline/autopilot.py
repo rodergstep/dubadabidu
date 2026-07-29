@@ -12,9 +12,13 @@ escalate skeleton stays.
 Every (symptom -> fix -> outcome) is appended to FIXES.md — the playbook
 future runs (and future agents) read first.
 
-Note: after a re-roll, QC re-runs for the whole language (backcheck +
-evaluate are per-language sweeps). Fine for short fixtures; per-segment QC
-is an M2 optimization.
+After a re-roll, QC re-runs only for the segments whose takes changed
+(_reroll deletes their qc_* keys; _ensure_qc passes exactly the missing ids
+to backcheck/evaluate). The unchanged segments keep their scores, so _assess
+still judges the whole language. A segment that fails to improve on a
+re-roll is marked stuck and never re-rolled again — fresh dice through the
+same MOS gate rarely rescue it, and each wasted round costs a full Whisper
+pass over the re-rolled takes.
 """
 from __future__ import annotations
 import json
@@ -63,13 +67,34 @@ def _ensure_stages(cfg: dict, video: str, lang: str, mux: bool = True) -> None:
 
 
 def _ensure_qc(cfg: dict, video: str, lang: str) -> None:
+    """Run QC for segments missing it OR carrying stale scores. First pass:
+    everything is missing, so this is the normal full sweep. After a re-roll:
+    _reroll stripped qc_* from exactly the re-rolled segments, so only those
+    are re-checked.
+
+    Stale = scored, but on different audio than the segment points at now
+    (manifest.stale_qc). _ensure_stages may have re-run s5/s6 — e.g. a changed
+    fit/mix setting, or a resumed run whose s6 flag was missing — which rewrites
+    the placed wav that QC grades. Without this the loop would assess the new
+    audio using the old audio's scores."""
     from qc import backcheck, evaluate
     man = M.load(cfg, video)
-    trs = [u["tr"][lang] for u in man["utterances"]]
-    if any("qc_wer" not in t for t in trs):
-        backcheck.run(cfg, video, [lang])
-    if any("qc_score" not in t for t in trs):
-        evaluate.run(cfg, video, [lang])
+    total = len(man["utterances"])
+    stale = M.stale_qc(M.video_workdir(cfg, video), man, lang)
+    if stale["score"] or stale["wer"]:
+        log.info("%s: re-scoring stale segments (score=%d wer=%d) — the placed "
+                 "audio changed since they were graded",
+                 lang, len(stale["score"]), len(stale["wer"]))
+    need_wer = [u["id"] for u in man["utterances"]
+                if "qc_wer" not in u["tr"][lang] or u["id"] in stale["wer"]]
+    need_score = [u["id"] for u in man["utterances"]
+                  if "qc_score" not in u["tr"][lang] or u["id"] in stale["score"]]
+    if need_wer:
+        backcheck.run(cfg, video, [lang],
+                      only=None if len(need_wer) == total else need_wer)
+    if need_score:
+        evaluate.run(cfg, video, [lang],
+                     only=None if len(need_score) == total else need_score)
 
 
 def _assess(cfg: dict, video: str, lang: str, accept: dict) -> tuple[dict, list[str]]:
@@ -109,6 +134,40 @@ def _bad_segments(cfg: dict, video: str, lang: str) -> list[str]:
                 or tr.get("qc_score", 1.0) < score_flag):
             bad.append(u["id"])
     return bad
+
+
+def _qc_snapshot(cfg: dict, video: str, lang: str,
+                 ids: list[str]) -> dict[str, tuple]:
+    man = M.load(cfg, video)
+    return {u["id"]: (u["tr"][lang].get("qc_wer"), u["tr"][lang].get("qc_score"))
+            for u in man["utterances"] if u["id"] in ids}
+
+
+def _stuck_after(cfg: dict, video: str, lang: str, rolled: list[str],
+                 prev: dict[str, tuple]) -> set[str]:
+    """ids from `rolled` that are still bad AND whose metrics didn't move:
+    neither WER dropped nor composite score rose vs. the deleted take. A
+    re-roll is already best-of-N through the MOS gate, so a flat round means
+    the distribution itself is the problem (text/ref), not the dice — another
+    round would burn a Whisper pass for the same result. Metrics are stored
+    rounded to 3 decimals, so strict comparison is a real change, not float
+    noise."""
+    still_bad = set(_bad_segments(cfg, video, lang))
+    man = M.load(cfg, video)
+    cur = {u["id"]: u["tr"][lang] for u in man["utterances"]}
+    out = set()
+    for sid in rolled:
+        if sid not in still_bad:
+            continue  # cleared — that's progress
+        w0, s0 = prev.get(sid, (None, None))
+        tr = cur[sid]
+        wer_down = (w0 is not None and tr.get("qc_wer") is not None
+                    and tr["qc_wer"] < w0)
+        score_up = (s0 is not None and tr.get("qc_score") is not None
+                    and tr["qc_score"] > s0)
+        if not (wer_down or score_up):
+            out.add(sid)
+    return out
 
 
 def _reroll(cfg: dict, video: str, lang: str, ids: list[str],
@@ -181,25 +240,42 @@ def run(cfg: dict, video: str, langs: list[str],
         _ensure_qc(cfg, video, lang)
         row, fails = _assess(cfg, video, lang, accept)
         rounds = 0
+        stuck: set[str] = set()
         while fails and rounds < int(budget["max_reroll_rounds"]):
-            bad = _bad_segments(cfg, video, lang)
-            if not bad:  # failures aren't the mechanically fixable kind
+            # skip stuck segments: a flat re-roll already proved fresh dice
+            # don't help them, so re-rolling again just wastes budget
+            bad = [b for b in _bad_segments(cfg, video, lang)
+                   if b not in stuck]
+            if not bad:  # nothing (left) that's mechanically fixable
                 break
             rounds += 1
             log.info("%s/%s round %d: re-rolling %s (fails: %s)",
                      name, lang, rounds, bad, fails)
             before = {f.split(" ")[0] for f in fails}
+            prev = _qc_snapshot(cfg, video, lang, bad)
             _reroll(cfg, video, lang, bad, mux=mux)
             _ensure_qc(cfg, video, lang)
             row, fails = _assess(cfg, video, lang, accept)
+            newly_stuck = _stuck_after(cfg, video, lang, bad, prev)
+            stuck |= newly_stuck
             _log_fix(f"- {name}/{lang} round {rounds}: re-rolled {bad} for "
                      f"{sorted(before)} -> "
-                     f"{'PASS' if not fails else 'still: ' + '; '.join(fails)}")
+                     f"{'PASS' if not fails else 'still: ' + '; '.join(fails)}"
+                     + (f" (no progress, now stuck: {sorted(newly_stuck)})"
+                        if newly_stuck else ""))
 
         verdict = "PASS" if not fails else "ESCALATE"
+        escalations = _escalations(fails) if fails else []
+        if fails and stuck:
+            escalations.append(
+                f"stuck segments {sorted(stuck)}: re-roll didn't move WER or "
+                f"score — the take distribution is the problem, not the dice; "
+                f"edit tr.<lang>.text in the manifest or re-pick the ref "
+                f"(`dubadabidu preamble <video>`)")
         result = {"video": name, "lang": lang, "verdict": verdict,
                   "row": row, "reroll_rounds": rounds,
-                  "escalations": _escalations(fails) if fails else []}
+                  "stuck": sorted(stuck),
+                  "escalations": escalations}
         out = M.video_workdir(cfg, video) / f"autopilot_{lang}.json"
         out.write_text(json.dumps(result, indent=2), encoding="utf-8")
         print(f"\n[autopilot] {name}/{lang}: {verdict}  "

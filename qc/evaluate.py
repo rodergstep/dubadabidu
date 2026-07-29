@@ -80,7 +80,11 @@ def calibration(cfg: dict, wd: Path, man: dict, lang: str) -> dict:
             "ref": cfg["tts"]["reference_wav"]}
 
 
-def run(cfg: dict, video: str, langs: list[str]) -> None:
+def run(cfg: dict, video: str, langs: list[str],
+        only: list[str] | None = None) -> None:
+    """only: utterance ids to (re)score; None = all. Subset runs reuse the
+    stored calibration band (same ref => same band; recomputing it costs an
+    ECAPA embed of the ref + 6 vocal slices per round for nothing)."""
     man = M.load(cfg, video)
     # similarity must be judged against the ref the video was actually synthesized
     # with — honor the per-video override written by `preamble`
@@ -93,14 +97,18 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     ref_emb = X.ecapa_embed(cfg["tts"]["reference_wav"])
 
     for lang in langs:
-        cal = calibration(cfg, wd, man, lang)
-        man.setdefault("qc_calibration", {})[lang] = cal
+        cal = man.get("qc_calibration", {}).get(lang)
+        if only is None or not cal or cal.get("ref") != cfg["tts"]["reference_wav"]:
+            cal = calibration(cfg, wd, man, lang)
+            man.setdefault("qc_calibration", {})[lang] = cal
         log.info("%s calibration: floor=%.3f ceiling=%.3f",
                  lang, cal["floor"], cal["ceiling"])
         rows = []
         for u in man["utterances"]:
+            if only is not None and u["id"] not in only:
+                continue
             tr = u["tr"][lang]
-            wav = wd / tr.get("placed", tr["fitted"])
+            wav = M.scored_path(wd, tr)
             raw = X.cosine(ref_emb, X.ecapa_embed(wav))
             sim_cal = X.calibrate_sim(raw, cal["floor"], cal["ceiling"])
             m = X.mos(wav)
@@ -112,10 +120,16 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             tr["qc_mos_min"] = round(X.mos_min_window(wav), 2)
             tr["qc_f0st"] = round(f0st, 2)
             tr["qc_score"] = X.composite_score(sim_cal, m, pen, weights, f0st)
+            # stamp WHICH audio these scores describe, so a later s5/s6 re-run
+            # (which rewrites the placed wav) is detectable instead of silent
+            M.stamp_qc(wd, tr, "score")
             rows.append((u["id"], tr))
         M.save(cfg, video, man)
 
-        print(f"\n[evaluate] {lang}  (floor={cal['floor']}  ceiling={cal['ceiling']})")
+        scope = f"  [{len(rows)}/{len(man['utterances'])} segments]" \
+            if only is not None else ""
+        print(f"\n[evaluate] {lang}  (floor={cal['floor']}  "
+              f"ceiling={cal['ceiling']}){scope}")
         hdr = f"{'id':6} {'score':>6} {'sim2':>6} {'simcal':>7} {'mos':>5} " \
               f"{'mosmin':>6} {'f0st':>5} {'tempo':>6} {'fit':>9}"
         print(hdr); print("-" * len(hdr))

@@ -1,5 +1,6 @@
 import time
-from pipeline.runpod_infra import _deadline, ssh_target, DEFAULTS
+from pipeline.runpod_infra import (_deadline, engine_install_cmd, ssh_target,
+                                   DEFAULTS)
 
 
 def _rp(**over):
@@ -56,3 +57,21 @@ def test_ssh_target_runtime_nested():
 def test_ssh_target_not_ready():
     assert ssh_target({"desiredStatus": "PENDING", "ports": []}) is None
     assert ssh_target({"ports": [{"privatePort": 8888, "publicPort": 1}]}) is None
+
+
+# --- per-engine venv isolation (the pod-side install command) ---
+
+def test_engine_install_cmd_isolates_per_engine():
+    cmd = engine_install_cmd("~/dubadabidu", "voxcpm", "pip install -q voxcpm")
+    # the snippet must run inside the ENGINE's venv, never the main .venv
+    assert "venvs/voxcpm" in cmd
+    assert ". venvs/voxcpm/bin/activate" in cmd
+    assert ".venv/bin/activate" not in cmd.replace("venvs/voxcpm/bin/activate", "")
+    assert cmd.rstrip().endswith("pip install -q voxcpm")
+
+
+def test_engine_install_cmd_distinct_venvs():
+    a = engine_install_cmd("~/d", "cosyvoice", "true")
+    b = engine_install_cmd("~/d", "qwen", "true")
+    assert "venvs/cosyvoice" in a and "venvs/cosyvoice" not in b
+    assert "venvs/qwen" in b and "venvs/qwen" not in a

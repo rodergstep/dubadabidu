@@ -56,6 +56,27 @@ bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
                                # on non-en/zh langs (adapter raises -> "unavailable")
   subset_size: 6               # stratified by source length
   takes: 3                     # averaged per segment to beat TTS variance
+  # tune-lite: every engine sweeps its own grid BEFORE the head-to-head and
+  # enters at its own best point. Without this the incumbent arrived tuned
+  # (cfg_weight/exaggeration from a real tune run) and challengers arrived at
+  # library defaults — the comparison could not be lost, and "keep incumbent"
+  # would have looked like evidence. IMPROVEMENT_PLAN Phase C asked for exactly
+  # this ("tune-lite ... on BOTH engines").
+  tune:
+    enabled: true
+    subset_size: 3             # SEPARATE from the comparison subset, and smaller:
+    takes: 2                   # cost is points x segments x takes, so it grows
+                               # fastest here. 2 takes beats a single coin-flip
+                               # roll without paying for a full average.
+  # Per-engine grids. A config grid REPLACES that engine's built-in default —
+  # this is how you widen a sweep or close one. Defaults live in
+  # qc/bakeoff.py ENGINE_GRIDS; only knobs that reach manifest.synth_hash are
+  # valid (otherwise the cache serves one point's audio for another) and all of
+  # them must be Ukrainian-reference safe. An empty/single-point grid means
+  # "already tuned, nothing to sweep" and costs nothing.
+  # grids:
+  #   chatterbox: {exaggeration: [0.4, 0.55, 0.7]}   # re-open the incumbent
+  #   voxcpm: {voxcpm_cfg_value: [1.5, 2.0, 2.5], voxcpm_timesteps: [10, 20]}
 
 runpod:                        # M2 infra agent — `dubadabidu remote <task> <video>`
   # Cheapest adequate community GPUs (>=16GB), tried in order (checked 2026-07:
@@ -74,46 +95,47 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   # (worth it for the 20-video batch). Create the volume in the console first.
   # network_volume_id: ""
   # Per-engine install snippets for `remote bakeoff` (chatterbox is always
-  # installed by REMOTE_SETUP). Each runs on the pod AFTER `. .venv/bin/activate`
-  # from the project root; it MUST leave the engine importable with NO PYTHONPATH
-  # (the task runs in a fresh SSH session) — so pip install -e the clone, or drop
-  # a .pth into site-packages. An empty/failing snippet => that engine is marked
+  # installed by REMOTE_SETUP into the MAIN .venv). Each snippet runs on the
+  # pod inside that engine's OWN venv — venvs/<engine>, created and activated
+  # by engine_install_cmd before the snippet — so its resolver may pick
+  # whatever torch/numpy it wants: the chatterbox baseline is untouchable BY
+  # CONSTRUCTION (this per-engine isolation replaced the old best-effort
+  # torch-pin guard tails). s4/bakeoff automatically route an engine through
+  # a worker subprocess in its venv whenever venvs/<engine> exists
+  # (pipeline/engine_client.py); the snippet MUST leave the engine importable
+  # in ITS venv with no PYTHONPATH — pip install -e the clone, or drop a .pth
+  # into site-packages. An empty/failing snippet => that engine is marked
   # unavailable and skipped, so a partial bake-off still runs.
   #
   # STATUS: filled best-effort from THIRD_PARTY.md, but UNPINNED (clones default
   # branch) and NOT yet run on a pod. VALIDATE CHEAPLY FIRST with
   # `dubadabidu remote setup-check` (~$0.30) — it runs these snippets on one pod
-  # and reports which engines import, so you don't debug installs on a billing
-  # bake-off. Before trusting a comparison, confirm:
+  # and probes each engine INSIDE its venv, so you don't debug installs on a
+  # billing bake-off. Before trusting a comparison, confirm:
   #   (a) the checkpoint repo id `IndexTeam/IndexTTS-2` (IndexTTS-2 weights);
-  #   (b) each repo's HEAD still matches the API in pipeline/tts_engine.py;
-  #   (c) torch stays 2.6.0 after all installs — a challenger that drags torch
-  #       off 2.6.0 in this SHARED venv breaks the chatterbox baseline (and thus
-  #       every verdict). Each snippet now ENDS WITH A GUARD that verifies
-  #       `import chatterbox` + torch==2.6 still hold; if an install broke them it
-  #       reinstalls the pins and exits non-zero, so ONLY that engine is dropped
-  #       (marked unavailable) and the baseline survives. Restore is best-effort —
-  #       if a challenger also churned other chatterbox deps it may not fully heal,
-  #       so still prefer FEWER engines per pod run when you can.
+  #   (b) each repo's HEAD still matches the API in pipeline/tts_engine.py.
+  # Clones are guarded with `[ -d ... ] ||` so a persistent-volume re-run
+  # (runpod.network_volume_id) doesn't fail on an existing checkout.
   # PINNING: each clone-based snippet has a `# pin:` line showing the exact edit —
   # append `&& git -C third_party/<repo> checkout <SHA>` right after its clone once
   # a run validates the commit (THIRD_PARTY.md "Pinned commit" lines).
   engine_setup:
     # CosyVoice: no pip package -> weights via modelscope + a .pth putting the
-    # repo AND its Matcha-TTS submodule on sys.path.
+    # repo AND its Matcha-TTS submodule on the ENGINE venv's sys.path.
     # pin: append `&& git -C third_party/CosyVoice checkout <SHA>` after the clone.
-    cosyvoice: "git clone --recursive https://github.com/FunAudioLLM/CosyVoice third_party/CosyVoice && pip install -q -r third_party/CosyVoice/requirements.txt && pip install -q modelscope && python -c 'from modelscope import snapshot_download as d; d(\"iic/CosyVoice2-0.5B\", local_dir=\"pretrained_models/CosyVoice2-0.5B\")' && python -c 'import sysconfig,os;p=sysconfig.get_paths()[\"purelib\"];r=os.getcwd();open(os.path.join(p,\"cosyvoice.pth\"),\"w\").write(r+\"/third_party/CosyVoice\\n\"+r+\"/third_party/CosyVoice/third_party/Matcha-TTS\\n\")' && python -c 'import chatterbox, torch, sys; sys.exit(0 if torch.__version__.startswith(\"2.6\") else 1)' || { echo '[guard] cosyvoice install broke the torch-2.6/chatterbox baseline; restoring pins, skipping cosyvoice'; pip install -q torch==2.6.0 torchaudio==2.6.0 'numpy>=1.24,<2'; exit 1; }"
-    # VoxCPM2: plain pip — but the torch pins MUST ride on the same line (its
-    # resolver otherwise moves torch off 2.6.0). Weights auto-download at load.
-    voxcpm: "pip install -q voxcpm==2.0.3 torchcodec==0.2.1 torch==2.6.0 torchaudio==2.6.0 'numpy>=1.24,<2' && python -c 'import chatterbox, torch, sys; sys.exit(0 if torch.__version__.startswith(\"2.6\") else 1)' || { echo '[guard] voxcpm install broke the torch-2.6/chatterbox baseline; restoring pins, skipping voxcpm'; pip install -q torch==2.6.0 torchaudio==2.6.0 'numpy>=1.24,<2'; exit 1; }"
+    cosyvoice: "{ [ -d third_party/CosyVoice ] || git clone --recursive https://github.com/FunAudioLLM/CosyVoice third_party/CosyVoice; } && pip install -q -r third_party/CosyVoice/requirements.txt && pip install -q modelscope && python -c 'from modelscope import snapshot_download as d; d(\"iic/CosyVoice2-0.5B\", local_dir=\"pretrained_models/CosyVoice2-0.5B\")' && python -c 'import sysconfig,os;p=sysconfig.get_paths()[\"purelib\"];r=os.getcwd();open(os.path.join(p,\"cosyvoice.pth\"),\"w\").write(r+\"/third_party/CosyVoice\\n\"+r+\"/third_party/CosyVoice/third_party/Matcha-TTS\\n\")'"
+    # VoxCPM2: plain pip. In its own venv the resolver is free to pick its
+    # preferred torch/torchcodec (the old same-line pins defended the shared
+    # venv's torch 2.6.0 — no longer needed). Weights auto-download at load.
+    voxcpm: "pip install -q voxcpm==2.0.3"
     # Qwen3-TTS: editable install makes `qwen_tts` importable; weights (HF id in
     # tts.qwen_model_dir) auto-download at load.
     # pin: append `&& git -C third_party/Qwen3-TTS checkout <SHA>` after the clone.
-    qwen: "git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS && pip install -q -e third_party/Qwen3-TTS && python -c 'import chatterbox, torch, sys; sys.exit(0 if torch.__version__.startswith(\"2.6\") else 1)' || { echo '[guard] qwen install broke the torch-2.6/chatterbox baseline; restoring pins, skipping qwen'; pip install -q torch==2.6.0 torchaudio==2.6.0 'numpy>=1.24,<2'; exit 1; }"
+    qwen: "{ [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && pip install -q -e third_party/Qwen3-TTS"
     # IndexTTS-2 (en/zh; also powers emotion_from_source for en). Editable install
     # makes `indextts` importable; checkpoints -> ./checkpoints (indextts_model_dir).
     # pin: append `&& git -C third_party/index-tts checkout <SHA>` after the clone.
-    indextts: "git clone https://github.com/index-tts/index-tts third_party/index-tts && pip install -q -e third_party/index-tts && pip install -q -U \"huggingface_hub[cli]\" && huggingface-cli download IndexTeam/IndexTTS-2 --local-dir checkpoints && python -c 'import chatterbox, torch, sys; sys.exit(0 if torch.__version__.startswith(\"2.6\") else 1)' || { echo '[guard] indextts install broke the torch-2.6/chatterbox baseline; restoring pins, skipping indextts'; pip install -q torch==2.6.0 torchaudio==2.6.0 'numpy>=1.24,<2'; exit 1; }"
+    indextts: "{ [ -d third_party/index-tts ] || git clone https://github.com/index-tts/index-tts third_party/index-tts; } && pip install -q -e third_party/index-tts && pip install -q -U \"huggingface_hub[cli]\" && huggingface-cli download IndexTeam/IndexTTS-2 --local-dir checkpoints"
   # SAFETY: pod id persisted to work/.runpod_active.json on create; terminate
   # retries+verifies and only clears state on confirmation; an independent
   # pod-side watchdog self-destructs at the deadline even if this process dies;
