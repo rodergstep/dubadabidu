@@ -298,6 +298,33 @@ def wait_ssh(rp: dict, host: str, port: int, deadline: float) -> bool:
 _MODEL_CACHE_EXCLUDES = (".models/ecapa", ".models/audio-separator")
 
 
+def _precut_emotion_slices(cfg: dict, video: str, langs: list[str]) -> None:
+    """Cut the per-utterance emotion prompts locally, before the sync.
+
+    tts.emotion_from_source is IndexTTS-2's whole reason for being on the roster:
+    the emotion prompt becomes THIS utterance's slice of the source vocals, so
+    the dub carries the speaker's own delivery segment by segment. The cut needs
+    ffmpeg, and a bake-off pod installs rsync only (ffmpeg's apt tree upgrades the
+    C runtime). Doing it locally sidesteps that entirely — no-op when the feature
+    is off."""
+    t = cfg.get("tts", {})
+    if not t.get("emotion_from_source"):
+        return
+    from .tts_engine import with_source_emotion
+    man = M.load(cfg, video)
+    wd = M.video_workdir(cfg, video)
+    lang = langs[0] if langs else "en"
+    # force the indextts route so the helper actually cuts (it is engine-gated)
+    tt = {**t, "engine": "indextts", "engine_by_lang": {}}
+    n = 0
+    for u in man["utterances"]:
+        before = (wd / "emo" / f"{u['id']}.wav").exists()
+        with_source_emotion(tt, wd, u, lang)
+        n += (wd / "emo" / f"{u['id']}.wav").exists() and not before
+    log.info("emotion_from_source: %d slices cut locally (emo/ ships to the pod)",
+             n)
+
+
 def _live_pod() -> tuple[str, str, int] | None:
     """(pod_id, host, port) for the pod in the state file when it is still up and
     reachable, else None. Used by --reuse to attach to a pod a previous
@@ -356,17 +383,25 @@ def free_engine(rp: dict, host: str, port: int, remote: str,
     except (ValueError, AttributeError):
         pct = 100      # unknown -> assume tight and reclaim, the safe direction
     if pct < threshold_pct:
-        log.info("disk %d%% used (<%d%%) — keeping venvs/%s for a --reuse run",
-                 pct, threshold_pct, engine)
+        log.info("disk %d%% used (<%d%%) — nothing reclaimed, %s stays warm "
+                 "for a --reuse run", pct, threshold_pct, engine)
         return
-    cmd = (f"rm -rf {remote}/venvs/{engine} "
-           f"{remote}/third_party/* /root/.cache/huggingface 2>/dev/null; "
+    # Reclaim the BULK — model weights — and keep the venv and clone, which are
+    # small and expensive to rebuild. The original order was backwards: it deleted
+    # venvs/ and third_party/ (~5 GB) while keeping checkpoints/ and
+    # pretrained_models/ (~16 GB), so it fired right after a big download and
+    # destroyed the environment that download was for. Measured 2026-07-30: a
+    # 5.4 GB CosyVoice2 fetch pushed disk to 79%, the sweep deleted the freshly
+    # validated venv + clone, and the weights it could have freed stayed put.
+    cmd = (f"rm -rf {remote}/checkpoints {remote}/pretrained_models "
+           f"/root/.cache/huggingface /root/.cache/pip 2>/dev/null; "
            f"df -h / | tail -1")
     if ssh_exec(rp, host, port, cmd, timeout=300) == 0:
-        log.info("disk %d%% used — freed venvs/%s + model caches", pct, engine)
+        log.info("disk %d%% used — freed model weights/caches "
+                 "(venv + clone kept: small and costly to rebuild)", pct)
     else:
-        log.warning("could not free venvs/%s — disk may fill on the next engine",
-                    engine)
+        log.warning("could not free model weights — disk may fill on the "
+                    "next engine")
 
 
 def _rsync_paths(rp: dict, port: int, paths: list[str], dst: str) -> None:
@@ -688,8 +723,15 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
             # Without it the pod merges into an empty dict and the sync-back
             # overwrites the local scorecard — which silently discarded the
             # voxcpm+qwen comparison twice before this was spotted.
+            # emotion_from_source cuts each utterance's own slice of the
+            # source vocals as an IndexTTS-2 emotion prompt — via FFMPEG,
+            # which a bake-off pod deliberately does not install. Cut them
+            # HERE (ffmpeg is local, vocals.wav is local) and ship them:
+            # with_source_emotion only shells out when the slice is missing,
+            # so a pre-cut emo/ makes the pod-side call a no-op.
+            _precut_emotion_slices(cfg, video, langs)
             needed = [str(wd / n) for n in ("manifest.json", "vocals.wav",
-                                            "qc_ua", "bakeoff")
+                                            "qc_ua", "bakeoff", "emo")
                       if (wd / n).exists()]
             _rsync_paths(rp, port, needed, up)
         else:

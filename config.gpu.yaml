@@ -73,7 +73,7 @@ bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
   # minutes, and a failure that costs only its own engine.
   # Work through them by editing this list: voxcpm (proven installer) -> cosyvoice
   # -> qwen -> indextts. Put several back once each recipe is validated.
-  engines: [indextts]            # voxcpm+qwen DONE; cosyvoice build-broken
+  engines: [cosyvoice]           # now installable; get its scorecard row
                                # on non-en/zh langs (adapter raises -> "unavailable")
   subset_size: 6               # stratified by source length
   takes: 3                     # averaged per segment to beat TTS variance
@@ -221,7 +221,22 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
     # CosyVoice: no pip package -> weights via modelscope + a .pth putting the
     # repo AND its Matcha-TTS submodule on the ENGINE venv's sys.path.
     # pin: append `&& git -C third_party/CosyVoice checkout <SHA>` after the clone.
-    cosyvoice: "{ [ -d third_party/CosyVoice ] || git clone --recursive https://github.com/FunAudioLLM/CosyVoice third_party/CosyVoice; } && pip install -q -r third_party/CosyVoice/requirements.txt && pip install -q modelscope && python -c 'from modelscope import snapshot_download as d; d(\"iic/CosyVoice2-0.5B\", local_dir=\"pretrained_models/CosyVoice2-0.5B\")' && python -c 'import sysconfig,os;p=sysconfig.get_paths()[\"purelib\"];r=os.getcwd();open(os.path.join(p,\"cosyvoice.pth\"),\"w\").write(r+\"/third_party/CosyVoice\\n\"+r+\"/third_party/CosyVoice/third_party/Matcha-TTS\\n\")'"
+    # VALIDATED on a pod 2026-07-30 after six attempts. The crux: steps 2 and 3
+    # need OPPOSITE build-isolation settings, which is why every single-flag
+    # attempt failed.
+    #   WITH isolation, openai-whisper's setup.py cannot find pkg_resources
+    #     (modern setuptools dropped it) -> ModuleNotFoundError.
+    #   WITHOUT isolation, tensorrt-cu12's wheel_stub PEP 517 backend is missing
+    #     (it only exists inside the isolation overlay) -> BackendUnavailable.
+    # So: filtered requirements WITH isolation, then openai-whisper ALONE without.
+    # The filter drops tensorrt (TensorRT inference), deepspeed (training),
+    # gradio/fastapi/uvicorn/grpcio (serving), tensorboard/gdown, and both custom
+    # --extra-index-url lines; onnxruntime-gpu -> onnxruntime so the Azure feed is
+    # not needed. openai-whisper is NOT optional despite being absent from the
+    # inference story: cosyvoice imports `whisper` at module load.
+    # The .pth is what makes the CLONE importable (it is not a pip package);
+    # engine_client spawns a fresh worker, so an exported PYTHONPATH would not reach it.
+    cosyvoice: "{ [ -d third_party/CosyVoice ] || git clone --recursive https://github.com/FunAudioLLM/CosyVoice third_party/CosyVoice; } && grep -vE '^[[:space:]]*(--extra-index-url|deepspeed|tensorrt-cu12|onnxruntime-gpu|gradio|fastapi|fastapi-cli|uvicorn|grpcio|grpcio-tools|tensorboard|gdown|openai-whisper)' third_party/CosyVoice/requirements.txt | grep -vE '^[[:space:]]*(#|$)' > /tmp/cv-req.txt && echo onnxruntime==1.18.0 >> /tmp/cv-req.txt && pip install -q -r /tmp/cv-req.txt && pip install -q --no-build-isolation openai-whisper==20231117 && pip install -q modelscope && python -c 'from modelscope import snapshot_download as d; d(\"iic/CosyVoice2-0.5B\", local_dir=\"pretrained_models/CosyVoice2-0.5B\")' && python -c 'import sysconfig,os;p=sysconfig.get_paths()[\"purelib\"];r=os.getcwd();open(os.path.join(p,\"cosyvoice.pth\"),\"w\").write(r+\"/third_party/CosyVoice\\n\"+r+\"/third_party/CosyVoice/third_party/Matcha-TTS\\n\")' && python -c 'from cosyvoice.cli.cosyvoice import CosyVoice2'"
     # VoxCPM2: plain pip. In its own venv the resolver is free to pick its
     # preferred torch/torchcodec (the old same-line pins defended the shared
     # venv's torch 2.6.0 — no longer needed). Weights auto-download at load.

@@ -86,13 +86,35 @@ def _synth_chatterbox(text: str, lang: str, out: Path, t: dict) -> None:
 
 
 def _load_cosyvoice(model_dir: str):
+    """Pick the loader class that matches the WEIGHTS on disk, not the newest one
+    the installed repo happens to expose.
+
+    The old heuristic imported CosyVoice3 when available and fell back to
+    CosyVoice2 only on ImportError. Current checkouts ship BOTH classes, so it
+    always chose CosyVoice3 — which then demanded cosyvoice3.yaml from a
+    CosyVoice2-0.5B model dir and died with
+    `ValueError: .../cosyvoice3.yaml not found!` (measured on a pod 2026-07-30).
+    The class is a property of the checkpoint, so probe the config file: each
+    release names it cosyvoice<N>.yaml. Falls back to whatever imports, which
+    keeps a hand-placed model dir working."""
     global _cosyvoice_model
     if _cosyvoice_model is None:
-        try:  # class name differs across CosyVoice releases; try newest first
-            from cosyvoice.cli.cosyvoice import CosyVoice3 as _CV  # type: ignore
-        except ImportError:
-            from cosyvoice.cli.cosyvoice import CosyVoice2 as _CV  # type: ignore
-        log.info("loading CosyVoice from %s ...", model_dir)
+        import importlib
+        mod = importlib.import_module("cosyvoice.cli.cosyvoice")
+        _CV = None
+        for n in (3, 2):
+            if (Path(model_dir) / f"cosyvoice{n}.yaml").exists():
+                _CV = getattr(mod, f"CosyVoice{n}", None)
+                if _CV is not None:
+                    log.info("CosyVoice%d weights detected in %s", n, model_dir)
+                    break
+        if _CV is None:   # no recognisable config — try newest importable class
+            _CV = (getattr(mod, "CosyVoice3", None)
+                   or getattr(mod, "CosyVoice2", None)
+                   or getattr(mod, "CosyVoice"))
+            log.warning("no cosyvoice{2,3}.yaml in %s — falling back to %s",
+                        model_dir, _CV.__name__)
+        log.info("loading %s from %s ...", _CV.__name__, model_dir)
         _cosyvoice_model = _CV(model_dir)
     return _cosyvoice_model
 

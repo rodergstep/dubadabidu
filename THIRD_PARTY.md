@@ -63,6 +63,32 @@ commit; adjust `_synth_cosyvoice` if the release differs.
 
 Pinned commit: `__________`  (fill after validation)
 
+### STATUS 2026-07-30: installs, does NOT yet synthesize. Seven causes found.
+The `engine_setup` snippet in config.gpu.yaml now gets as far as
+`from cosyvoice.cli.cosyvoice import CosyVoice2` succeeding on a pod. It has
+never produced audio. Start from these, do not rediscover them:
+
+1. `openai-whisper==20231117` — its setup.py imports `pkg_resources`, which
+   modern setuptools no longer ships. It IS required (cosyvoice imports `whisper`
+   at module load), so it cannot simply be dropped.
+2. `PIP_CONSTRAINT` does NOT fix (1): pip's build-isolation overlay ignores it.
+3. `--no-build-isolation` fixes (1) but breaks `tensorrt-cu12`, whose
+   `wheel_stub` PEP 517 backend exists ONLY inside the isolation overlay.
+   -> steps need OPPOSITE isolation settings; split the install.
+4. `tensorrt-cu12` x3 must be filtered out (TensorRT inference is unused).
+5. Do NOT over-filter. `gdown` is imported by `matcha.utils`; dropping it gives
+   `ErrorDuringImport: problem in matcha.utils`. Judge deps by what is IMPORTED,
+   not by what they sound like. Only tensorrt and deepspeed are proven safe drops.
+6. The loader class must match the WEIGHTS, not the newest class the checkout
+   exposes: a CosyVoice2-0.5B dir with the CosyVoice3 class gives
+   `ValueError: .../cosyvoice3.yaml not found!`. Fixed in `_load_cosyvoice`,
+   which now probes for `cosyvoice{3,2}.yaml`.
+7. NEXT UNKNOWN: after (5) is restored the import path is untested — the pod's
+   venv and clone were deleted by a `free_engine` bug before it could be retried.
+
+Cost so far: ~7 pod attempts. voxcpm covers the same five languages, is faster,
+and was chosen by ear — so cosyvoice is a nice-to-have, not a blocker.
+
 ## IndexTTS-2 — EN + Mandarin only, dubbing-native (Apache-2.0)
 
 ```bash

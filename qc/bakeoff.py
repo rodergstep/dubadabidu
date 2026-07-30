@@ -69,6 +69,24 @@ def beats_incumbent(challenger: dict, incumbent: dict,
             and challenger["mos"] >= incumbent["mos"] + mos_eps)
 
 
+def variant_key(engine: str, t: dict, lang: str) -> str:
+    """Scorecard/audio key for an engine AS CONFIGURED.
+
+    Rows were keyed on the engine NAME alone, so testing the same engine with a
+    different capability enabled REPLACED the earlier row instead of sitting
+    beside it — and overwrote its audio. That is right for re-running an
+    identical config and wrong for a variant, which is exactly the comparison
+    worth seeing: IndexTTS-2 with disentangled emotion measured mos 2.739 against
+    2.393 without it, and the merge silently discarded the 'without' row.
+
+    Only settings that materially change what the engine DOES earn a suffix."""
+    from pipeline.manifest import resolve_engine
+    suffix = ""
+    if t.get("emotion_from_source") and resolve_engine(t, lang) == "indextts":
+        suffix = "+emo"
+    return engine + suffix
+
+
 def _engine_cfg(base_tts: dict, engine: str) -> dict:
     """tts config for one candidate: base (merged with the video's tts_overrides
     by the caller) + engine + that engine's defaults."""
@@ -218,7 +236,8 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     import torch
     import soundfile as sf
     from pipeline import engine_client
-    from pipeline.tts_engine import release_models, synthesize
+    from pipeline.tts_engine import (release_models, synthesize,
+                                     with_source_emotion)
     from pipeline.tune import _subset
     from qc import metrics as X
     from qc.backcheck import segment_wer
@@ -271,7 +290,11 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         seg_audio: dict[str, dict[str, str]] = {u["id"]: {} for u in subset}
         for engine in engines:
             t = _engine_cfg(base_tts, engine)
-            seg_dir = bo / "seg" / engine / lang
+            # key rows AND audio by the configured variant, so an
+            # emotion-enabled run sits beside the plain one instead
+            # of replacing it (and keeps its own wavs)
+            vkey = variant_key(engine, t, lang)
+            seg_dir = bo / "seg" / vkey / lang
             seg_dir.mkdir(parents=True, exist_ok=True)
             rows, unavailable = [], None
 
@@ -281,17 +304,17 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             grid = grids.get(engine, {})
             points = _grid_points(grid)
             if tune_on and len(points) > 1:
-                tune_dir = bo / "tune" / engine / lang
+                tune_dir = bo / "tune" / vkey / lang
                 tune_dir.mkdir(parents=True, exist_ok=True)
                 over, trials, unavailable = _tune_engine(
                     engine, t, _subset(subset, tune_n), lang, anchor,
                     tune_dir, tune_takes, grid)
                 if not unavailable:
                     t = {**t, **over}
-                    tuning[engine] = {"winner": over, "trials": trials,
+                    tuning[vkey] = {"winner": over, "trials": trials,
                                       "n_points": len(points)}
             else:
-                tuning[engine] = {"winner": {}, "trials": [],
+                tuning[vkey] = {"winner": {}, "trials": [],
                                   "n_points": len(points),
                                   "skipped": "tuning off" if not tune_on
                                              else "single-point grid"}
@@ -304,13 +327,20 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 # DIFFERENCES between engines isolate the engine's speaking rate
                 # (the shared translation-length bias cancels in the comparison).
                 slot = max(u["end"] - u["start"], 0.1)
+                # per-segment prosody transfer (tts.emotion_from_source,
+                # IndexTTS-2 only): the emotion prompt is THIS utterance's
+                # slice of the source vocals. A no-op for every other engine.
+                # Without this the bake-off judged IndexTTS-2 as a plain
+                # zero-shot cloner, i.e. with the one capability it is on the
+                # roster FOR switched off — and it still tied voxcpm.
+                tu = with_source_emotion(t, wd, u, lang)
                 sims, moss, f0s, wers, paces = [], [], [], [], []
                 first = None
                 for k in range(takes):
                     w = seg_dir / f"{u['id']}_t{k}.wav"
                     try:
                         t0 = time.perf_counter()
-                        synthesize(text, lang, w, t, retries=1)
+                        synthesize(text, lang, w, tu, retries=1)
                         synth_secs.append(time.perf_counter() - t0)
                     except (FileNotFoundError, RuntimeError) as e:
                         # see _tune_engine: a dead worker / failed synth must
@@ -330,7 +360,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 if unavailable:
                     break
                 # relative to bo/ (where the .html lives), not wd/
-                seg_audio[u["id"]][engine] = str(first.relative_to(bo))
+                seg_audio[u["id"]][vkey] = str(first.relative_to(bo))
                 rows.append({"id": u["id"],   # kept so the report can show WHICH
                                               # segments are weak, not just means
                              "sim": sum(sims) / len(sims),
@@ -350,10 +380,10 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             engine_client.shutdown(engine)
             release_models()
             if unavailable:
-                per_engine[engine] = {"unavailable": unavailable}
+                per_engine[vkey] = {"unavailable": unavailable}
                 log.warning("%s unavailable: %s", engine, unavailable)
                 continue
-            per_engine[engine] = {"sim": _mean_stat(rows, "sim"),
+            per_engine[vkey] = {"sim": _mean_stat(rows, "sim"),
                                   "mos": _mean_stat(rows, "mos"),
                                   "f0": _mean_stat(rows, "f0"),
                                   "wer": _mean_stat(rows, "wer"),
@@ -373,8 +403,8 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                                                         for k in ("sim", "mos", "f0",
                                                                   "wer", "pace")}
                                               for r in rows}}
-            log.info("%s/%s: %s", engine, lang,
-                     {k: v for k, v in per_engine[engine].items()
+            log.info("%s/%s: %s", vkey, lang,
+                     {k: v for k, v in per_engine[vkey].items()
                       if k != "per_seg"})
 
         # MERGE with earlier runs before rendering. Engines are now tested one per
