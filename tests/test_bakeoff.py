@@ -91,3 +91,39 @@ def test_indextts_duration_changes_hash():
     dur = synth_hash("hi", "en", _tts(engine="indextts",
                                       indextts_duration_ratio=1.15))
     assert plain != dur
+
+
+# --- real-voice anchor is mandatory ---
+
+def _bakeoff_cfg(work_dir):
+    return {"work_dir": str(work_dir),
+            "tts": {"engine": "chatterbox", "reference_wav": "ref/x.wav",
+                    "cfg_weight": 0.0, "exaggeration": 0.55},
+            "bakeoff": {"engines": ["chatterbox"], "takes": 1,
+                        "subset_size": 2, "tune": {"enabled": False}},
+            "qc": {"wer_flag_threshold": 0.15}, "fit": {"max_tempo": 1.12}}
+
+
+def test_missing_voice_anchor_fails_with_an_actionable_message(tmp_path,
+                                                              monkeypatch):
+    """The anchor IS the cross-engine metric, so there is no fallback to degrade
+    to. Without a guard this was torch's opaque 'stack expects a non-empty
+    TensorList' -- raised AFTER the engine installs, i.e. at the most expensive
+    point of a billed pod run."""
+    import json
+    import pytest
+    import qc.evaluate
+    from qc import bakeoff
+
+    wd = tmp_path / "vid"
+    wd.mkdir()
+    (wd / "manifest.json").write_text(json.dumps({
+        "video": "vid.mp4", "duration": 60.0, "stages": {},
+        "utterances": [{"id": f"u{i:04d}", "start": i, "end": i + 0.5,
+                        "text_uk": "коротко", "tr": {"en": {"text": "short"}}}
+                       for i in range(3)]}))
+    # every sampled utterance is under 1s -> _ua_slices yields nothing
+    monkeypatch.setattr(qc.evaluate, "_ua_slices", lambda *a, **k: iter(()))
+
+    with pytest.raises(SystemExit, match="no usable reference slices"):
+        bakeoff.run(_bakeoff_cfg(tmp_path), "vid", ["en"])

@@ -1,7 +1,7 @@
 # dubadabidu — Ukrainian → multilingual AI dubbing tool
 
 Batch pipeline: `input/*.mp4` (Ukrainian) → `output/*.mp4` with dubbed audio tracks
-(en, fr, de, es, ru, pl) + soft subtitle tracks, cloned to your own voice.
+(en, fr, de, es, ru) + soft subtitle tracks, cloned to your own voice.
 
 Architecture follows the pattern converged on by pyVideoTrans / Softcatala open-dubbing /
 KrillinAI plus the "isometric translation + n-best shorter variants + mild prosodic
