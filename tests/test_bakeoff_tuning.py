@@ -210,3 +210,53 @@ def test_subset_spans_short_and_long():
 def test_subset_smaller_than_n_returns_everything():
     from pipeline.tune import _subset
     assert len(_subset(_us(2), 5)) == 2
+
+
+# --- a bad grid point must not disqualify the engine ---
+
+def test_one_failing_grid_point_is_skipped_not_fatal(monkeypatch, tmp_path):
+    """A grid exists to EXPLORE. If one unsupported value disqualified the whole
+    engine, the safe move would be never to widen a grid — which defeats the
+    point. Only a total failure means the engine is unusable."""
+    import qc.metrics
+    from pipeline import tts_engine
+
+    def fake(text, lang, out, t, retries=2):
+        if t.get("voxcpm_cfg_value") == 9.9:          # unsupported value
+            raise RuntimeError("engine rejected cfg_value=9.9")
+        Path(out).write_bytes(b"wav")
+
+    monkeypatch.setattr(tts_engine, "synthesize", fake)
+    monkeypatch.setattr(qc.metrics, "ecapa_embed", lambda p: p)
+    monkeypatch.setattr(qc.metrics, "cosine", lambda a, b: 0.7)
+    monkeypatch.setattr(qc.metrics, "mos_min_window", lambda p: 4.0)
+
+    over, trials, unavail = B._tune_engine(
+        "voxcpm", {"engine": "voxcpm"}, _subset(), "en", None, tmp_path, 1,
+        {"voxcpm_cfg_value": [2.0, 9.9, 2.5]})
+
+    assert unavail is None                    # engine survives
+    assert len(trials) == 2                   # the bad point is simply absent
+    assert 9.9 not in [t["point"]["voxcpm_cfg_value"] for t in trials]
+    assert over["voxcpm_cfg_value"] in (2.0, 2.5)
+
+
+def test_engine_is_unavailable_only_when_every_point_fails(monkeypatch, tmp_path):
+    from pipeline import tts_engine
+
+    def always_fail(text, lang, out, t, retries=2):
+        raise RuntimeError("worker died: No space left on device")
+
+    monkeypatch.setattr(tts_engine, "synthesize", always_fail)
+    over, trials, unavail = B._tune_engine(
+        "voxcpm", {"engine": "voxcpm"}, _subset(), "en", None, tmp_path, 1,
+        {"voxcpm_cfg_value": [2.0, 2.5]})
+
+    assert over == {} and trials == []
+    assert "No space left" in unavail
+
+
+def test_timesteps_axis_was_dropped_as_noise():
+    """Measured on sketch60/en: ts=20 produced no consistent gain, so the budget
+    moved to takes instead. Guards against it silently returning."""
+    assert "voxcpm_timesteps" not in B.ENGINE_GRIDS["voxcpm"]

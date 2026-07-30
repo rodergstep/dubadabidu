@@ -105,8 +105,17 @@ def _engine_cfg(base_tts: dict, engine: str) -> dict:
 ENGINE_GRIDS: dict[str, dict[str, list]] = {
     "chatterbox": {},
     "cosyvoice": {"cosyvoice_mode": ["cross_lingual"]},
-    "voxcpm": {"voxcpm_cfg_value": [1.5, 2.0, 2.5],
-               "voxcpm_timesteps": [10, 20]},
+    # voxcpm_timesteps DROPPED from the sweep 2026-07-30: measured on sketch60/en
+    # it is noise. At ts=20 the mos went 2.36 / 2.05 / 2.19 across cfg with no
+    # pattern, ts=10 won at two of three cfg levels, and doubling the diffusion
+    # steps bought nothing while costing time. Fixed at the 10 default below.
+    # cfg_value keeps three levels but they are now spent on TAKES instead of a
+    # second axis — see bakeoff.tune.takes. Same synth budget, twice the samples
+    # per point, because the first sweep could not resolve its own winner:
+    # it picked cfg=2.5 on mos 2.515, and the larger comparison sample measured
+    # 2.382 at that very config — indistinguishable from the cfg=2.0 default's
+    # 2.389, with take-to-take mos± of 0.374 against a grid spread of only 0.46.
+    "voxcpm": {"voxcpm_cfg_value": [2.0, 2.5, 3.0]},
     "qwen": {},
     "indextts": {},
     "edge": {},
@@ -146,9 +155,11 @@ def _tune_engine(engine: str, base_t: dict, subset: list[dict], lang: str,
 
     points = _grid_points(grid)
     trials = []
+    last_err = None
     for i, over in enumerate(points):
         t = {**base_t, **over}
         sims, moss = [], []
+        failed = None
         for u in subset:
             text = u["tr"][lang].get("fitted_text") or u["tr"][lang]["text"]
             for k in range(takes):
@@ -157,15 +168,26 @@ def _tune_engine(engine: str, base_t: dict, subset: list[dict], lang: str,
                     synthesize(text, lang, w, t, retries=1)
                 except (FileNotFoundError, RuntimeError) as e:
                     # FileNotFoundError = package/venv missing (the documented
-                    # engine-unavailable contract). RuntimeError = the worker
-                    # died or synthesis failed every retry — a broken install, an
-                    # OOM, a full disk. BOTH mean "this engine cannot be judged",
-                    # and neither is a reason to abandon the other engines: a
-                    # RuntimeError used to propagate and abort the whole bake-off,
-                    # throwing away engines that had already installed cleanly.
-                    return {}, [], str(e).split(" — ")[0][:120]
+                    # engine-unavailable contract). RuntimeError = the worker died
+                    # or synthesis failed every retry — a broken install, an OOM,
+                    # a full disk, or a parameter this engine build rejects.
+                    #
+                    # Skip THIS GRID POINT and keep going: a grid exists to
+                    # explore, so a single unsupported value must not disqualify
+                    # the engine — otherwise widening a grid is a gamble and the
+                    # safe move is never to widen it. The engine is only
+                    # unavailable if EVERY point fails (checked after the loop).
+                    failed = str(e).split(" — ")[0][:120]
+                    last_err = failed
+                    break
                 sims.append(X.cosine(anchor, X.ecapa_embed(w)))
                 moss.append(X.mos_min_window(w))
+            if failed:
+                break
+        if failed:
+            log.warning("tune-lite %s/%s %s FAILED (%s) — skipping this point",
+                        engine, lang, _fmt_point(over), failed)
+            continue
         sim = sum(sims) / len(sims)
         mos = sum(moss) / len(moss)
         # equal weight on the gate's two axes; mos normalized 1..5 -> 0..1 so
@@ -175,6 +197,8 @@ def _tune_engine(engine: str, base_t: dict, subset: list[dict], lang: str,
                        "mos": round(mos, 3), "score": round(score, 4)})
         log.info("tune-lite %s/%s %s -> sim %.3f mos %.2f (score %.4f)",
                  engine, lang, _fmt_point(over), sim, mos, score)
+    if not trials:      # every point failed -> the engine itself is unusable
+        return {}, [], last_err or "no grid point produced audio"
     best = max(trials, key=lambda r: r["score"])
     if len(trials) > 1:
         log.info("tune-lite %s/%s: %s wins %d points",

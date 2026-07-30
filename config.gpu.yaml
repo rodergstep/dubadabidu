@@ -29,8 +29,14 @@ tts:
   # from ref audio alone, transcript-free), 48 kHz out, ~8 GB VRAM, top-tier
   # published SIM scores. pip install — but WITH pins (THIRD_PARTY.md).
   voxcpm_model_dir: openbmb/VoxCPM2    # HF id (auto-download) or local dir
-  # voxcpm_cfg_value: 2.0
-  # voxcpm_timesteps: 10
+  # Validated on the first successful GPU bake-off (sketch60/en, 2026-07-30) and
+  # confirmed BY EAR — the user picked u0002 out of the listening page, which was
+  # synthesized at exactly these settings. Measured there: sim→real 0.804,
+  # wer 0.018 (essentially perfect intelligibility), f0st 2.21, s/take 2.9 s.
+  # cfg 2.5 came from tune-lite; treat the margin over the 2.0 default as
+  # unproven (see bakeoff.tune.takes) but the ear preference as real.
+  voxcpm_cfg_value: 2.5
+  voxcpm_timesteps: 10                 # the 20 setting is noise; costs time only
   # Qwen3-TTS Base: 10 languages (all 5 targets), 3 s clone, ~4 GB VRAM,
   # Apache-2.0. UA ref -> x_vector_only (speaker embedding only, no ref
   # transcript). git-clone install (THIRD_PARTY.md).
@@ -80,9 +86,17 @@ bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
   tune:
     enabled: true
     subset_size: 3             # SEPARATE from the comparison subset, and smaller:
-    takes: 2                   # cost is points x segments x takes, so it grows
-                               # fastest here. 2 takes beats a single coin-flip
-                               # roll without paying for a full average.
+    takes: 4                   # cost is points x segments x takes, so it grows
+                               # fastest here. Raised 2 -> 4 on 2026-07-30: at 2
+                               # takes the sweep could not resolve its own winner.
+                               # It picked voxcpm cfg=2.5 on mos 2.515, and the
+                               # larger comparison sample measured 2.382 at that
+                               # same config — level with the cfg=2.0 default's
+                               # 2.389. Take-to-take mos± was 0.374 against a grid
+                               # spread of 0.46, i.e. the ranking was noise.
+                               # Budget is unchanged: voxcpm's grid dropped from
+                               # 6 points (3 cfg x 2 timesteps) to 3, and the
+                               # timesteps axis was the half proven to be noise.
   # Per-engine grids. A config grid REPLACES that engine's built-in default —
   # this is how you widen a sweep or close one. Defaults live in
   # qc/bakeoff.py ENGINE_GRIDS; only knobs that reach manifest.synth_hash are
