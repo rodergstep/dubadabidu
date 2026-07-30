@@ -218,8 +218,21 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                           if u["tr"].get(lang, {}).get("text")], n)
         if not subset:
             raise SystemExit(f"no {lang} translations — run s3 first.")
-        anchor = torch.stack([X.ecapa_embed(w)
-                              for w in _ua_slices(wd, man["utterances"])]).mean(0)
+        # The anchor IS the cross-engine metric (mean embedding of the speaker's
+        # REAL voice), so unlike evaluate.calibration there is no sensible
+        # fallback to degrade to — fail fast with something actionable instead of
+        # torch's "stack expects a non-empty TensorList". _ua_slices skips spans
+        # under 1s, so this fires when every sampled utterance is shorter.
+        # Matters because it would otherwise surface AFTER the engine installs,
+        # i.e. at the most expensive point of a billed pod run.
+        embs = [X.ecapa_embed(w) for w in _ua_slices(wd, man["utterances"])]
+        if not embs:
+            raise SystemExit(
+                f"no usable reference slices from {wd}/vocals.wav — every "
+                f"sampled utterance is under 1s, so there is no real-voice "
+                f"anchor to score engines against. Check this video's "
+                f"segmentation in the manifest (over-split?) and re-run s2.")
+        anchor = torch.stack(embs).mean(0)
 
         per_engine: dict[str, dict] = {}
         tuning: dict[str, dict] = {}

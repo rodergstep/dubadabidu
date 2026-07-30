@@ -87,6 +87,18 @@ monotonically if this loop is real.
      (accept = settled, reject = force re-roll) and WER re-rolls carry a
      per-take back-transcription veto.
 - M4 Automated weight re-fit + FIXES.md playbook accumulation.
+     DONE: `dubadabidu refit` (qc/refit.py) re-derives qc.eval.weights from the
+     accumulated ratings_<lang>.json rows, by Spearman against your ratings and
+     through the production composite itself. It PROPOSES only — this spec lists
+     "edit eval weights" under `never`, and a scoring function that rewrites
+     itself between videos makes every cross-video number incomparable.
+     Adoption needs THREE gates: a cross-validated rho floor, a permutation test
+     over shuffled ratings, and beating the incumbent out of fold. The last one
+     alone is confounded — on ratings with no signal a fixed weighting can sit
+     at a spuriously negative correlation while the fit drifts toward 0, reading
+     as a large "gain" (measured: -0.136 -> -0.015). Refuses to propose below
+     qc.refit.min_rows (30): four free parameters on fewer points fit noise.
+     FIXES.md accumulation landed earlier with the autopilot (_log_fix).
 
 ## Inherited invariants (from IMPROVEMENT_PLAN, still binding)
 - The eval harness decides, not model reputation — now enforced by spec.
