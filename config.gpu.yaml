@@ -73,7 +73,7 @@ bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
   # minutes, and a failure that costs only its own engine.
   # Work through them by editing this list: voxcpm (proven installer) -> cosyvoice
   # -> qwen -> indextts. Put several back once each recipe is validated.
-  engines: [voxcpm]                             # indextts self-skips
+  engines: [qwen]                # one at a time; voxcpm DONE, cosyvoice build-broken
                                # on non-en/zh langs (adapter raises -> "unavailable")
   subset_size: 6               # stratified by source length
   takes: 3                     # averaged per segment to beat TTS variance
@@ -146,8 +146,19 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   # problems and were misdiagnosed three times before `No space left on device`
   # surfaced from a synth call. Container disk is billed only while the pod runs,
   # so this is nearly free; a too-small value costs an entire run.
-  # Drops to ~60 GB once the bake-off installs and frees one engine at a time.
-  container_disk_gb: 150
+  # SIZE THIS TO len(bakeoff.engines) — container disk is billed per GB while the
+  # pod runs, so 150 GB for a one-engine run is money for nothing. Peak usage:
+  #   devel CUDA base image      ~20 GB   (fixed)
+  #   main .venv (torch 2.6)      ~5 GB   (fixed — qc metrics need it)
+  #   ONE engine venv            ~7-15 GB (own CUDA torch + model weights)
+  #   pip build dirs + HF cache   ~5 GB   (transient)
+  #   project + work/             ~1 GB
+  #   -> ~36-46 GB peak for a single engine; 60 GB is comfortable headroom.
+  # Testing engines ONE AT A TIME (see bakeoff.engines) is what makes this safe.
+  # Raise it back toward 150 if you ever list several engines in one run again —
+  # per-engine venv isolation multiplies torch by the number of challengers, and
+  # under-sizing it is what broke seven runs on 2026-07-30 (see the note above).
+  container_disk_gb: 60
   # ON-DEMAND (2026-07-30). Four consecutive spot pods died mid-bootstrap with
   # `closed by remote host` at lifetimes of 62s / 7m27s / 8m32s / 8m53s — three of
   # them on the SAME host 213.144.200.240. Variable lifetimes rule out a

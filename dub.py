@@ -239,6 +239,13 @@ def main() -> None:
                          "take-SELECTION params (best_of, min_f0st, ...) re-apply "
                          "— they're not in synth_hash, so the cache ignores them "
                          "otherwise. Keeps translations + human verdicts.")
+    ap.add_argument("--keep-alive", dest="keep_alive", action="store_true",
+                    help="`remote`: do NOT terminate the pod when the task "
+                         "ends, so a failing engine install can be debugged "
+                         "IN PLACE over SSH instead of paying a fresh ~4min "
+                         "bootstrap per attempt. Prints the ssh command. The "
+                         "pod-side watchdog still self-destructs at the "
+                         "deadline; `remote kill` ends it sooner.")
     ap.add_argument("--budget", type=float, default=None,
                     help="hard USD cap for `remote` (auto-terminates the pod); "
                          "default runpod.budget_usd")
@@ -370,7 +377,8 @@ def main() -> None:
         vids = a.rest[1:]
         if not vids:
             ap.error(f"remote {task} needs a video path")
-        ok = all(rpi.remote_run(cfg, v, langs, task, a.budget) for v in vids)
+        ok = all(rpi.remote_run(cfg, v, langs, task, a.budget,
+                                keep_alive=a.keep_alive) for v in vids)
         sys.exit(0 if ok else 1)
     if a.cmd == "prep":
         for v in a.rest:

@@ -506,7 +506,8 @@ def _install_engines(rp: dict, host: str, port: int, remote: str,
 
 
 def remote_run(cfg: dict, video: str, langs: list[str], task: str,
-               budget_usd: float | None = None) -> bool:
+               budget_usd: float | None = None,
+               keep_alive: bool = False) -> bool:
     """Full lifecycle: sweep -> provision -> sync up -> run -> sync back ->
     ALWAYS terminate. Returns True on remote task success."""
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
@@ -630,7 +631,29 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         log.info("remote task %s exited rc=%d; results synced back", task, rc)
         return rc == 0
     finally:
-        _terminate_tracked()   # state-file driven: fires even if provision crashed
+        # keep_alive: leave the pod UP so an install recipe can be debugged IN
+        # PLACE. Without it every attempt paid ~4 min of bootstrap (apt, rsync,
+        # the torch install the qc metrics need) just to learn one error message,
+        # then discarded the environment — so a build bug needing three tries cost
+        # three full bootstraps and three pods. Iterating over SSH costs one.
+        #
+        # This is the ONLY path that skips the client-side terminate, and it is
+        # still bounded: the pod-side self-destruct watchdog is armed before any
+        # install and fires at the deadline even if this process dies, and the
+        # state file is deliberately LEFT IN PLACE so `remote kill` (and the
+        # sweep at the start of the next remote command) will collect it.
+        if keep_alive and pid:
+            st = ssh_target(get_pod(pid)) if pid else None
+            log.warning("keep-alive: pod %s LEFT RUNNING (billing!)", pid)
+            if st:
+                log.warning("  ssh -i %s -p %d %s@%s   # cd %s",
+                            rp["ssh_key"], st[1], rp["ssh_user"], st[0], remote)
+            log.warning("  dubadabidu remote kill --overlay config.gpu.yaml"
+                        "   # when done")
+            log.warning("  watchdog will self-destruct it in ~%.0f min regardless",
+                        (deadline - time.time()) / 60)
+        else:
+            _terminate_tracked()  # state-file driven: fires even if provision crashed
 
 
 # ---------------- entry points / diagnostics ----------------
