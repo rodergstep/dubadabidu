@@ -298,6 +298,53 @@ def wait_ssh(rp: dict, host: str, port: int, deadline: float) -> bool:
 _MODEL_CACHE_EXCLUDES = (".models/ecapa", ".models/audio-separator")
 
 
+def _live_pod() -> tuple[str, str, int] | None:
+    """(pod_id, host, port) for the pod in the state file when it is still up and
+    reachable, else None. Used by --reuse to attach to a pod a previous
+    --keep-alive run left running, instead of paying another bootstrap.
+
+    Deliberately conservative: any doubt (no state file, API error, not RUNNING,
+    no SSH mapping yet) returns None and the caller provisions fresh. Reusing a
+    half-dead pod would be worse than paying for a new one."""
+    if not STATE_FILE.exists():
+        return None
+    try:
+        pid = json.loads(STATE_FILE.read_text(encoding="utf-8")).get("pod_id")
+        if not pid:
+            return None
+        p = get_pod(pid)
+        status = (p.get("desiredStatus") or p.get("status") or "").upper()
+        if status and status != "RUNNING":
+            log.info("state-file pod %s is %s, not RUNNING", pid, status)
+            return None
+        target = ssh_target(p)
+        if not target:
+            return None
+        return pid, target[0], target[1]
+    except (RuntimeError, json.JSONDecodeError, OSError) as e:
+        log.info("could not reuse the state-file pod (%s)", e)
+        return None
+
+
+def free_engine(rp: dict, host: str, port: int, remote: str,
+                engine: str) -> None:
+    """Delete an engine's venv and model cache once its results are banked.
+
+    This is what keeps container_disk_gb small while cycling engines through ONE
+    reused pod: per-engine isolation means each challenger drags in its own CUDA
+    torch (7-15 GB), so without freeing, reuse would just recreate the 4-venv
+    disk exhaustion that broke seven runs. Best-effort — a failure here costs
+    disk, not correctness."""
+    cmd = (f"rm -rf {remote}/venvs/{engine} "
+           f"{remote}/third_party/* /root/.cache/huggingface 2>/dev/null; "
+           f"df -h / | tail -1")
+    if ssh_exec(rp, host, port, cmd, timeout=300) == 0:
+        log.info("freed venvs/%s + model caches on the pod", engine)
+    else:
+        log.warning("could not free venvs/%s — disk may fill on the next engine",
+                    engine)
+
+
 def _rsync_paths(rp: dict, port: int, paths: list[str], dst: str) -> None:
     """Send an explicit list of project-relative paths, preserving their layout
     (-R). Used by the bake-off to ship the 3.5 MB it actually reads instead of
@@ -371,11 +418,31 @@ def provision(rp: dict, deadline: float) -> tuple[str, str, int]:
 
 REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     "set -e; cd {dir}; "
+    # Retries/timeout on the BOOTSTRAP too, not just the engine installs
+    # (engine_install_cmd). This pip pulls chatterbox-tts and with it ~2.5 GB of
+    # CUDA torch — the largest download of the whole run — and on 2026-07-30 it
+    # died on a bare `ReadTimeoutError ... files.pythonhosted.org`, leaving no
+    # torch and failing the CUDA check 7 min in. It was the one big transfer left
+    # without retry protection, because the engine path was hardened first simply
+    # for having failed first.
+    "export PIP_RETRIES=10 PIP_TIMEOUT=60; "
     "python3 -m venv .venv 2>/dev/null || true; . .venv/bin/activate; "
+    # UPGRADE PIP FIRST — the single biggest bootstrap win. Ubuntu 22.04's
+    # python3.10-venv ships pip 22.0.2, whose resolver backtracks badly on
+    # chatterbox-tts's graph (it hard-pins torch/torchaudio 2.6.0 and numpy<2).
+    # Measured on a pod 2026-07-30: 26 min elapsed, 39 s of CPU, 3.3 GB pulled
+    # and NOTHING installed — it was downloading 100-700 MB nvidia wheels,
+    # reading their metadata, rejecting them and trying other versions. The link
+    # itself did 8.45 MB/s to files.pythonhosted.org, so effective throughput was
+    # ~25%: the cost was resolver churn, not bandwidth.
+    # engine_install_cmd already did this; the bootstrap did not, purely because
+    # the engine path happened to fail first and get hardened first.
+    "pip install -q --upgrade pip; "
     # skip the ~15min reinstall when deps are already present (persistent-volume
     # reuse across runs — see runpod.network_volume_id)
     "if ! python -c 'import chatterbox' 2>/dev/null; then "
-    "pip install -q chatterbox-tts==0.1.7 && pip install -q -e '.[dev]'; fi; "
+    "pip install --progress-bar off chatterbox-tts==0.1.7 && "
+    "pip install --progress-bar off -e '.[dev]'; fi; "
     # FAIL if CUDA is missing — otherwise the run would silently synth on CPU,
     # which is uselessly slow and defeats the point of renting a GPU
     "python -c 'import torch,sys; ok=torch.cuda.is_available(); "
@@ -507,7 +574,7 @@ def _install_engines(rp: dict, host: str, port: int, remote: str,
 
 def remote_run(cfg: dict, video: str, langs: list[str], task: str,
                budget_usd: float | None = None,
-               keep_alive: bool = False) -> bool:
+               keep_alive: bool = False, reuse: bool = False) -> bool:
     """Full lifecycle: sweep -> provision -> sync up -> run -> sync back ->
     ALWAYS terminate. Returns True on remote task success."""
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
@@ -537,16 +604,32 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
 
     pid = None
     try:
-        pid, host, port = provision(rp, deadline)
-        # arm the independent pod-side self-destruct FIRST — before the long
-        # install — so a crash during setup can't leave a billing pod
-        arm_pod_watchdog(rp, host, port, deadline - time.time())
+        alive = _live_pod() if reuse else None
+        if alive:
+            # REUSE a pod left up by a previous --keep-alive run: skip provision,
+            # watchdog-arm and apt, all of which are already done. The saving is
+            # the BOOTSTRAP, and it is far bigger than it first looks: the torch
+            # download is 4-6 GB and its wall-clock depends entirely on the pod's
+            # route to PyPI. Measured 2026-07-30: ~4 min on a good draw, but
+            # ~1.5 MB/s (40-60 min) on a bad one, and one run died on a bare
+            # ReadTimeoutError. Reuse converts that lottery into a one-off.
+            pid, host, port = alive
+            log.info("reusing pod %s at %s:%d — skipping provision/apt "
+                     "(watchdog already armed by the run that created it)",
+                     pid, host, port)
+        else:
+            if reuse:
+                log.info("--reuse: no live pod in the state file; provisioning")
+            pid, host, port = provision(rp, deadline)
+            # arm the independent pod-side self-destruct FIRST — before the long
+            # install — so a crash during setup can't leave a billing pod
+            arm_pod_watchdog(rp, host, port, deadline - time.time())
         # 0. base image lacks rsync/ffmpeg — install BEFORE the project sync
         # (rsync-over-ssh needs rsync on the pod). A bake-off never invokes the
         # ffmpeg binary, so it skips ffmpeg and dodges the runtime-upgrade that
         # kills sshd; run/autopilot need s5/s6 and still take it. See apt_setup.
-        if ssh_exec(rp, host, port, apt_setup(task != "bakeoff"),
-                    timeout=600) != 0:
+        if not alive and ssh_exec(rp, host, port, apt_setup(task != "bakeoff"),
+                                  timeout=600) != 0:
             raise RuntimeError("could not install rsync/ffmpeg on the pod after "
                                "retries (see log for the apt error)")
         # 1. project up — EXCLUDE input/ (the 4K source video is never needed on
@@ -644,6 +727,11 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # sweep at the start of the next remote command) will collect it.
         if keep_alive and pid:
             st = ssh_target(get_pod(pid)) if pid else None
+            # free this run's engine venv so a --reuse run does not inherit
+            # a disk already full of the previous challenger's torch
+            if st and task == "bakeoff":
+                for eng in (cfg.get("bakeoff", {}) or {}).get("engines", []):
+                    free_engine(rp, st[0], st[1], remote, eng)
             log.warning("keep-alive: pod %s LEFT RUNNING (billing!)", pid)
             if st:
                 log.warning("  ssh -i %s -p %d %s@%s   # cd %s",

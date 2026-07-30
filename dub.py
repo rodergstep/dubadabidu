@@ -246,6 +246,13 @@ def main() -> None:
                          "bootstrap per attempt. Prints the ssh command. The "
                          "pod-side watchdog still self-destructs at the "
                          "deadline; `remote kill` ends it sooner.")
+    ap.add_argument("--reuse", action="store_true",
+                    help="`remote`: attach to the pod a previous --keep-alive "
+                         "run left running instead of provisioning a new one. "
+                         "Skips the bootstrap, whose torch download is 4-6 GB "
+                         "and took anywhere from 4 to 60 min depending on the "
+                         "pod's route to PyPI. Falls back to provisioning if "
+                         "no live pod is tracked.")
     ap.add_argument("--budget", type=float, default=None,
                     help="hard USD cap for `remote` (auto-terminates the pod); "
                          "default runpod.budget_usd")
@@ -378,7 +385,8 @@ def main() -> None:
         if not vids:
             ap.error(f"remote {task} needs a video path")
         ok = all(rpi.remote_run(cfg, v, langs, task, a.budget,
-                                keep_alive=a.keep_alive) for v in vids)
+                                keep_alive=a.keep_alive,
+                                reuse=a.reuse) for v in vids)
         sys.exit(0 if ok else 1)
     if a.cmd == "prep":
         for v in a.rest:
