@@ -40,6 +40,7 @@ are reported as unavailable and skipped, so a partial bake-off still runs.
 """
 from __future__ import annotations
 import html
+import json
 import logging
 import sys
 from pathlib import Path
@@ -330,7 +331,9 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                     break
                 # relative to bo/ (where the .html lives), not wd/
                 seg_audio[u["id"]][engine] = str(first.relative_to(bo))
-                rows.append({"sim": sum(sims) / len(sims),
+                rows.append({"id": u["id"],   # kept so the report can show WHICH
+                                              # segments are weak, not just means
+                             "sim": sum(sims) / len(sims),
                              "mos": sum(moss) / len(moss),
                              "f0": sum(f0s) / len(f0s),
                              "wer": sum(wers) / len(wers),
@@ -362,11 +365,26 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                                   # engine speed.
                                   "s_take": round(statistics.median(synth_secs), 2)
                                             if synth_secs else 0.0,
-                                  "segs": len(rows)}
-            log.info("%s/%s: %s", engine, lang, per_engine[engine])
+                                  "segs": len(rows),
+                                  # per-segment detail: the means hide WHICH
+                                  # segments drag an engine down, and a 4-of-6
+                                  # sample is only obvious if you can see the gaps
+                                  "per_seg": {r["id"]: {k: round(r[k], 3)
+                                                        for k in ("sim", "mos", "f0",
+                                                                  "wer", "pace")}
+                                              for r in rows}}
+            log.info("%s/%s: %s", engine, lang,
+                     {k: v for k, v in per_engine[engine].items()
+                      if k != "per_seg"})
 
-        _write_reports(bo, video, lang, subset, per_engine, seg_audio, wd,
-                       _ua_slice, tuning)
+        # MERGE with earlier runs before rendering. Engines are now tested one per
+        # run (each needs its own pod-sized disk), so without this every run
+        # overwrote the previous engine's scorecard and the page could never show
+        # two engines side by side — which defeats the point of a bake-off.
+        merged, merged_tuning = _merge_results(bo, lang, per_engine, tuning)
+        _write_reports(bo, video, lang, subset, merged,
+                       _audio_on_disk(bo, lang, merged, subset), wd,
+                       _ua_slice, merged_tuning)
 
 
 def _verdict(engine: str, stats: dict, inc: dict | None) -> str:
@@ -375,6 +393,81 @@ def _verdict(engine: str, stats: dict, inc: dict | None) -> str:
     if engine == INCUMBENT or not inc or "unavailable" in inc:
         return "incumbent" if engine == INCUMBENT else "no incumbent baseline"
     return "ADOPT" if beats_incumbent(stats, inc) else "keep incumbent"
+
+
+RESULTS = "results_{lang}.json"      # accumulated across runs, next to the reports
+
+
+def _merge_results(bo: Path, lang: str, per_engine: dict,
+                   tuning: dict) -> tuple[dict, dict]:
+    """Fold this run's engines into the accumulated results and persist them.
+
+    Engines are tested one per run (each wants the whole container disk for its
+    own torch), so a run only ever holds one row. Rendering from just that row
+    overwrote the previous engine's scorecard every time — the audio survived on
+    disk but the comparison page could never show two engines together, which is
+    the one thing a bake-off is for. This run's numbers WIN for the engines it
+    measured (a re-test supersedes an older one) and every other engine is
+    carried forward untouched.
+    """
+    p = bo / RESULTS.format(lang=lang)
+    prev, prev_tune = {}, {}
+    if p.exists():
+        try:
+            saved = json.loads(p.read_text(encoding="utf-8"))
+            prev = saved.get("engines", {})
+            prev_tune = saved.get("tuning", {})
+        except json.JSONDecodeError:
+            log.warning("%s unreadable — starting a fresh scorecard", p)
+    merged = {**prev, **per_engine}
+    merged_tuning = {**prev_tune, **tuning}
+    p.write_text(json.dumps({"engines": merged, "tuning": merged_tuning},
+                            indent=2, ensure_ascii=False), encoding="utf-8")
+    fresh = sorted(per_engine)
+    carried = sorted(set(merged) - set(per_engine))
+    log.info("scorecard: measured %s this run%s", fresh,
+             f", carried forward {carried}" if carried else "")
+    return merged, merged_tuning
+
+
+def _audio_on_disk(bo: Path, lang: str, merged: dict,
+                   subset: list[dict]) -> dict:
+    """{segment_id: {engine: relpath}} for every engine whose audio is still on
+    disk — including engines measured by EARLIER runs, so the listening page can
+    A/B them. Derived from the filesystem rather than this run's bookkeeping,
+    which only knows about the engine it just tested."""
+    out: dict[str, dict[str, str]] = {u["id"]: {} for u in subset}
+    for engine in merged:
+        for u in subset:
+            w = bo / "seg" / engine / lang / f"{u['id']}_t0.wav"
+            if w.exists():
+                out[u["id"]][engine] = str(w.relative_to(bo))
+    return out
+
+
+def _per_segment_section(merged: dict, engines: list) -> list[str]:
+    """Per-segment metrics. The means alone hide which segments drag an engine
+    down, and hide a partial sample: qwen scored on 4 of 6 segments and the only
+    way to see that is a table with gaps in it."""
+    have = [e for e in engines if merged.get(e, {}).get("per_seg")]
+    if not have:
+        return []
+    ids = sorted({sid for e in have for sid in merged[e]["per_seg"]})
+    out = ["", "## per-segment metrics", "",
+           "Means hide which segments are weak, and hide a PARTIAL sample — a "
+           "blank cell means that engine produced no usable take for that "
+           "segment, so its column average is over fewer segments than the "
+           "others. Compare columns only where both have a value.", ""]
+    for metric, label in [("sim", "sim→real"), ("mos", "mos"),
+                          ("f0", "f0st"), ("wer", "wer"), ("pace", "pace")]:
+        out += ["", f"**{label}**", "",
+                "| segment | " + " | ".join(have) + " |",
+                "|---" * (len(have) + 1) + "|"]
+        for sid in ids:
+            cells = [str(merged[e]["per_seg"].get(sid, {}).get(metric, "—"))
+                     for e in have]
+            out.append(f"| {sid} | " + " | ".join(cells) + " |")
+    return out
 
 
 def _tuning_section(tuning: dict, engines: list) -> list[str]:
@@ -450,6 +543,7 @@ def _write_reports(bo, video, lang, subset, per_engine, seg_audio, wd,
               "engine's tuned parameters from the table below, or production "
               "will run it at defaults the bake-off did not measure."]
     lines += _tuning_section(tuning or {}, engines)
+    lines += _per_segment_section(per_engine, engines)
     (bo / f"bakeoff_{lang}.md").write_text("\n".join(lines) + "\n",
                                            encoding="utf-8")
 
