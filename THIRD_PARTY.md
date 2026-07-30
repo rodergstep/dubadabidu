@@ -17,6 +17,21 @@ pipeline.engine_worker` from the project root — only the engine's own deps
 Pin the commit you validate on (record it below) — these repos move fast and
 their inference APIs drift; `pipeline/tts_engine.py` targets the APIs noted here.
 
+**PENDING — do this immediately after the first `dubadabidu remote setup-check`.**
+Three of the four snippets in `config.gpu.yaml` currently track HEAD
+(cosyvoice, indextts, qwen — only `voxcpm==2.0.3` is pinned), so the
+`Pinned commit:` lines below are still blank. setup-check reports which engines
+import; capture the revision each one resolved to and record it here, then
+append `&& git -C third_party/<repo> checkout <SHA>` to that engine's snippet
+(the `# pin:` line in config.gpu.yaml shows the exact edit).
+
+This is not cosmetic. Until it is done, a bake-off verdict is **not
+reproducible**: a re-run weeks later may clone different code, and the numbers
+would move for reasons the scorecard cannot show. The whole protocol rests on
+"the eval harness decides" — an unpinned harness decides against a moving
+target. Cost of doing it: zero. IMPROVEMENT_PLAN.md lists it under Standing
+risks.
+
 ## CosyVoice 2/3 — all 5 target languages + cross-lingual (Apache-2.0)
 
 ```bash

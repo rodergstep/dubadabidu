@@ -75,3 +75,75 @@ def test_engine_install_cmd_distinct_venvs():
     b = engine_install_cmd("~/d", "qwen", "true")
     assert "venvs/cosyvoice" in a and "venvs/cosyvoice" not in b
     assert "venvs/qwen" in b and "venvs/qwen" not in a
+
+
+# --- setup-check refuses a run that would validate nothing ---
+
+def _probe(engines, snippets):
+    from pipeline.runpod_infra import ENGINE_MODULE
+    return [(e, ENGINE_MODULE[e], e in snippets)
+            for e in engines if e != "chatterbox" and e in ENGINE_MODULE]
+
+
+def test_no_engines_configured_is_refused_before_provisioning():
+    import pytest
+    from pipeline.runpod_infra import _require_something_to_validate
+    with pytest.raises(SystemExit, match="no bakeoff.engines configured"):
+        _require_something_to_validate([], [])
+
+
+def test_incumbent_only_is_refused():
+    """chatterbox installs via REMOTE_SETUP on every run — probing it alone
+    tells you nothing a real run wouldn't."""
+    import pytest
+    from pipeline.runpod_infra import _require_something_to_validate
+    with pytest.raises(SystemExit, match="only the incumbent"):
+        _require_something_to_validate(["chatterbox"], _probe(["chatterbox"], {}))
+
+
+def test_challengers_without_install_snippets_are_refused():
+    import pytest
+    from pipeline.runpod_infra import _require_something_to_validate
+    engines = ["chatterbox", "cosyvoice", "voxcpm"]
+    with pytest.raises(SystemExit, match="no runpod.engine_setup snippet"):
+        _require_something_to_validate(engines, _probe(engines, {}))
+
+
+def test_one_snippet_is_enough_to_proceed():
+    """A partial bake-off is legitimate — only a total absence is refused."""
+    from pipeline.runpod_infra import _require_something_to_validate
+    engines = ["chatterbox", "cosyvoice", "voxcpm"]
+    _require_something_to_validate(engines, _probe(engines, {"voxcpm"}))
+
+
+def test_the_actual_missing_overlay_case_is_caught():
+    """THE regression guard: `remote setup-check` with no --overlay. Both the
+    bakeoff and runpod sections live in config.gpu.yaml, so plain config.yaml
+    falls back to DEFAULTS (engine_setup: {}) -> a paid pod that probes nothing
+    and still returns True because the incumbent imports."""
+    import pytest
+    import yaml
+    from pipeline.runpod_infra import (DEFAULTS, ENGINE_MODULE,
+                                       _require_something_to_validate)
+    cfg = yaml.safe_load(open("config.yaml", encoding="utf-8"))
+    rp = {**DEFAULTS, **cfg.get("runpod", {})}
+    engines = list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
+    probe = [(e, ENGINE_MODULE[e], bool(rp.get("engine_setup", {}).get(e)))
+             for e in engines if e != "chatterbox" and e in ENGINE_MODULE]
+    with pytest.raises(SystemExit, match="config.gpu.yaml"):
+        _require_something_to_validate(engines, probe)
+
+
+def test_the_correct_invocation_passes():
+    """config.yaml + config.gpu.yaml (what --overlay produces) must proceed."""
+    import yaml
+    from pipeline.logic import deep_merge
+    from pipeline.runpod_infra import (DEFAULTS, ENGINE_MODULE,
+                                       _require_something_to_validate)
+    cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
+                     yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
+    rp = {**DEFAULTS, **cfg.get("runpod", {})}
+    engines = list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
+    probe = [(e, ENGINE_MODULE[e], bool(rp.get("engine_setup", {}).get(e)))
+             for e in engines if e != "chatterbox" and e in ENGINE_MODULE]
+    _require_something_to_validate(engines, probe)      # must not raise

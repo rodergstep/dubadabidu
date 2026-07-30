@@ -572,6 +572,37 @@ def smoke_test(cfg: dict) -> bool:
         print("[smoke] cleanup done (pod terminated, state cleared)")
 
 
+_OVERLAY_HINT = ("The bakeoff/runpod sections live in config.gpu.yaml, and "
+                 "setup_check reads them from the LOCAL config — unlike "
+                 "run/bakeoff/autopilot, whose REMOTE_TASK templates inject the "
+                 "overlay into the pod-side command. Pass it explicitly:\n"
+                 "  dubadabidu remote setup-check --overlay config.gpu.yaml")
+
+
+def _require_something_to_validate(engines: list, probe_engines: list) -> None:
+    """Refuse BEFORE provisioning when the config gives setup-check nothing to
+    check. Without this, `remote setup-check` with no --overlay falls back to
+    DEFAULTS (engine_setup: {}) and would provision a pod, install no
+    challengers, probe none, and still return True because the incumbent
+    imports — a paid run that teaches nothing and reports no error. Silent
+    success is the failure mode worth spending three checks on."""
+    if not engines:
+        raise SystemExit("no bakeoff.engines configured — nothing for "
+                         "setup-check to validate.\n" + _OVERLAY_HINT)
+    if not probe_engines:
+        raise SystemExit(
+            f"bakeoff.engines is {engines} — only the incumbent, which "
+            f"REMOTE_SETUP installs on every run anyway. setup-check exists to "
+            f"validate the git-clone CHALLENGERS (cosyvoice/indextts/voxcpm/"
+            f"qwen); add them to bakeoff.engines first.")
+    if not any(has_snippet for _, _, has_snippet in probe_engines):
+        missing = [e for e, _, has_snippet in probe_engines if not has_snippet]
+        raise SystemExit(
+            f"no runpod.engine_setup snippet for any challenger ({missing}) — "
+            f"_install_engines would install nothing, so every probe would FAIL "
+            f"for a reason that is not repo drift.\n" + _OVERLAY_HINT)
+
+
 def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
     """Dry-run the bake-off's install path on ONE cheap pod, then report which
     engines actually import — WITHOUT running a comparison. Provisions, installs
@@ -584,15 +615,16 @@ def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
     Terminates on every path (state-file driven)."""
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
     budget = float(budget_usd if budget_usd is not None else rp["budget_usd"])
-    sweep_orphans()
     engines = list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
-    remote = ("/workspace/dubadabidu" if rp.get("network_volume_id")
-              else rp["remote_dir"])
     # challengers are probed INSIDE their own venvs (venvs/<engine>) — each via
     # its venv python, importing the engine module AND pipeline.engine_worker
     # (the exact combination a real synth call needs). (engine, module, has_snippet)
     probe_engines = [(e, ENGINE_MODULE[e], bool(rp.get("engine_setup", {}).get(e)))
                      for e in engines if e != "chatterbox" and e in ENGINE_MODULE]
+    _require_something_to_validate(engines, probe_engines)
+    sweep_orphans()
+    remote = ("/workspace/dubadabidu" if rp.get("network_volume_id")
+              else rp["remote_dir"])
     deadline = _deadline(rp, budget)
     pid = None
     try:
