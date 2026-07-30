@@ -155,8 +155,15 @@ def _tune_engine(engine: str, base_t: dict, subset: list[dict], lang: str,
                 w = seg_root / f"p{i}_{u['id']}_t{k}.wav"
                 try:
                     synthesize(text, lang, w, t, retries=1)
-                except FileNotFoundError as e:      # engine not installed
-                    return {}, [], str(e).split(" — ")[0]
+                except (FileNotFoundError, RuntimeError) as e:
+                    # FileNotFoundError = package/venv missing (the documented
+                    # engine-unavailable contract). RuntimeError = the worker
+                    # died or synthesis failed every retry — a broken install, an
+                    # OOM, a full disk. BOTH mean "this engine cannot be judged",
+                    # and neither is a reason to abandon the other engines: a
+                    # RuntimeError used to propagate and abort the whole bake-off,
+                    # throwing away engines that had already installed cleanly.
+                    return {}, [], str(e).split(" — ")[0][:120]
                 sims.append(X.cosine(anchor, X.ecapa_embed(w)))
                 moss.append(X.mos_min_window(w))
         sim = sum(sims) / len(sims)
@@ -280,8 +287,10 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                         t0 = time.perf_counter()
                         synthesize(text, lang, w, t, retries=1)
                         synth_secs.append(time.perf_counter() - t0)
-                    except FileNotFoundError as e:  # engine not installed
-                        unavailable = str(e).split(" — ")[0]
+                    except (FileNotFoundError, RuntimeError) as e:
+                        # see _tune_engine: a dead worker / failed synth must
+                        # disqualify THIS engine, not the whole comparison
+                        unavailable = str(e).split(" — ")[0][:120]
                         break
                     first = first or w
                     sims.append(X.cosine(anchor, X.ecapa_embed(w)))

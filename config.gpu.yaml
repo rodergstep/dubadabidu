@@ -52,7 +52,22 @@ tts:
   # engine_by_lang: {en: indextts}
 
 bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
-  engines: [chatterbox, cosyvoice, voxcpm, qwen, indextts]  # indextts self-skips
+  # chatterbox REMOVED 2026-07-30 at the user's call — its quality is already
+  # known by ear from the local sketch60 runs, and installing it on the pod costs
+  # ~5 GB of CUDA torch for a row we don't need. CONSEQUENCE: it is the incumbent,
+  # so beats_incumbent() has no baseline and every challenger reports "no
+  # incumbent baseline" — the adoption gate becomes ADVISORY and the decision
+  # moves to the ear on the .html page plus the raw sim→real / mos numbers.
+  # Put chatterbox back at the front of this list to restore the gate.
+  # ONE ENGINE AT A TIME (2026-07-30). Installing all four before testing any of
+  # them meant every download was paid for before a single result existed — and a
+  # late failure threw the lot away, which is what happened repeatedly. Testing
+  # one engine per run needs no code change (remote_run installs exactly what is
+  # listed here) and gives: disk peak of one venv instead of four, first result in
+  # minutes, and a failure that costs only its own engine.
+  # Work through them by editing this list: voxcpm (proven installer) -> cosyvoice
+  # -> qwen -> indextts. Put several back once each recipe is validated.
+  engines: [voxcpm]                             # indextts self-skips
                                # on non-en/zh langs (adapter raises -> "unavailable")
   subset_size: 6               # stratified by source length
   takes: 3                     # averaged per segment to beat TTS variance
@@ -79,15 +94,63 @@ bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
   #   voxcpm: {voxcpm_cfg_value: [1.5, 2.0, 2.5], voxcpm_timesteps: [10, 20]}
 
 runpod:                        # M2 infra agent — `dubadabidu remote <task> <video>`
-  # Cheapest adequate community GPUs (>=16GB), tried in order (checked 2026-07:
-  # A5000 $0.16/hr, 3090 $0.22/hr). Chatterbox ~7GB + whisper ~5GB load
-  # sequentially, so 16-24GB is ample.
+  # SECURE cloud (2026-07-30): COMMUNITY had no on-demand capacity at all for
+  # these types ("create pod: There are no instances currently available") and
+  # its spot pods were reclaimed within 1-9 min, four times running. Secure is
+  # RunPod's own datacenters, where on-demand capacity actually exists. Costs
+  # roughly 2-3x community per hour; max_runtime_hours still caps a run at 3 h.
+  cloud_type: SECURE
+  # Widened for availability, and deliberately capped at the mid tier: create_pod
+  # sends gpuTypePriority=availability, so RunPod picks whichever is FREE, not
+  # whichever is cheapest — listing an A6000/L40S/H100 class card here would risk
+  # landing on one. Everything below is >=16GB (chatterbox ~7GB + whisper ~5GB
+  # load sequentially; voxcpm wants ~8GB), which is all the pipeline needs.
+  # An unrecognised id fails the create call instantly with an API 400 and costs
+  # nothing. USEFUL TRICK: that 400 body lists the ENTIRE valid enum, which is the
+  # only way to get it — rest.runpod.io/v1 has no /gpuTypes endpoint. Send a
+  # deliberate bad id to refresh this list. ("NVIDIA A30" is NOT a valid id.)
+  # All entries below are >=16GB and mid-tier; H100/B200/A100/RTX-6000 class are
+  # omitted on purpose so gpuTypePriority=availability cannot land on one.
   gpu_type_ids: ["NVIDIA RTX A5000", "NVIDIA GeForce RTX 3090",
-                 "NVIDIA RTX A4500", "NVIDIA RTX A4000"]
+                 "NVIDIA GeForce RTX 3090 Ti",
+                 "NVIDIA RTX A4500", "NVIDIA RTX A4000",
+                 "NVIDIA L4",
+                 "NVIDIA RTX 4000 Ada Generation",
+                 "NVIDIA RTX 2000 Ada Generation",
+                 "NVIDIA GeForce RTX 4080", "NVIDIA GeForce RTX 4080 SUPER",
+                 "NVIDIA GeForce RTX 4090"]
   image: runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04
-  interruptible: true          # spot; cheapest, resumable + cached
+  # 150 GB, up from the 30 GB default. THIS was the real cause of the bootstrap
+  # failures on 2026-07-30: per-engine venv isolation multiplies torch by the
+  # number of challengers, and nobody sized the disk for it. Measured/estimated:
+  #   devel CUDA base image ~20 GB, main .venv ~5 GB, and ~7-10 GB per challenger
+  #   venv (its own CUDA torch + model weights) -> ~60 GB for four, before
+  #   headroom for pip's build dirs and HF cache.
+  # At 30 GB the container ran out of space and was killed, which presented as
+  # `closed by remote host` on the next SSH connection (sshd dies with it) and as
+  # "connection interrupted" mid-wheel-download. Both looked like network or spot
+  # problems and were misdiagnosed three times before `No space left on device`
+  # surfaced from a synth call. Container disk is billed only while the pod runs,
+  # so this is nearly free; a too-small value costs an entire run.
+  # Drops to ~60 GB once the bake-off installs and frees one engine at a time.
+  container_disk_gb: 150
+  # ON-DEMAND (2026-07-30). Four consecutive spot pods died mid-bootstrap with
+  # `closed by remote host` at lifetimes of 62s / 7m27s / 8m32s / 8m53s — three of
+  # them on the SAME host 213.144.200.240. Variable lifetimes rule out a
+  # deterministic step in our setup (apt was investigated and cleared: attempt 4
+  # ran `0 upgraded, 2 newly installed` and still died), and repeatedly landing on
+  # one host points at reclamation / an unhealthy box. On-demand removes that
+  # variable. Cost is irrelevant here: max_runtime_hours caps a run at 3 h, so
+  # worst case moves from ~$0.75 to ~$1.50.
+  # Flip back to true once a run completes end-to-end — spot is genuinely fine
+  # for the batch, where the manifest cache makes a preempted run resumable.
+  interruptible: false         # on-demand; diagnostic (see above)
   budget_usd: 10.0             # HARD cap -> auto-terminate; override with --budget
-  assumed_price_per_hr: 0.25   # deadline = budget / this (conservative)
+  assumed_price_per_hr: 0.60   # SECURE mid-tier, was 0.25 for community spot.
+                               # deadline = min(budget/this, max_runtime_hours);
+                               # at 3 h that is ~$1.80, still far under budget_usd.
+                               # Kept honest so a LOWER budget_usd would actually
+                               # shorten the deadline instead of silently not.
   max_runtime_hours: 3.0       # absolute ceiling regardless of budget
   ssh_key: ~/.ssh/id_ed25519_runpod
   # OPTIONAL and NOT recommended by default: a RunPod network-volume id to
@@ -141,7 +204,12 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
     # Qwen3-TTS: editable install makes `qwen_tts` importable; weights (HF id in
     # tts.qwen_model_dir) auto-download at load.
     # pin: append `&& git -C third_party/Qwen3-TTS checkout <SHA>` after the clone.
-    qwen: "{ [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && pip install -q -e third_party/Qwen3-TTS"
+    # Qwen3-TTS declares no install_requires, so `pip install -e .` alone
+    # completed in 62 s having pulled NOTHING — exit 0, then `import qwen_tts`
+    # would fail at synthesis. Install its requirements.txt when the repo ships
+    # one, else fall back to the minimum the adapter needs (torch/torchaudio/
+    # transformers). flash-attn stays opt-in (tts.qwen_flash_attn).
+    qwen: "{ [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && { [ -f third_party/Qwen3-TTS/requirements.txt ] && pip install -q -r third_party/Qwen3-TTS/requirements.txt || pip install -q torch torchaudio transformers; } && pip install -q -e third_party/Qwen3-TTS && python -c 'import qwen_tts'"
     # IndexTTS-2 (en/zh; also powers emotion_from_source for en). Editable install
     # makes `indextts` importable; checkpoints -> ./checkpoints (indextts_model_dir).
     # pin: append `&& git -C third_party/index-tts checkout <SHA>` after the clone.

@@ -298,6 +298,20 @@ def wait_ssh(rp: dict, host: str, port: int, deadline: float) -> bool:
 _MODEL_CACHE_EXCLUDES = (".models/ecapa", ".models/audio-separator")
 
 
+def _rsync_paths(rp: dict, port: int, paths: list[str], dst: str) -> None:
+    """Send an explicit list of project-relative paths, preserving their layout
+    (-R). Used by the bake-off to ship the 3.5 MB it actually reads instead of
+    the whole work/ tree."""
+    if not paths:
+        return
+    key = os.path.expanduser(rp["ssh_key"])
+    args = (["rsync", "-azR"]
+            + ["-e", f"ssh -i {key} -p {port} -o StrictHostKeyChecking=no "
+                     f"-o UserKnownHostsFile=/dev/null"]
+            + paths + [dst])
+    subprocess.run(args, check=True)
+
+
 def rsync(rp: dict, port: int, src: str, dst: str, check: bool = True,
           extra_excludes: tuple[str, ...] = ()) -> None:
     """rsync over SSH on the pod's MAPPED port (RunPod exposes 22 on a random
@@ -386,14 +400,51 @@ REMOTE_TASK = {
 # ffmpeg carries librubberband, so s5 auto-selects the rubberband stretcher
 # (cleaner than atempo); probe it and log NON-fatally (atempo is a valid
 # fallback, so a missing filter must not fail setup — the probe block exits 0).
-APT_SETUP = ("export DEBIAN_FRONTEND=noninteractive; "
-             "for i in 1 2 3 4 5 6; do "
-             "apt-get update && apt-get install -y rsync ffmpeg && break; "
-             "echo \"[apt] attempt $i failed (lock?), retrying in 10s\"; "
-             "sleep 10; done; which rsync && which ffmpeg && "
-             "{ ffmpeg -hide_banner -filters 2>/dev/null | grep -q rubberband "
-             "&& echo '[ffmpeg] rubberband filter present — s5 clean stretch' "
-             "|| echo '[ffmpeg] WARNING: no rubberband filter, s5 uses atempo'; }")
+#
+# --no-install-recommends is LOAD-BEARING, not tidiness. Without it, installing
+# ffmpeg on this (older) base image expanded to "10 upgraded, 143 newly
+# installed" and the upgrades included the C/C++ runtime -- libgcc-s1,
+# libstdc++6, gcc-12-base, plus libc-bin triggers. Swapping those out from under
+# the running sshd killed it, and sshd is what keeps a RunPod box reachable: apt
+# reported success and then the very next SSH connection was refused. That took
+# down two pods in a row (2026-07-30), at the rsync on one and at REMOTE_SETUP on
+# the other -- same step, different pods, so not spot preemption.
+# The -s (simulate) pass logs apt's PLAN first: if core runtime libs ever appear
+# in "[apt] plan:" again, this is why the pod died, and the fix is to stop using
+# apt for ffmpeg (static build) rather than to guess.
+def apt_setup(with_ffmpeg: bool = True) -> str:
+    """Bootstrap command for the pod. with_ffmpeg=False installs ONLY rsync.
+
+    ffmpeg is what drags in the ~128-package tree that upgrades the C runtime and
+    kills sshd (see above). The BAKE-OFF never invokes the ffmpeg binary: it
+    synthesizes through the engines and measures with soundfile / torchaudio /
+    faster-whisper (PyAV), and even the side-by-side UA slices are cut by
+    soundfile in review_page._ua_slice. s5's atempo/rubberband, s6's loudnorm,
+    _synth_edge and with_source_emotion are the only ffmpeg users, and a bake-off
+    runs none of them. So for bakeoff and setup-check we skip ffmpeg entirely and
+    the failure mode disappears rather than being worked around.
+
+    run/autopilot DO need it (s5/s6), so they still pass with_ffmpeg=True and
+    remain exposed to the sshd kill. Fixing those needs a route that never lets
+    apt touch the runtime — a static ffmpeg build dropped into /usr/local/bin, or
+    a newer base image whose packages are already current. Not attempted here:
+    one unvalidated change at a time.
+    """
+    pkgs = "rsync ffmpeg" if with_ffmpeg else "rsync"
+    tail = "which rsync"
+    if with_ffmpeg:
+        tail += (" && which ffmpeg && "
+                 "{ ffmpeg -hide_banner -filters 2>/dev/null | grep -q rubberband "
+                 "&& echo '[ffmpeg] rubberband filter present — s5 clean stretch' "
+                 "|| echo '[ffmpeg] WARNING: no rubberband filter, s5 uses atempo'; }")
+    return ("export DEBIAN_FRONTEND=noninteractive; "
+            "for i in 1 2 3 4 5 6; do "
+            "apt-get update && "
+            "{ apt-get install -y --no-install-recommends -s " + pkgs +
+            " | grep -E '^[0-9]+ upgraded' | sed 's/^/[apt] plan: /' || true; } && "
+            "apt-get install -y --no-install-recommends " + pkgs + " && break; "
+            "echo \"[apt] attempt $i failed (lock?), retrying in 10s\"; "
+            "sleep 10; done; " + tail)
 
 # faster-whisper short name -> import module, for the engines the bake-off/run
 # may need on the pod. edge is CPU/PyPI (no git-clone) so it's not probed here.
@@ -413,10 +464,26 @@ def engine_install_cmd(remote: str, engine: str, snippet: str) -> str:
     .venv is untouchable by construction (this isolation replaced the old
     best-effort torch-pin guards). s4/bakeoff auto-route the engine through a
     worker in this venv the moment it exists (pipeline/engine_client.py)."""
+    # PIP_CONSTRAINT pins the setuptools pip uses to BUILD wheels. Measured
+    # 2026-07-30: CosyVoice's requirements include a source dist whose setup.py
+    # does `import pkg_resources`, which current setuptools no longer ships, so
+    # the build died with ModuleNotFoundError before anything downloaded.
+    # Installing setuptools into the venv does NOT fix that — pip's build
+    # isolation uses its own overlay env and ignores the venv — but PIP_CONSTRAINT
+    # does apply to build dependencies. setuptools is ALSO installed in the venv
+    # because some engines import pkg_resources at RUNTIME (chatterbox's `perth`
+    # does), which isolation can't help with.
+    # PIP_RETRIES/PIP_TIMEOUT: engine wheels are hundreds of MB (nvidia_cusolver
+    # alone is 267 MB) and pod downloads were seen truncating mid-transfer.
     return (f"set -e; cd {remote}; "
             f"python3 -m venv venvs/{engine}; "
             f". venvs/{engine}/bin/activate; "
-            f"pip install -q --upgrade pip; pip install -q {WORKER_PIP}; "
+            f"printf 'setuptools<80\\n' > venvs/{engine}/pip-constraint.txt; "
+            f"export PIP_CONSTRAINT=$PWD/venvs/{engine}/pip-constraint.txt; "
+            f"export PIP_RETRIES=10 PIP_TIMEOUT=60; "
+            f"pip install -q --upgrade pip; "
+            f"pip install -q 'setuptools<80' wheel; "
+            f"pip install -q {WORKER_PIP}; "
             f"{snippet}")
 
 
@@ -473,15 +540,34 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # arm the independent pod-side self-destruct FIRST — before the long
         # install — so a crash during setup can't leave a billing pod
         arm_pod_watchdog(rp, host, port, deadline - time.time())
-        # 0. base image lacks rsync/ffmpeg — install them BEFORE the project sync
-        # (rsync-over-ssh needs rsync on the pod). See APT_SETUP.
-        if ssh_exec(rp, host, port, APT_SETUP, timeout=600) != 0:
+        # 0. base image lacks rsync/ffmpeg — install BEFORE the project sync
+        # (rsync-over-ssh needs rsync on the pod). A bake-off never invokes the
+        # ffmpeg binary, so it skips ffmpeg and dodges the runtime-upgrade that
+        # kills sshd; run/autopilot need s5/s6 and still take it. See apt_setup.
+        if ssh_exec(rp, host, port, apt_setup(task != "bakeoff"),
+                    timeout=600) != 0:
             raise RuntimeError("could not install rsync/ffmpeg on the pod after "
                                "retries (see log for the apt error)")
         # 1. project up — EXCLUDE input/ (the 4K source video is never needed on
         # the pod) and output/. The pod works from the synced work/ audio stems.
-        rsync(rp, port, "./", f"{rp['ssh_user']}@{host}:{remote}/",
-              extra_excludes=("input", "output"))
+        #
+        # A BAKE-OFF reads only three things out of work/<video>: manifest.json
+        # (the translations), vocals.wav (the real-voice anchor) and qc_ua/ (the
+        # side-by-side slices). Measured on sketch60 that is 3.5 MB against 238 MB
+        # for the whole tree — the rest is old seg/, seg_old/, demucs/, tune/ and
+        # previous dubs, none of which a bake-off opens. The full sync took ~8 min
+        # of BILLED pod time, and testing engines one at a time multiplies that by
+        # the number of runs, so send the code without work/ and then just the
+        # three paths (-R keeps their layout).
+        up = f"{rp['ssh_user']}@{host}:{remote}/"
+        if task == "bakeoff":
+            rsync(rp, port, "./", up, extra_excludes=("input", "output", "work"))
+            wd = M.video_workdir(cfg, video)
+            needed = [str(wd / n) for n in ("manifest.json", "vocals.wav", "qc_ua")
+                      if (wd / n).exists()]
+            _rsync_paths(rp, port, needed, up)
+        else:
+            rsync(rp, port, "./", up, extra_excludes=("input", "output"))
         # 2. install + verify CUDA (fails fast if CUDA is unavailable)
         if ssh_exec(rp, host, port, REMOTE_SETUP.format(dir=remote),
                     timeout=1800) != 0:
@@ -630,7 +716,8 @@ def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
     try:
         pid, host, port = provision(rp, deadline)
         arm_pod_watchdog(rp, host, port, deadline - time.time())
-        if ssh_exec(rp, host, port, APT_SETUP, timeout=600) != 0:
+        # rsync only: setup-check probes imports, it never invokes ffmpeg
+        if ssh_exec(rp, host, port, apt_setup(False), timeout=600) != 0:
             raise RuntimeError("apt rsync/ffmpeg install failed")
         # code + ref only — no work/ needed for an install check (skip the upload)
         rsync(rp, port, "./", f"{rp['ssh_user']}@{host}:{remote}/",
