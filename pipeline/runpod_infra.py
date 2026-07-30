@@ -326,20 +326,44 @@ def _live_pod() -> tuple[str, str, int] | None:
         return None
 
 
+def ssh_capture(rp: dict, host: str, port: int, cmd: str,
+                timeout: int = 60) -> str:
+    """Run a remote command and return its stdout (empty on failure)."""
+    try:
+        r = subprocess.run(_ssh_base(rp, host, port) + [cmd],
+                           capture_output=True, text=True, timeout=timeout)
+        return r.stdout if r.returncode == 0 else ""
+    except (subprocess.SubprocessError, OSError):
+        return ""
+
+
 def free_engine(rp: dict, host: str, port: int, remote: str,
-                engine: str) -> None:
+                engine: str, threshold_pct: int = 70) -> None:
     """Delete an engine's venv and model cache once its results are banked.
 
-    This is what keeps container_disk_gb small while cycling engines through ONE
-    reused pod: per-engine isolation means each challenger drags in its own CUDA
-    torch (7-15 GB), so without freeing, reuse would just recreate the 4-venv
-    disk exhaustion that broke seven runs. Best-effort — a failure here costs
-    disk, not correctness."""
+    ONLY when the disk is actually tight (>`threshold_pct` used). Per-engine
+    isolation means each challenger drags in its own CUDA torch plus weights
+    (7-15 GB), so unbounded accumulation would recreate the four-venv exhaustion
+    that broke seven runs — but freeing EAGERLY is just as wrong when the pod is
+    being reused: 60 GB holds the base, the main venv and two engines at ~39 GB,
+    and re-fetching a deleted engine costs real time (IndexTTS-2's checkpoints
+    alone are 5.6 GB, ~12 min). So keep engines around until space demands
+    otherwise. Best-effort — a failure here costs disk, not correctness."""
+    used = ssh_capture(rp, host, port,
+                       "df --output=pcent / | tail -1 | tr -dc '0-9'")
+    try:
+        pct = int(used.strip())
+    except (ValueError, AttributeError):
+        pct = 100      # unknown -> assume tight and reclaim, the safe direction
+    if pct < threshold_pct:
+        log.info("disk %d%% used (<%d%%) — keeping venvs/%s for a --reuse run",
+                 pct, threshold_pct, engine)
+        return
     cmd = (f"rm -rf {remote}/venvs/{engine} "
            f"{remote}/third_party/* /root/.cache/huggingface 2>/dev/null; "
            f"df -h / | tail -1")
     if ssh_exec(rp, host, port, cmd, timeout=300) == 0:
-        log.info("freed venvs/%s + model caches on the pod", engine)
+        log.info("disk %d%% used — freed venvs/%s + model caches", pct, engine)
     else:
         log.warning("could not free venvs/%s — disk may fill on the next engine",
                     engine)
@@ -579,7 +603,14 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
     ALWAYS terminate. Returns True on remote task success."""
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
     budget = float(budget_usd if budget_usd is not None else rp["budget_usd"])
-    sweep_orphans()
+    # NOTE: the orphan sweep must run AFTER the reuse decision. sweep_orphans()
+    # terminates whatever the state file tracks, which is exactly the pod a
+    # previous --keep-alive run deliberately left up — so sweeping first made
+    # --reuse impossible: it killed the pod ~30 lines before _live_pod() looked
+    # for it (measured 2026-07-30, destroying a validated indextts install).
+    # Without --reuse the behaviour is unchanged: sweep before anything starts.
+    if not reuse:
+        sweep_orphans()
     if task not in REMOTE_TASK:
         raise SystemExit(f"unknown remote task {task!r} (choose "
                          f"{list(REMOTE_TASK)})")
@@ -603,6 +634,9 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
     log.info("budget $%.2f -> auto-terminate in %.1f h", budget, hours)
 
     pid = None
+    rc = None   # bound before the finally can read it: a failure during
+                # provision/bootstrap never reaches the task, and an unbound
+                # local would raise UnboundLocalError inside the cleanup
     try:
         alive = _live_pod() if reuse else None
         if alive:
@@ -619,7 +653,10 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
                      pid, host, port)
         else:
             if reuse:
-                log.info("--reuse: no live pod in the state file; provisioning")
+                log.info("--reuse: no live pod to attach to; sweeping then "
+                         "provisioning")
+                sweep_orphans()   # deferred from the top; a stale state-file
+                                  # pod must still never be left billing
             pid, host, port = provision(rp, deadline)
             # arm the independent pod-side self-destruct FIRST — before the long
             # install — so a crash during setup can't leave a billing pod
@@ -647,7 +684,12 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         if task == "bakeoff":
             rsync(rp, port, "./", up, extra_excludes=("input", "output", "work"))
             wd = M.video_workdir(cfg, video)
-            needed = [str(wd / n) for n in ("manifest.json", "vocals.wav", "qc_ua")
+            # results_*.json carries the engines measured by EARLIER runs.
+            # Without it the pod merges into an empty dict and the sync-back
+            # overwrites the local scorecard — which silently discarded the
+            # voxcpm+qwen comparison twice before this was spotted.
+            needed = [str(wd / n) for n in ("manifest.json", "vocals.wav",
+                                            "qc_ua", "bakeoff")
                       if (wd / n).exists()]
             _rsync_paths(rp, port, needed, up)
         else:
@@ -729,7 +771,11 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
             st = ssh_target(get_pod(pid)) if pid else None
             # free this run's engine venv so a --reuse run does not inherit
             # a disk already full of the previous challenger's torch
-            if st and task == "bakeoff":
+            # Only reclaim disk when the run SUCCEEDED. On failure the whole
+            # point of --keep-alive is to inspect the broken venv, and wiping
+            # it here made the two features cancel out (measured: the indextts
+            # venv was gone before it could be debugged).
+            if st and task == "bakeoff" and rc == 0:
                 for eng in (cfg.get("bakeoff", {}) or {}).get("engines", []):
                     free_engine(rp, st[0], st[1], remote, eng)
             log.warning("keep-alive: pod %s LEFT RUNNING (billing!)", pid)

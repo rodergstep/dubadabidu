@@ -73,7 +73,7 @@ bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
   # minutes, and a failure that costs only its own engine.
   # Work through them by editing this list: voxcpm (proven installer) -> cosyvoice
   # -> qwen -> indextts. Put several back once each recipe is validated.
-  engines: [qwen]                # one at a time; voxcpm DONE, cosyvoice build-broken
+  engines: [indextts]            # voxcpm+qwen DONE; cosyvoice build-broken
                                # on non-en/zh langs (adapter raises -> "unavailable")
   subset_size: 6               # stratified by source length
   takes: 3                     # averaged per segment to beat TTS variance
@@ -238,7 +238,8 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
     # IndexTTS-2 (en/zh; also powers emotion_from_source for en). Editable install
     # makes `indextts` importable; checkpoints -> ./checkpoints (indextts_model_dir).
     # pin: append `&& git -C third_party/index-tts checkout <SHA>` after the clone.
-    indextts: "{ [ -d third_party/index-tts ] || git clone https://github.com/index-tts/index-tts third_party/index-tts; } && pip install -q -e third_party/index-tts && pip install -q -U \"huggingface_hub[cli]\" && huggingface-cli download IndexTeam/IndexTTS-2 --local-dir checkpoints"
+    # huggingface_hub[cli] + huggingface-cli BOTH broke 2026-07-30: hf-hub 1.25.1 dropped the 'cli' extra, `huggingface-cli` is deprecated and "no longer works" (replaced by `hf`), and force-upgrading hf-hub to 1.25.1 broke transformers 4.52 and tokenizers 0.21, which both need huggingface-hub<1.0. Use the stable PYTHON api instead: no extra, no CLI name churn, no upgrade — transformers already pulls a compatible hf-hub.
+    indextts: "{ [ -d third_party/index-tts ] || git clone https://github.com/index-tts/index-tts third_party/index-tts; } && pip install -q -e third_party/index-tts && python -c 'from huggingface_hub import snapshot_download; snapshot_download(\"IndexTeam/IndexTTS-2\", local_dir=\"checkpoints\")' && python -c 'import indextts'"
   # SAFETY: pod id persisted to work/.runpod_active.json on create; terminate
   # retries+verifies and only clears state on confirmation; an independent
   # pod-side watchdog self-destructs at the deadline even if this process dies;
