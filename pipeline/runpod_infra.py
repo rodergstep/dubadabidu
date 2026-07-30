@@ -278,13 +278,34 @@ def wait_ssh(rp: dict, host: str, port: int, deadline: float) -> bool:
     return False
 
 
+# Model caches that must NOT cross between this Mac and the pod. Patterns carry
+# a slash so they match on both transfer roots this function is called with (the
+# project dir when pushing up, work/ when pulling results back).
+#
+#   .models/ecapa — speechbrain populates its savedir with SYMLINKS into the
+#     local HF cache (/Users/.../.cache/huggingface/...). rsync -a preserves
+#     symlinks as symlinks, so these land on a Linux pod dangling, and ECAPA is
+#     needed there for the bake-off anchor and every sim score. Excluded so the
+#     pod fetches its own copy cleanly instead of inheriting broken links —
+#     which would fail AFTER the expensive engine installs.
+#   .models/audio-separator — 610 MB, and dead weight on the pod: separation is
+#     s1, which runs locally. The pod works from the synced work/ stems and
+#     never separates anything. The pod is billed while rsync runs.
+#
+# floor_*.wav (a few hundred KB, directly in .models/) is deliberately NOT
+# excluded: it pins the per-language calibration band, so regenerating it on the
+# pod would make sim_cal subtly incomparable between local and pod runs.
+_MODEL_CACHE_EXCLUDES = (".models/ecapa", ".models/audio-separator")
+
+
 def rsync(rp: dict, port: int, src: str, dst: str, check: bool = True,
           extra_excludes: tuple[str, ...] = ()) -> None:
     """rsync over SSH on the pod's MAPPED port (RunPod exposes 22 on a random
     public port — omitting -p hits default 22 and fails auth)."""
     key = os.path.expanduser(rp["ssh_key"])
     args = ["rsync", "-az"]
-    for e in (".venv", "venvs", "__pycache__", ".env", ".git", *extra_excludes):
+    for e in (".venv", "venvs", "__pycache__", ".env", ".git",
+              *_MODEL_CACHE_EXCLUDES, *extra_excludes):
         args += ["--exclude", e]
     args += ["-e", f"ssh -i {key} -p {port} -o StrictHostKeyChecking=no "
                    f"-o UserKnownHostsFile=/dev/null", src, dst]
