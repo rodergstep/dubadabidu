@@ -90,9 +90,19 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   assumed_price_per_hr: 0.25   # deadline = budget / this (conservative)
   max_runtime_hours: 3.0       # absolute ceiling regardless of budget
   ssh_key: ~/.ssh/id_ed25519_runpod
-  # OPTIONAL: a RunPod network-volume id to persist .venv across runs — the
-  # ~15min chatterbox/torch install then happens ONCE instead of every run
-  # (worth it for the 20-video batch). Create the volume in the console first.
+  # OPTIONAL and NOT recommended by default: a RunPod network-volume id to
+  # persist .venv/venvs across runs, so the per-venv torch install happens once.
+  # Do the math before enabling — it does NOT clearly save money:
+  #   - a run is capped at min(budget/assumed_price_per_hr, max_runtime_hours)
+  #     = 3 h, i.e. well under $1 TOTAL. The install it avoids is ~$0.17 of that.
+  #   - volume storage bills CONTINUOUSLY, including months with no runs, so
+  #     break-even needs roughly 20 runs inside one month. A 20-video batch only
+  #     reaches that if it is compressed into a single month.
+  #   - a network volume is REGION-LOCKED, so it pins the pod to one datacenter
+  #     and shrinks the spot pool that interruptible: true + four gpu_type_ids
+  #     are there to exploit. Expect more provisioning failures / waits.
+  # Enable it for WALL-CLOCK and install-flakiness reasons if you end up
+  # iterating heavily in a short window — not as a cost measure.
   # network_volume_id: ""
   # Per-engine install snippets for `remote bakeoff` (chatterbox is always
   # installed by REMOTE_SETUP into the MAIN .venv). Each snippet runs on the
