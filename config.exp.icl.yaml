@@ -31,7 +31,8 @@ tts:
 
 bakeoff:
   tune:
-    enabled: false        # the reference is fixed here on purpose: this run
-                          # tests ONE axis (clone mode) against the sweep winner.
-  grids:
-    qwen: {}              # drop the sweep grid so nothing re-sweeps refs
+    enabled: false        # fixes the reference: this run tests ONE axis.
+                          # NOTE this is what disables the sweep — a
+                          # `grids: {qwen: {}}` here would NOT, because
+                          # deep_merge merges dicts instead of replacing them,
+                          # so the base grid's keys survive an empty override.

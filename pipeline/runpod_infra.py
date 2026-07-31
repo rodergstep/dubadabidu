@@ -605,11 +605,24 @@ def _install_engines(rp: dict, host: str, port: int, remote: str,
 
 def remote_run(cfg: dict, video: str, langs: list[str], task: str,
                budget_usd: float | None = None,
-               keep_alive: bool = False, reuse: bool = False) -> bool:
+               keep_alive: bool = False, reuse: bool = False,
+               overlays: list[str] | None = None) -> bool:
     """Full lifecycle: sweep -> provision -> sync up -> run -> sync back ->
-    ALWAYS terminate. Returns True on remote task success."""
+    ALWAYS terminate. Returns True on remote task success.
+
+    `overlays` are the --overlay paths the CALLER was invoked with. They must be
+    forwarded into the pod-side command: REMOTE_TASK hardcodes
+    `--overlay config.gpu.yaml`, so before this existed any extra overlay shaped
+    the LOCAL config (provisioning decisions) and was silently dropped on the
+    pod. An experiment overlay therefore ran as a plain re-run of the base
+    config — measured 2026-08-01, ~10 min of pod time spent re-sweeping
+    references while believing an ICL test was running."""
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
     budget = float(budget_usd if budget_usd is not None else rp["budget_usd"])
+    # config.gpu.yaml is already in REMOTE_TASK; forward only the extras, in
+    # the caller's order, so "later overlay wins" holds on the pod as locally.
+    extra_overlays = [o for o in (overlays or [])
+                      if Path(o).name != "config.gpu.yaml"]
     # NOTE: the orphan sweep must run AFTER the reuse decision. sweep_orphans()
     # terminates whatever the state file tracks, which is exactly the pod a
     # previous --keep-alive run deliberately left up — so sweeping first made
@@ -730,6 +743,13 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # not inherit the pod's container env, and s3 needs it. Not logged.
         secs = max(60, int(deadline - time.time()))
         cmd = REMOTE_TASK[task].format(video=video, langs=",".join(langs))
+        # extras AFTER the hardcoded config.gpu.yaml so they win, matching the
+        # local merge order. The files themselves ship with the project rsync.
+        for ov in extra_overlays:
+            cmd += f" --overlay {ov}"
+        if extra_overlays:
+            log.info("forwarding overlays to the pod: %s",
+                     " ".join(extra_overlays))
         import shlex
         tk = shlex.quote(os.environ.get("TRANSLATE_API_KEY", ""))
         full = (f"cd {remote}; . .venv/bin/activate; "
@@ -865,6 +885,10 @@ def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
     Terminates on every path (state-file driven)."""
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
     budget = float(budget_usd if budget_usd is not None else rp["budget_usd"])
+    # config.gpu.yaml is already in REMOTE_TASK; forward only the extras, in
+    # the caller's order, so "later overlay wins" holds on the pod as locally.
+    extra_overlays = [o for o in (overlays or [])
+                      if Path(o).name != "config.gpu.yaml"]
     engines = list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
     # challengers are probed INSIDE their own venvs (venvs/<engine>) — each via
     # its venv python, importing the engine module AND pipeline.engine_worker

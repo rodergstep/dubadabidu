@@ -147,3 +147,18 @@ def test_the_correct_invocation_passes():
     probe = [(e, ENGINE_MODULE[e], bool(rp.get("engine_setup", {}).get(e)))
              for e in engines if e != "chatterbox" and e in ENGINE_MODULE]
     _require_something_to_validate(engines, probe)      # must not raise
+
+
+def test_extra_overlays_reach_the_pod_command():
+    """REMOTE_TASK hardcodes --overlay config.gpu.yaml, so an experiment overlay
+    used to shape the LOCAL config and be silently dropped on the pod — the run
+    then executed the BASE config while the logs implied otherwise. Measured
+    2026-08-01: ~10 min of pod time re-sweeping references during what was
+    supposed to be an ICL test."""
+    from pipeline.runpod_infra import REMOTE_TASK
+    base = REMOTE_TASK["bakeoff"].format(video="v.mp4", langs="en")
+    extras = [o for o in ["config.gpu.yaml", "config.exp.icl.yaml"]
+              if o != "config.gpu.yaml"]
+    cmd = base + "".join(f" --overlay {o}" for o in extras)
+    assert cmd.count("--overlay config.gpu.yaml") == 1   # not duplicated
+    assert cmd.endswith("--overlay config.exp.icl.yaml")  # extras win (last)

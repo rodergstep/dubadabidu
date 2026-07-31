@@ -378,7 +378,8 @@ def main() -> None:
             ap.error(f"remote {task} needs a video path")
         ok = all(rpi.remote_run(cfg, v, langs, task, a.budget,
                                 keep_alive=a.keep_alive,
-                                reuse=a.reuse) for v in vids)
+                                reuse=a.reuse,
+                                overlays=a.overlay or []) for v in vids)
         sys.exit(0 if ok else 1)
     if a.cmd == "prep":
         for v in a.rest:

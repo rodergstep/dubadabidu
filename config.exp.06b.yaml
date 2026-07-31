@@ -28,6 +28,5 @@ tts:
 
 bakeoff:
   tune:
-    enabled: false
-  grids:
-    qwen: {}
+    enabled: false   # disables the ref sweep; an empty `grids` override would
+                     # NOT (deep_merge merges dicts, so base keys survive)

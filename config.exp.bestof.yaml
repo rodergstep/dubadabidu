@@ -22,5 +22,3 @@ bakeoff:
   subset_size: 6
   tune:
     enabled: false
-  grids:
-    qwen: {}
