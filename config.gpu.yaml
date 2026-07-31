@@ -33,12 +33,28 @@ tts:
   # in the dtype probe, inside the noise floor but not worse).
   qwen_model_dir: Qwen/Qwen3-TTS-12Hz-1.7B-Base
   qwen_x_vector_only: true             # UA ref: clone from audio embedding only
-  # Qwen3-TTS cloning quality rises from ~3 s to ~15 s of reference, then
-  # PLATEAUS AND DEGRADES; over-long refs also trigger its worst failure mode
-  # (decoder never emits EOS -> babble). Every ref we own is 15-18 s and the
-  # configured one is the LONGEST at 18.1 s, so all of them sit in the degrading
-  # zone. The adapter trims a cached copy; salted into synth_hash.
-  reference_max_s: 12
+  # THE REFERENCE, decided by three sweeps (en x2, ru) on 2026-07-31/08-01.
+  # ref_03 won ALL THREE — the only conclusion here that is not inside the noise
+  # floor. It is not the reference an earlier tune picked for chatterbox
+  # (sketch_ref_08), which is the point: engines have different preferences and
+  # this one was never swept under qwen before.
+  # NOT chosen for expressiveness. ref_03 has the LOWEST f0st of our references
+  # (2.13 of 2.13-2.84) yet produces the HIGHEST output liveliness (2.76 en /
+  # 2.99 ru). Reference f0st and output f0st are INVERSELY ordered across the
+  # whole set, so the widely-repeated "use an expressive reference" advice is
+  # false for this voice; ref_03's edge is more likely its clean, continuous
+  # phonation (voiced 0.629, ref mos 4.59 — both the best we have).
+  reference_wav: ref/sketch60_ref_03.wav
+  # reference_max_s: DELIBERATELY UNSET. It was 12 on upstream's claim that
+  # cloning quality "plateaus and degrades" past ~15 s. Our own data does not
+  # reproduce that: 18 s beat 12 s on average in all THREE sweeps (en 0.5003 vs
+  # 0.5046, ru 0.5536 vs 0.5618) and the ru winner is an 18 s point. Per
+  # reference the effect is larger (0.03-0.06) than the gaps between references,
+  # but it has no consistent SIGN — ref_02 clearly prefers 18 s in both
+  # languages, ref_08 prefers 12 s. So it is a per-reference property, kept as a
+  # sweepable axis (bakeoff.grids) rather than a global default. The trim
+  # MECHANISM stays: it is also the guard against over-long references, the
+  # documented trigger for the decoder's never-emits-EOS failure.
   qwen_max_audio_s: 60                 # reject a take longer than this as a
                                        # runaway generation (engine_client has
                                        # no per-call timeout, so an unbounded
@@ -51,10 +67,13 @@ tts:
   # step dispatched from Python, card idling at 10-12% utilisation. That is why
   # our 2026-07-31 probe found 0.6B and 1.7B equally slow and dtype irrelevant.
   # Upstream measures 4.1x on a 4090 (0.75 -> 0.18 wall/audio); at that ratio our
-  # 14.0 s/take becomes ~3.4. MEASURED 2026-07-31: 2.36 s/take, a 5.9x win.
-  # UNVALIDATED HERE — flip to false if the pod run does not reproduce it, and
-  # check output parity, not just speed. Salted into synth_hash so the A/B
-  # re-synthesizes rather than comparing against stock-decoded cache.
+  # 14.0 s/take becomes ~3.4. MEASURED 2026-07-31: 2.36 s/take, a 5.9x win —
+  # BETTER than upstream's ratio, and it makes qwen the fastest engine we ever
+  # benchmarked. VALIDATED and now the production default. Output is not
+  # bit-identical to the stock decode loop (mos 2.112 vs 1.942, f0st 2.874 vs
+  # 2.591, sim flat) but every shift is inside the take-to-take mos± of 0.322,
+  # so read it as different takes rather than better ones. Salted into
+  # synth_hash so an A/B re-synthesizes instead of scoring stock-decoded cache.
   qwen_fast: true
   # qwen_warmup_len: 100               # prefill length for CUDA graph capture
 
@@ -105,11 +124,12 @@ bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
   # "already tuned, nothing to sweep" and costs nothing.
   # SWEEP 2026-07-31: qwen's weakest metric is sim→real (0.614; voxcpm managed
   # 0.804 before it was cut), and two reference-side knobs plausibly move it.
-  #   reference_wav   — the active ref won a tune run against CHATTERBOX, a
-  #     different engine with different preferences. qwen additionally rewards
-  #     varied intonation in the clip, which that selection never scored.
-  #   reference_max_s — 12 s is inside the documented optimum, 18 s is what we
-  #     have been using and sits in the degrading zone. This is the A/B.
+  #   reference_wav   — RESOLVED: ref_03 won all three sweeps, and is now the
+  #     tts.reference_wav default above. Kept in the grid so a new video's own
+  #     references can be swept the same way (refs are per-video).
+  #   reference_max_s — RESOLVED as "no global answer": 18 s edged 12 s in all
+  #     three sweeps on average, but per reference the effect is larger than the
+  #     between-reference gaps AND changes sign. Swept, never defaulted.
   # tune-lite scores on 0.5*sim→real + 0.5*mos, so it optimises exactly the
   # metric in question. 12 points x 3 segments x 4 takes at 2.36 s/take ~ 6 min.
   grids:
