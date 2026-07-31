@@ -40,9 +40,26 @@ tts:
   # Qwen3-TTS Base: 10 languages (all 5 targets), 3 s clone, ~4 GB VRAM,
   # Apache-2.0. UA ref -> x_vector_only (speaker embedding only, no ref
   # transcript). git-clone install (THIRD_PARTY.md).
-  qwen_model_dir: Qwen/Qwen3-TTS-12Hz-1.7B-Base   # or -0.6B-Base (lighter)
+  # Keep 1.7B. Measured 2026-07-31 on a 4090: 0.6B ran at RTF 1.38 vs 1.7B's
+  # 1.42 — a 3x smaller model bought NO speed, which proves the transformer is
+  # not the bottleneck (it is per-frame decode overhead). dtype and attention
+  # impl are likewise flat. qwen's ~14 s/take is a floor, not a misconfiguration;
+  # reduce cost with best_of, not with model size. See THIRD_PARTY.md.
+  qwen_model_dir: Qwen/Qwen3-TTS-12Hz-1.7B-Base
   qwen_x_vector_only: true             # UA ref: clone from audio embedding only
   # qwen_flash_attn: true              # enable only if flash-attn is installed
+                                       # (NOT a speed fix — see qwen_fast)
+  # faster-qwen3-tts (MIT): same weights, CUDA Graphs + StaticCache around the
+  # decode loop. Qwen3-TTS is kernel-LAUNCH bound — ~500 tiny GPU ops per decode
+  # step dispatched from Python, card idling at 10-12% utilisation. That is why
+  # our 2026-07-31 probe found 0.6B and 1.7B equally slow and dtype irrelevant.
+  # Upstream measures 4.1x on a 4090 (0.75 -> 0.18 wall/audio); at that ratio our
+  # 14.0 s/take becomes ~3.4, level with voxcpm.
+  # UNVALIDATED HERE — flip to false if the pod run does not reproduce it, and
+  # check output parity, not just speed. Salted into synth_hash so the A/B
+  # re-synthesizes rather than comparing against stock-decoded cache.
+  qwen_fast: true
+  # qwen_warmup_len: 100               # prefill length for CUDA graph capture
 
   # After the bake-off, pin the winning engine per language, e.g.:
   # engine_by_lang: {en: indextts, fr: cosyvoice, de: cosyvoice, es: cosyvoice, ru: chatterbox}
@@ -257,7 +274,10 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
     # CPU. pipeline/device.py:require_gpu now refuses that fallback loudly.
     # The final `import torch; assert torch.cuda.is_available()` makes the
     # install fail here rather than 10 minutes later at synthesis time.
-    qwen: "pip install -q --index-url https://download.pytorch.org/whl/cu121 torch torchaudio && { [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && { [ -f third_party/Qwen3-TTS/requirements.txt ] && pip install -q -r third_party/Qwen3-TTS/requirements.txt || pip install -q transformers; } && pip install -q -e third_party/Qwen3-TTS && python -c 'import qwen_tts, torch; assert torch.cuda.is_available(), \"CPU-only torch in venvs/qwen: \"+torch.__version__; print(\"qwen ok, torch\", torch.__version__)'"
+    # faster-qwen3-tts is installed ALONGSIDE the stock clone so tts.qwen_fast
+    # can be flipped either way on the same pod without a reinstall (the A/B is
+    # the point). It needs torch>=2.5.1, which the cu121 line above provides.
+    qwen: "pip install -q --index-url https://download.pytorch.org/whl/cu121 torch torchaudio && { [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && { [ -f third_party/Qwen3-TTS/requirements.txt ] && pip install -q -r third_party/Qwen3-TTS/requirements.txt || pip install -q transformers; } && pip install -q -e third_party/Qwen3-TTS && pip install -q faster-qwen3-tts && python -c 'import qwen_tts, faster_qwen3_tts, torch; assert torch.cuda.is_available(), \"CPU-only torch in venvs/qwen: \"+torch.__version__; print(\"qwen ok, torch\", torch.__version__)'"
     # IndexTTS-2 (en/zh; also powers emotion_from_source for en). Editable install
     # makes `indextts` importable; checkpoints -> ./checkpoints (indextts_model_dir).
     # pin: append `&& git -C third_party/index-tts checkout <SHA>` after the clone.

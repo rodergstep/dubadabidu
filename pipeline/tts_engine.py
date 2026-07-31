@@ -37,7 +37,7 @@ falling back to tts.engine (manifest.resolve_engine). The winning assignment
 is decided by the bake-off (qc/bakeoff.py), not by reputation.
 """
 from __future__ import annotations
-import asyncio, logging, subprocess
+import asyncio, logging, subprocess, time
 from pathlib import Path
 from .device import torch_device, require_gpu
 from .manifest import resolve_engine
@@ -254,28 +254,59 @@ def _synth_voxcpm(text: str, lang: str, out: Path, t: dict) -> None:
 def _load_qwen(t: dict):
     global _qwen_model
     if _qwen_model is None:
+        # tts.qwen_fast -> faster-qwen3-tts (MIT), a drop-in that wraps the same
+        # weights in CUDA Graphs + StaticCache. Qwen3-TTS is kernel-LAUNCH bound,
+        # not compute bound: each decode step dispatches ~500 tiny GPU ops from a
+        # Python loop and the card idles at 10-12% utilisation between launches.
+        # That is why our probe found 0.6B and 1.7B equally slow (1.38 vs 1.42
+        # wall/audio) and dtype/attention irrelevant — none of those touch
+        # dispatch. Upstream measures 4.1x on a 4090.
+        # NO silent fallback to the stock class: an opt-in that quietly does
+        # nothing is how qwen ran on CPU for a week.
+        fast = bool(t.get("qwen_fast", False))
         try:
             import torch
-            from qwen_tts import Qwen3TTSModel  # type: ignore
+            if fast:
+                from faster_qwen3_tts import FasterQwen3TTS as Qwen3TTSModel  # type: ignore
+            else:
+                from qwen_tts import Qwen3TTSModel  # type: ignore
         except ImportError as e:
+            pkg = ("faster-qwen3-tts (tts.qwen_fast is on) — pip install "
+                   "faster-qwen3-tts" if fast else
+                   "qwen_tts — git clone https://github.com/QwenLM/Qwen3-TTS "
+                   "(pin the commit), pip install -e .")
             raise FileNotFoundError(
-                "qwen_tts not importable — git clone "
-                "https://github.com/QwenLM/Qwen3-TTS (pin the commit), "
-                "pip install -e . (add flash-attn only on CUDA). See "
-                f"THIRD_PARTY.md. ({e})")
+                f"{pkg} not importable. See THIRD_PARTY.md. ({e})")
         # NOT torch_device() — a CPU-only torch in venvs/qwen used to degrade
         # silently to fp32-on-CPU at 126 s/take (vs 2.9 s for voxcpm on the same
         # pod). require_gpu turns that into a loud install error.
         dev = require_gpu("qwen", bool(t.get("allow_cpu_fallback", False)))
         model_id = t.get("qwen_model_dir", "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
-        kw = {"device_map": "cuda:0" if dev == "cuda" else dev,
-              "dtype": torch.bfloat16 if dev == "cuda" else torch.float32}
-        # flash-attn is a heavy CUDA-only build; opt-in (qwen_flash_attn) so a
-        # missing wheel can't fail the load on a fresh pod
-        if dev == "cuda" and t.get("qwen_flash_attn", False):
-            kw["attn_implementation"] = "flash_attention_2"
-        log.info("loading Qwen3-TTS from %s on %s ...", model_id, dev)
+        if fast:
+            # faster-qwen3-tts documents from_pretrained(model_id) only — it
+            # manages device/dtype itself, and an unknown kwarg would fail the
+            # load. Do NOT add device_map/dtype here without checking upstream.
+            kw = {}
+        else:
+            kw = {"device_map": "cuda:0" if dev == "cuda" else dev,
+                  "dtype": torch.bfloat16 if dev == "cuda" else torch.float32}
+            # flash-attn is a heavy CUDA-only build; opt-in (qwen_flash_attn) so
+            # a missing wheel can't fail the load on a fresh pod. Note it is NOT
+            # a fix for the speed problem: dispatch overhead dominates, which is
+            # why eager vs sdpa measured only 1.57 vs 1.42 wall/audio.
+            if dev == "cuda" and t.get("qwen_flash_attn", False):
+                kw["attn_implementation"] = "flash_attention_2"
+        log.info("loading Qwen3-TTS from %s on %s (fast=%s) ...",
+                 model_id, dev, fast)
         _qwen_model = Qwen3TTSModel.from_pretrained(model_id, **kw)
+        if fast:
+            # captures the CUDA graphs up front. Without it the first calls pay
+            # capture cost lazily, which is how a benchmark reads 1.49 wall/audio
+            # and a warmed one reads 0.73 for the same setup.
+            t0 = time.perf_counter()
+            _qwen_model.warmup(prefill_len=int(t.get("qwen_warmup_len", 100)))
+            log.info("qwen warmup (CUDA graph capture): %.1fs",
+                     time.perf_counter() - t0)
     return _qwen_model
 
 
@@ -294,7 +325,10 @@ def _qwen_clone_prompt(m, t: dict):
         kw = {"ref_audio": ref, "x_vector_only_mode": x_only}
         if not x_only:
             kw["ref_text"] = ref_text
-        _qwen_prompt = (key, m.create_voice_clone_prompt(**kw))
+        # faster-qwen3-tts is a wrapper: the stock model (and this method) sit
+        # at .model. The stock class has no .model, so getattr picks itself.
+        inner = getattr(m, "model", m)
+        _qwen_prompt = (key, inner.create_voice_clone_prompt(**kw))
     return _qwen_prompt[1]
 
 

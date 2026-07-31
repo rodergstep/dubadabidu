@@ -207,6 +207,14 @@ def synth_hash(text: str, lang: str, tts_cfg: dict) -> str:
         key_data["xv"] = x_only
         if not x_only:
             key_data["rt"] = tts_cfg.get("reference_text", "")
+        # qwen_fast swaps the inference implementation (faster-qwen3-tts:
+        # CUDA Graphs + StaticCache). It SHOULD be numerically identical to the
+        # stock decode loop, but "should" is not "is" — salt the key so an A/B
+        # re-synthesizes instead of comparing new settings against cached audio
+        # produced by the other implementation. Absent/false adds no key, so
+        # pre-existing caches stay valid.
+        if tts_cfg.get("qwen_fast"):
+            key_data["qf"] = True
     if engine == "voxcpm":  # style prefix + sampler params change output
         if tts_cfg.get("instruct_text"):
             key_data["ins"] = tts_cfg["instruct_text"]

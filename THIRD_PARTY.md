@@ -185,6 +185,50 @@ differs.
 
 Pinned commit: `__________`  (fill after validation)
 
+### SPEED: qwen is kernel-launch bound (`tts.qwen_fast`)
+
+Measured on a 4090, 2026-07-31, after fixing a CPU-only torch in `venvs/qwen`
+(126 -> 14.0 s/take). The remaining cost is NOT the model:
+
+| axis | wall/audio | conclusion |
+|---|---|---|
+| bf16 / fp16 / fp32 | 1.42 / 1.35 / 1.39 | dtype irrelevant |
+| sdpa vs eager | 1.42 / 1.57 | attention impl ~10% |
+| **1.7B vs 0.6B** | **1.42 / 1.38** | **3x smaller = no speedup** |
+
+Model size not mattering rules out compute. Upstream confirms why: each decode
+step dispatches ~500 tiny GPU ops from a Python loop, so the card idles at
+10-12% utilisation between kernel launches. flash-attn does NOT fix this.
+
+[faster-qwen3-tts](https://github.com/andimarafioti/faster-qwen3-tts) (MIT)
+wraps the same weights in CUDA Graphs + `StaticCache` + a vectorized repetition
+penalty — no custom kernels. Upstream measures 4.1x on a 4090 (0.75 -> 0.18
+wall/audio) and 7.1x on an H100. At 4.1x our 14.0 s/take becomes ~3.4, level
+with voxcpm, and qwen's 5-language cost for a 1 h video drops $14.02 -> ~$3.42.
+
+```bash
+pip install faster-qwen3-tts     # installed alongside the stock clone so the
+                                 # A/B needs no reinstall
+```
+`tts.qwen_fast: true` selects it. API differences handled in `_load_qwen` /
+`_qwen_clone_prompt`: `from_pretrained(model_id)` takes NO device/dtype kwargs,
+`create_voice_clone_prompt` lives at `.model`, and `warmup(prefill_len=)`
+captures the graphs up front (without it early calls pay capture cost lazily —
+upstream reports 1.49 vs 0.73 wall/audio on the same setup unwarmed vs warmed).
+
+STATUS: **unvalidated on our hardware.** Verify BOTH speed and output parity —
+the CUDA-graph path should be numerically identical but that is untested here.
+`qwen_fast` is salted into `synth_hash` so an A/B re-synthesizes instead of
+scoring stock-decoded cache. Note that once dispatch overhead is gone the model
+becomes genuinely compute-bound, which REOPENS 0.6B vs 1.7B (0.6B scored mos
+2.697 vs 2.411 in the dtype probe — inside the noise floor, not worse).
+
+Not adopted: [vLLM-Omni](https://vllm.ai/blog/2026-06-23-vllm-omni-tts) serves
+Qwen3-TTS with continuous batching, which suits our throughput-bound workload
+(~1200 independent generations per video-hour), but it is a server architecture
+and would mean rewriting `engine_client`. Its Code2Wav stage also still
+serializes per request upstream (vllm-omni#3163).
+
 ## Running the bake-off
 
 Locally (engine venvs created by hand as above):
