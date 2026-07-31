@@ -78,6 +78,10 @@ def stub_synth(monkeypatch, tmp_path):
 
     monkeypatch.setattr(tts_engine, "synthesize", fake_synth)
     monkeypatch.setattr(qc.metrics, "ecapa_embed", lambda p: p)
+    # f0 joined the tune objective 2026-08-01; without a stub it would try to
+    # read these placeholder bytes as audio. Constant and above any floor, so
+    # tests that predate it still assert on sim/mos exactly as before.
+    monkeypatch.setattr(qc.metrics, "f0_semitone_std", lambda p: 2.5)
     return monkeypatch
 
 
@@ -131,10 +135,12 @@ def test_tune_lite_surfaces_an_uninstalled_engine(monkeypatch, tmp_path):
     assert unavail == "qwen_tts not importable"
 
 
-def test_tune_score_weights_sim_and_mos_equally(stub_synth, tmp_path):
-    """A point that wins only on mos must not beat one that wins only on sim by
-    the same normalized margin — the gate demands BOTH, so tuning can't favour
-    one axis."""
+def test_tune_score_weights_sim_and_mos_comparably(stub_synth, tmp_path):
+    """No single axis may dominate by SCALE. sim is already 0..1 while mos is
+    1..5 and f0st is roughly 0..4, so each is normalized before weighting —
+    otherwise a one-point mos swing would outrank everything else combined.
+    Exact equality no longer holds (mos .40 / sim .35 / f0 .25 since f0st
+    joined the objective 2026-08-01), so assert the property, not the number."""
     import qc.metrics
     # p0: sim 1.0 / mos 1.0 (norm 0.0)   p1: sim 0.0 / mos 5.0 (norm 1.0)
     stub_synth.setattr(qc.metrics, "cosine",
@@ -146,7 +152,10 @@ def test_tune_score_weights_sim_and_mos_equally(stub_synth, tmp_path):
         "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1,
         {"qwen_cfg": [1.5, 2.0]})
 
-    assert trials[0]["score"] == trials[1]["score"] == 0.5
+    # both extremes land in the same band: neither axis can run away with it
+    assert abs(trials[0]["score"] - trials[1]["score"]) < 0.10
+    # ...and mos, the human-calibrated axis, is weighted no less than sim
+    assert trials[1]["score"] > trials[0]["score"]
 
 
 # --- report ---
@@ -221,6 +230,7 @@ def test_one_failing_grid_point_is_skipped_not_fatal(monkeypatch, tmp_path):
     monkeypatch.setattr(qc.metrics, "ecapa_embed", lambda p: p)
     monkeypatch.setattr(qc.metrics, "cosine", lambda a, b: 0.7)
     monkeypatch.setattr(qc.metrics, "mos_min_window", lambda p: 4.0)
+    monkeypatch.setattr(qc.metrics, "f0_semitone_std", lambda p: 2.5)
 
     over, trials, unavail = B._tune_engine(
         "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1,
@@ -254,3 +264,55 @@ def test_removed_engines_stay_removed():
     report it unavailable every run instead of failing loudly here."""
     for gone in ("cosyvoice", "voxcpm", "indextts"):
         assert gone not in B.ENGINE_GRIDS
+
+
+# --- f0st in the tune objective (added 2026-08-01) ---
+
+def test_tune_disqualifies_points_under_the_monotony_floor(monkeypatch, tmp_path):
+    """The sim+mos objective picked the most MONOTONE reference we own, because
+    a flat clip reads as clean and on-voice. min_f0st must veto that outright."""
+    from pipeline import tts_engine
+    from qc import metrics as X
+
+    # point 0: flat but pristine.  point 1: livelier, slightly worse mos/sim.
+    vals = {"p0": (0.90, 4.5, 1.0), "p1": (0.80, 4.0, 3.0)}
+
+    def fake_synth(text, lang, out, t, retries=2):
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"x")
+
+    monkeypatch.setattr(tts_engine, "synthesize", fake_synth)
+    key = lambda w: "p0" if "p0_" in w.name else "p1"
+    monkeypatch.setattr(X, "ecapa_embed", lambda w: w)
+    monkeypatch.setattr(X, "cosine", lambda a, w: vals[key(w)][0])
+    monkeypatch.setattr(X, "mos_min_window", lambda w: vals[key(w)][1])
+    monkeypatch.setattr(X, "f0_semitone_std", lambda w: vals[key(w)][2])
+
+    grid = {"z": [0, 1]}
+    over, trials, unavail = B._tune_engine(
+        "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1, grid,
+        min_f0st=2.2)
+    assert unavail is None
+    # without the floor p0 wins on sim+mos; with it, p0 is disqualified
+    assert over == {"z": 1}
+    assert [r["under_floor"] for r in trials] == [True, False]
+
+
+def test_tune_relaxes_the_floor_when_nothing_clears_it(monkeypatch, tmp_path):
+    """Returning nothing would mark a working engine unavailable; ranking the
+    unreachable set is the same `filtered or pool` shape synth_best_of uses."""
+    from pipeline import tts_engine
+    from qc import metrics as X
+    monkeypatch.setattr(tts_engine, "synthesize",
+                        lambda text, lang, out, t, retries=2:
+                        (out.parent.mkdir(parents=True, exist_ok=True),
+                         out.write_bytes(b"x")))
+    monkeypatch.setattr(X, "ecapa_embed", lambda w: w)
+    monkeypatch.setattr(X, "cosine", lambda a, w: 0.8)
+    monkeypatch.setattr(X, "mos_min_window", lambda w: 4.0)
+    monkeypatch.setattr(X, "f0_semitone_std", lambda w: 1.0)   # all under floor
+    over, trials, unavail = B._tune_engine(
+        "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1,
+        {"z": [0, 1]}, min_f0st=2.2)
+    assert unavail is None and over in ({"z": 0}, {"z": 1})
+    assert all(r["under_floor"] for r in trials)

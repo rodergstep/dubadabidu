@@ -148,11 +148,31 @@ def _fmt_point(over: dict) -> str:
 
 
 def _tune_engine(engine: str, base_t: dict, subset: list[dict], lang: str,
-                 anchor, seg_root, takes: int, grid: dict) -> tuple:
+                 anchor, seg_root, takes: int, grid: dict,
+                 min_f0st: float = 0.0) -> tuple:
     """tune-lite for ONE engine: score every grid point on a small subset and
-    return its best. Scored on the two axes the adoption gate judges — cosine
-    to the REAL UA voice and MOS, weighted equally — so the point that wins
-    here is the point that maximizes what the gate measures.
+    return its best. Scored on cosine to the REAL UA voice, MOS, and f0
+    liveliness.
+
+    f0st was ADDED 2026-08-01 after the objective picked against it. The score
+    was sim+mos only — the adoption gate's two axes — and the first sweep to
+    range over references duly chose the most MONOTONE clip we own (f0st 2.13
+    of 2.13-2.84), because a flat reference reads as clean and on-voice. The
+    comparison row's f0st fell 2.874 -> 2.404 as a result. Monotony is a
+    standing ear complaint and tts.min_f0st exists precisely to defend it, so
+    an objective blind to it was optimizing the wrong thing.
+
+    Two mechanisms, mirroring how take selection already treats f0:
+      FLOOR   — points under min_f0st are disqualified, unless EVERY point is
+                (then the floor is unreachable for this engine and ranking the
+                unreachable set still beats returning nothing). Same
+                `filtered or pool` shape as synth_best_of's gates.
+      WEIGHT  — f0 enters the score, so among qualifying points the livelier
+                one wins ties instead of losing them.
+
+    Weights follow _take_rank's calibrated ordering (mos first, then f0 and
+    sim) rather than the gate's two axes: the gate decides ADOPTION, but tuning
+    decides what we ship, and what we ship has to clear the monotony floor too.
 
     WER is not scored during tuning (a Whisper pass per grid point per take is
     the expensive part of the run, and these knobs are samplers/styles, not text
@@ -168,7 +188,7 @@ def _tune_engine(engine: str, base_t: dict, subset: list[dict], lang: str,
     last_err = None
     for i, over in enumerate(points):
         t = {**base_t, **over}
-        sims, moss = [], []
+        sims, moss, f0s = [], [], []
         failed = None
         for u in subset:
             text = u["tr"][lang].get("fitted_text") or u["tr"][lang]["text"]
@@ -192,6 +212,7 @@ def _tune_engine(engine: str, base_t: dict, subset: list[dict], lang: str,
                     break
                 sims.append(X.cosine(anchor, X.ecapa_embed(w)))
                 moss.append(X.mos_min_window(w))
+                f0s.append(X.f0_semitone_std(w))
             if failed:
                 break
         if failed:
@@ -200,16 +221,33 @@ def _tune_engine(engine: str, base_t: dict, subset: list[dict], lang: str,
             continue
         sim = sum(sims) / len(sims)
         mos = sum(moss) / len(moss)
-        # equal weight on the gate's two axes; mos normalized 1..5 -> 0..1 so
-        # neither term can dominate the other by scale alone
-        score = 0.5 * sim + 0.5 * max(0.0, min(1.0, (mos - 1.0) / 4.0))
+        f0 = sum(f0s) / len(f0s)
+        # each term normalized to 0..1 so none dominates by scale alone; f0
+        # uses _take_rank's /4.0 so "lively" means the same thing in both places
+        score = (0.4 * max(0.0, min(1.0, (mos - 1.0) / 4.0))
+                 + 0.35 * sim
+                 + 0.25 * max(0.0, min(1.0, f0 / 4.0)))
         trials.append({"point": over, "sim": round(sim, 3),
-                       "mos": round(mos, 3), "score": round(score, 4)})
-        log.info("tune-lite %s/%s %s -> sim %.3f mos %.2f (score %.4f)",
-                 engine, lang, _fmt_point(over), sim, mos, score)
+                       "mos": round(mos, 3), "f0st": round(f0, 3),
+                       "score": round(score, 4),
+                       "under_floor": f0 < min_f0st})
+        log.info("tune-lite %s/%s %s -> sim %.3f mos %.2f f0st %.2f "
+                 "(score %.4f)%s", engine, lang, _fmt_point(over), sim, mos,
+                 f0, score, "  UNDER min_f0st" if f0 < min_f0st else "")
     if not trials:      # every point failed -> the engine itself is unusable
         return {}, [], last_err or "no grid point produced audio"
-    best = max(trials, key=lambda r: r["score"])
+    # monotony floor first, score second. Relaxed only if nothing clears it.
+    eligible = [r for r in trials if not r["under_floor"]] or trials
+    if len(eligible) < len(trials):
+        log.info("tune-lite %s/%s: %d of %d points under min_f0st %.2f — "
+                 "disqualified", engine, lang, len(trials) - len(eligible),
+                 len(trials), min_f0st)
+    elif min_f0st and len(eligible) == len(trials) == len(
+            [r for r in trials if r["under_floor"]]):
+        log.warning("tune-lite %s/%s: NO point clears min_f0st %.2f — ranking "
+                    "the unreachable set; this engine may not be able to meet "
+                    "the monotony floor", engine, lang, min_f0st)
+    best = max(eligible, key=lambda r: r["score"])
     if len(trials) > 1:
         log.info("tune-lite %s/%s: %s wins %d points",
                  engine, lang, _fmt_point(best["point"]), len(trials))
@@ -298,7 +336,10 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 tune_dir.mkdir(parents=True, exist_ok=True)
                 over, trials, unavailable = _tune_engine(
                     engine, t, _subset(subset, tune_n), lang, anchor,
-                    tune_dir, tune_takes, grid)
+                    tune_dir, tune_takes, grid,
+                    # the SAME floor take selection enforces, so tuning cannot
+                    # hand the comparison a point that s4 would then reject
+                    min_f0st=float(t.get("min_f0st", 0.0) or 0.0))
                 if not unavailable:
                     t = {**t, **over}
                     tuning[vkey] = {"winner": over, "trials": trials,
@@ -492,28 +533,36 @@ def _tuning_section(tuning: dict, engines: list) -> list[str]:
         return []
     out = ["", "## tune-lite — each engine at its own best point", "",
            "Every engine sweeps its own grid (bakeoff.grids) BEFORE the "
-           "comparison and enters at its winner, scored on the gate's two axes "
-           "(0.5*sim→real + 0.5*normalized mos). A single-point grid means "
-           "'already tuned, nothing to sweep' and costs nothing. Widen a grid "
-           "in config to re-open an engine's parameters.", "",
-           "| engine | points | ran at | sim→real | mos |",
-           "|---|---|---|---|---|"]
+           "comparison and enters at its winner, scored on "
+           "0.4*normalized mos + 0.35*sim→real + 0.25*normalized f0st, with "
+           "points under tts.min_f0st disqualified outright. f0st was added "
+           "2026-08-01: on sim+mos alone the first reference sweep picked the "
+           "most MONOTONE clip available (a flat reference reads as clean and "
+           "on-voice) and the comparison's f0st fell 2.87 -> 2.40. A "
+           "single-point grid means 'already tuned, nothing to sweep' and "
+           "costs nothing. Widen a grid in config to re-open an engine's "
+           "parameters.", "",
+           "| engine | points | ran at | sim→real | mos | f0st |",
+           "|---|---|---|---|---|---|"]
     for e in engines:
         tn = tuning.get(e)
         if not tn:
-            out.append(f"| {e} | - | (not reached) | - | - |")
+            out.append(f"| {e} | - | (not reached) | - | - | - |")
             continue
         win = next((r for r in tn["trials"] if r["point"] == tn["winner"]), None)
         note = f" — {tn['skipped']}" if tn.get("skipped") else ""
         out.append(f"| {e} | {tn['n_points']}{note} | "
                    f"{_fmt_point(tn['winner'])} | "
-                   f"{win['sim'] if win else '-'} | {win['mos'] if win else '-'} |")
+                   f"{win['sim'] if win else '-'} | {win['mos'] if win else '-'} "
+                   f"| {win.get('f0st', '-') if win else '-'} |")
     losers = [(e, r) for e in engines for r in tuning.get(e, {}).get("trials", [])
               if r["point"] != tuning[e]["winner"]]
     if losers:
         out += ["", "<details><summary>grid points that lost</summary>", "",
-                "| engine | point | sim→real | mos | score |", "|---|---|---|---|---|"]
+                "| engine | point | sim→real | mos | f0st | score |",
+                "|---|---|---|---|---|---|"]
         out += [f"| {e} | {_fmt_point(r['point'])} | {r['sim']} | {r['mos']} "
+                f"| {r.get('f0st', '-')}{' (under floor)' if r.get('under_floor') else ''} "
                 f"| {r['score']} |" for e, r in losers]
         out += ["", "</details>"]
     return out
