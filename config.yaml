@@ -77,13 +77,11 @@ translation:
   n_short_variants: 2         # pre-generate shorter variants for overflow retries
 
 tts:
-  engine: chatterbox          # chatterbox | cosyvoice | indextts (en) |
-                              # voxcpm | qwen | edge (no cloning)
-  engine_by_lang: {}          # per-lang override, e.g. {fr: cosyvoice} — set by
+  engine: chatterbox          # chatterbox | qwen | edge (no cloning)
+  engine_by_lang: {}          # per-lang override, e.g. {en: qwen} — set by
                               # the GPU bake-off (IMPROVEMENT_PLAN.md Phase C)
-  reference_text: ""          # transcript of reference_wav — REQUIRED by
-                              # cosyvoice; `dubadabidu prep` fills refs.json
-  cosyvoice_model_dir: pretrained_models/Fun-CosyVoice3-0.5B
+  reference_text: ""          # transcript of reference_wav; `dubadabidu prep`
+                              # fills refs.json. Unused by the UA-ref paths.
   # NOTE: the take-SELECTION params in this block (best_of, rank_takes, min_f0st,
   # f0_reroll_max, retake_mos_below, best_of_early_accept, early_accept_*) are NOT
   # part of synth_hash — they pick among takes, they don't change a take's inputs.
@@ -133,11 +131,6 @@ tts:
   cfg_weight: 0.0             # REQUIRED: reference is Ukrainian, targets are not
                               # (re-validated by tune R2: 0.2/0.3 lost on sim AND mos)
   exaggeration: 0.55          # tune winner vs 0.4 / 0.7
-  emotion_from_source: false  # IndexTTS-2 only: per-segment emotion prompt =
-                              # THIS utterance's slice of the source vocals, so
-                              # the dub carries your original delivery segment by
-                              # segment (disentangled from timbre). Slices land
-                              # in work/<video>/emo/; hashes key on them.
   sample_rate: 24000
   edge_voices:                # fallback engine voices (edge-tts 7.2.8)
     en: en-US-AndrewNeural

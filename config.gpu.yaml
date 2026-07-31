@@ -9,51 +9,93 @@ tts:
                               # (windowed MOS + f0 + ECAPA sim) picks the best
 
   # --- engine bake-off candidates (GPU-only git-clone installs; THIRD_PARTY.md) ---
-  # CosyVoice: covers all 5 targets + cross-lingual. cross_lingual mode needs NO
-  # ref transcript — the path for a Ukrainian reference. instruct mode adds
-  # per-segment emotion via a natural-language instruct_text (no custom code).
-  cosyvoice_model_dir: pretrained_models/CosyVoice2-0.5B
-  cosyvoice_mode: cross_lingual        # cross_lingual | zero_shot | instruct | auto
-  # IndexTTS-2: EN + Mandarin ONLY (guarded). Disentangled emotion — with
-  # emotion_from_source: true, s4/s5 cut each utterance's own slice of the
-  # source vocals as its emotion prompt (real per-segment prosody transfer);
-  # a manual emotion_wav is a global override. indextts_duration_ratio
-  # (0.75-1.25) is native pace control.
-  indextts_model_dir: checkpoints
-  emotion_from_source: true   # cut each utterance's own source slice as the
-                              # emotion prompt (per-segment prosody transfer).
-                              # No-op unless a lang is routed to indextts below.
-  # emo_alpha: 1.0            # scales the transferred emotion (default 1.0)
-  # indextts_duration_ratio: 1.0
-  # VoxCPM2: 2B, 30 languages auto-detected (all 5 targets; NOT uk — clones
-  # from ref audio alone, transcript-free), 48 kHz out, ~8 GB VRAM, top-tier
-  # published SIM scores. pip install — but WITH pins (THIRD_PARTY.md).
-  voxcpm_model_dir: openbmb/VoxCPM2    # HF id (auto-download) or local dir
-  # voxcpm_cfg_value: 2.0
-  # voxcpm_timesteps: 10
-  # Qwen3-TTS Base: 10 languages (all 5 targets), 3 s clone, ~4 GB VRAM,
-  # Apache-2.0. UA ref -> x_vector_only (speaker embedding only, no ref
+  # ROSTER CUT 2026-07-31 (git history has both):
+  #   cosyvoice — REMOVED. Installed and imported but never produced a single
+  #     take in seven attempts; seven distinct causes are recorded in
+  #     THIRD_PARTY.md if anyone wants to resume it.
+  #   voxcpm    — REMOVED. Lost to qwen+fast on speed AND cost once qwen's
+  #     kernel-launch bottleneck was fixed (2.36 vs 2.92 s/take). It still led
+  #     on sim→real 0.804 vs 0.614, which was never settled by ear before the
+  #     cut — that is the one open question this removal closes off.
+  #   indextts  — REMOVED. Best measured mos (2.739 with emotion transfer) but
+  #     ~2x qwen's cost and en/zh ONLY, so it could never serve 4 of 5 targets.
+  #     No cheap speedup exists: index-tts-vllm reports no gain for IndexTTS-2's
+  #     GPT and is a vLLM server, and Faster-IndexTTS-2 (TensorRT-LLM) is a
+  #     paper, not a package. Its emotion_from_source machinery went with it.
+  # Qwen3-TTS Base — THE PRODUCTION ENGINE (all 5 targets), 3 s clone, ~4 GB
+  # VRAM, Apache-2.0. UA ref -> x_vector_only (speaker embedding only, no ref
   # transcript). git-clone install (THIRD_PARTY.md).
-  qwen_model_dir: Qwen/Qwen3-TTS-12Hz-1.7B-Base   # or -0.6B-Base (lighter)
+  # Keep 1.7B for now. Measured 2026-07-31 on a 4090 BEFORE qwen_fast: 0.6B ran
+  # at RTF 1.38 vs 1.7B's 1.42 — a 3x smaller model bought no speed, proving the
+  # transformer was never the bottleneck. CAVEAT: qwen_fast removes the dispatch
+  # overhead, so the model is now genuinely compute-bound and that measurement
+  # no longer applies — 0.6B is worth re-testing (it scored mos 2.697 vs 2.411
+  # in the dtype probe, inside the noise floor but not worse).
+  qwen_model_dir: Qwen/Qwen3-TTS-12Hz-1.7B-Base
   qwen_x_vector_only: true             # UA ref: clone from audio embedding only
+  # THE REFERENCE, decided by three sweeps (en x2, ru) on 2026-07-31/08-01.
+  # ref_03 won ALL THREE — the only conclusion here that is not inside the noise
+  # floor. It is not the reference an earlier tune picked for chatterbox
+  # (sketch_ref_08), which is the point: engines have different preferences and
+  # this one was never swept under qwen before.
+  # NOT chosen for expressiveness. ref_03 has the LOWEST f0st of our references
+  # (2.13 of 2.13-2.84) yet produces the HIGHEST output liveliness (2.76 en /
+  # 2.99 ru). Reference f0st and output f0st are INVERSELY ordered across the
+  # whole set, so the widely-repeated "use an expressive reference" advice is
+  # false for this voice; ref_03's edge is more likely its clean, continuous
+  # phonation (voiced 0.629, ref mos 4.59 — both the best we have).
+  reference_wav: ref/sketch60_ref_03.wav
+  # reference_max_s: DELIBERATELY UNSET. It was 12 on upstream's claim that
+  # cloning quality "plateaus and degrades" past ~15 s. Our own data does not
+  # reproduce that: 18 s beat 12 s on average in all THREE sweeps (en 0.5003 vs
+  # 0.5046, ru 0.5536 vs 0.5618) and the ru winner is an 18 s point. Per
+  # reference the effect is larger (0.03-0.06) than the gaps between references,
+  # but it has no consistent SIGN — ref_02 clearly prefers 18 s in both
+  # languages, ref_08 prefers 12 s. So it is a per-reference property, kept as a
+  # sweepable axis (bakeoff.grids) rather than a global default. The trim
+  # MECHANISM stays: it is also the guard against over-long references, the
+  # documented trigger for the decoder's never-emits-EOS failure.
+  qwen_max_audio_s: 60                 # reject a take longer than this as a
+                                       # runaway generation (engine_client has
+                                       # no per-call timeout, so an unbounded
+                                       # loop otherwise burns pod time and, worse,
+                                       # a merely-long babble take ships silently)
   # qwen_flash_attn: true              # enable only if flash-attn is installed
+                                       # (NOT a speed fix — see qwen_fast)
+  # faster-qwen3-tts (MIT): same weights, CUDA Graphs + StaticCache around the
+  # decode loop. Qwen3-TTS is kernel-LAUNCH bound — ~500 tiny GPU ops per decode
+  # step dispatched from Python, card idling at 10-12% utilisation. That is why
+  # our 2026-07-31 probe found 0.6B and 1.7B equally slow and dtype irrelevant.
+  # Upstream measures 4.1x on a 4090 (0.75 -> 0.18 wall/audio); at that ratio our
+  # 14.0 s/take becomes ~3.4. MEASURED 2026-07-31: 2.36 s/take, a 5.9x win —
+  # BETTER than upstream's ratio, and it makes qwen the fastest engine we ever
+  # benchmarked. VALIDATED and now the production default. Output is not
+  # bit-identical to the stock decode loop (mos 2.112 vs 1.942, f0st 2.874 vs
+  # 2.591, sim flat) but every shift is inside the take-to-take mos± of 0.322,
+  # so read it as different takes rather than better ones. Salted into
+  # synth_hash so an A/B re-synthesizes instead of scoring stock-decoded cache.
+  qwen_fast: true
+  # qwen_warmup_len: 100               # prefill length for CUDA graph capture
 
-  # After the bake-off, pin the winning engine per language, e.g.:
-  # engine_by_lang: {en: indextts, fr: cosyvoice, de: cosyvoice, es: cosyvoice, ru: chatterbox}
-  #
-  # emotion_from_source ACTIVATION (one manual step — kept off by default because
-  # indextts is a git-clone engine and NOT yet validated/pinned; enabling it
-  # blind would break `remote run` at s4). To turn on per-segment prosody
-  # transfer for English:
-  #   1. validate + pin the indextts commit and fill runpod.engine_setup.indextts
-  #      below (incl. the checkpoint download) — see THIRD_PARTY.md
-  #   2. uncomment the line below. The pod now auto-installs indextts for a run
-  #      (not just bakeoff) and emotion_from_source (above) activates for en.
-  # engine_by_lang: {en: indextts}
+  # qwen serves every language; engine_by_lang is left empty on purpose.
 
 bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
-  engines: [chatterbox, cosyvoice, voxcpm, qwen, indextts]  # indextts self-skips
-                               # on non-en/zh langs (adapter raises -> "unavailable")
+  # chatterbox REMOVED 2026-07-30 at the user's call — its quality is already
+  # known by ear from the local sketch60 runs, and installing it on the pod costs
+  # ~5 GB of CUDA torch for a row we don't need. CONSEQUENCE: it is the incumbent,
+  # so beats_incumbent() has no baseline and every challenger reports "no
+  # incumbent baseline" — the adoption gate becomes ADVISORY and the decision
+  # moves to the ear on the .html page plus the raw sim→real / mos numbers.
+  # Put chatterbox back at the front of this list to restore the gate.
+  # ONE ENGINE AT A TIME (2026-07-30). Installing every candidate before testing
+  # any of them meant each download was paid for before a single result existed —
+  # and a late failure threw the lot away, repeatedly. One engine per run needs no
+  # code change (remote_run installs exactly what is listed here) and gives: disk
+  # peak of one venv, first result in minutes, and a failure that costs only its
+  # own engine. Size container_disk_gb to len(engines).
+  # ROSTER after the 2026-07-31 cut: qwen only. cosyvoice, voxcpm and indextts
+  # are gone — see the tts block above.
+  engines: [qwen]
   subset_size: 6               # stratified by source length
   takes: 3                     # averaged per segment to beat TTS variance
   # tune-lite: every engine sweeps its own grid BEFORE the head-to-head and
@@ -65,29 +107,122 @@ bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
   tune:
     enabled: true
     subset_size: 3             # SEPARATE from the comparison subset, and smaller:
-    takes: 2                   # cost is points x segments x takes, so it grows
-                               # fastest here. 2 takes beats a single coin-flip
-                               # roll without paying for a full average.
+    takes: 4                   # cost is points x segments x takes, so it grows
+                               # fastest here. Raised 2 -> 4 on 2026-07-30: at 2
+                               # takes the sweep could not resolve its own winner.
+                               # A sweep picked a winner on mos 2.515 that the
+                               # larger comparison then measured at 2.382 — level
+                               # with the default. Take-to-take mos± was 0.374
+                               # against a grid spread of 0.46, i.e. the ranking
+                               # was noise. ALWAYS compare a grid spread against
+                               # mos± before believing a winner.
   # Per-engine grids. A config grid REPLACES that engine's built-in default —
   # this is how you widen a sweep or close one. Defaults live in
   # qc/bakeoff.py ENGINE_GRIDS; only knobs that reach manifest.synth_hash are
   # valid (otherwise the cache serves one point's audio for another) and all of
   # them must be Ukrainian-reference safe. An empty/single-point grid means
   # "already tuned, nothing to sweep" and costs nothing.
-  # grids:
+  # SWEEP 2026-07-31: qwen's weakest metric is sim→real (0.614; voxcpm managed
+  # 0.804 before it was cut), and two reference-side knobs plausibly move it.
+  #   reference_wav   — RESOLVED: ref_03 won all three sweeps, and is now the
+  #     tts.reference_wav default above. Kept in the grid so a new video's own
+  #     references can be swept the same way (refs are per-video).
+  #   reference_max_s — RESOLVED as "no global answer": 18 s edged 12 s in all
+  #     three sweeps on average, but per reference the effect is larger than the
+  #     between-reference gaps AND changes sign. Swept, never defaulted.
+  # tune-lite scores on 0.5*sim→real + 0.5*mos, so it optimises exactly the
+  # metric in question. 12 points x 3 segments x 4 takes at 2.36 s/take ~ 6 min.
+  grids:
+    qwen:
+      reference_wav: [ref/sketch60_ref_01.wav, ref/sketch60_ref_02.wav,
+                      ref/sketch60_ref_03.wav, ref/sketch_ref_06.wav,
+                      ref/sketch_ref_07.wav, ref/sketch_ref_08.wav]
+      reference_max_s: [12, 18]
   #   chatterbox: {exaggeration: [0.4, 0.55, 0.7]}   # re-open the incumbent
-  #   voxcpm: {voxcpm_cfg_value: [1.5, 2.0, 2.5], voxcpm_timesteps: [10, 20]}
 
 runpod:                        # M2 infra agent — `dubadabidu remote <task> <video>`
-  # Cheapest adequate community GPUs (>=16GB), tried in order (checked 2026-07:
-  # A5000 $0.16/hr, 3090 $0.22/hr). Chatterbox ~7GB + whisper ~5GB load
-  # sequentially, so 16-24GB is ample.
-  gpu_type_ids: ["NVIDIA RTX A5000", "NVIDIA GeForce RTX 3090",
-                 "NVIDIA RTX A4500", "NVIDIA RTX A4000"]
+  # SECURE cloud (2026-07-30): COMMUNITY had no on-demand capacity at all for
+  # these types ("create pod: There are no instances currently available") and
+  # its spot pods were reclaimed within 1-9 min, four times running. Secure is
+  # RunPod's own datacenters, where on-demand capacity actually exists. Costs
+  # roughly 2-3x community per hour; max_runtime_hours still caps a run at 3 h.
+  cloud_type: SECURE
+  # Capped at the mid tier: create_pod sends gpuTypePriority=availability, so
+  # RunPod picks whichever is FREE, not whichever is cheapest — listing an
+  # A6000/L40S/H100 class card would risk landing on one at 3-5x the price for
+  # a workload that cannot use it.
+  # SIZING, measured 2026-08-01: qwen 1.7B bf16 is ~4 GB, faster-whisper
+  # large-v3 fp16 ~5 GB, ECAPA + Distill-MOS well under 1 GB. Peak is ~12 GB, so
+  # 16 GB is sufficient and 24 GB is comfortable. The pod ran at ~7% GPU
+  # utilisation on a 4090 — batch size 1 cannot fill a big card.
+  # A SLOWER CARD IS NO LONGER FREE, and this changed recently: before qwen_fast
+  # the model was kernel-launch bound, so GPU speed barely mattered. It is now
+  # compute-bound. But only ~43% of wall clock is synthesis (2.07 s of the 4.83 s
+  # measured per take; the rest is CPU-side scoring that a GPU swap does not
+  # touch), so a 2x slower card costs ~1.4x wall time — still a net win at 2x+
+  # cheaper, just not the "half the cost" a naive reading suggests.
+  # An unrecognised id fails the create call instantly with an API 400 and costs
+  # nothing. USEFUL TRICK: that 400 body lists the ENTIRE valid enum, which is the
+  # only way to get it — rest.runpod.io/v1 has no /gpuTypes endpoint. Send a
+  # deliberate bad id to refresh this list. ("NVIDIA A30" is NOT a valid id.)
+  # All entries below are >=16GB and mid-tier; H100/B200/A100/RTX-6000 class are
+  # omitted on purpose so gpuTypePriority=availability cannot land on one.
+  # Enum refreshed from the API 2026-08-01 (see the trick above). 16-24 GB only.
+  # RTX 2000 Ada is DROPPED despite being cheapest: 16 GB but materially slower,
+  # and now that we are compute-bound it would stretch wall clock for little
+  # saving. 4080/4090 stay as availability fallbacks, not preferences.
+  gpu_type_ids: ["NVIDIA RTX A4000", "NVIDIA RTX 4000 Ada Generation",
+                 "NVIDIA RTX A4500", "NVIDIA L4",
+                 "NVIDIA RTX A5000", "NVIDIA GeForce RTX 3090",
+                 "NVIDIA GeForce RTX 3090 Ti",
+                 "NVIDIA GeForce RTX 4080", "NVIDIA GeForce RTX 4080 SUPER",
+                 "NVIDIA GeForce RTX 4090"]
   image: runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04
-  interruptible: true          # spot; cheapest, resumable + cached
+  # 150 GB, up from the 30 GB default. THIS was the real cause of the bootstrap
+  # failures on 2026-07-30: per-engine venv isolation multiplies torch by the
+  # number of challengers, and nobody sized the disk for it. Measured/estimated:
+  #   devel CUDA base image ~20 GB, main .venv ~5 GB, and ~7-10 GB per challenger
+  #   venv (its own CUDA torch + model weights) -> ~60 GB for four, before
+  #   headroom for pip's build dirs and HF cache.
+  # At 30 GB the container ran out of space and was killed, which presented as
+  # `closed by remote host` on the next SSH connection (sshd dies with it) and as
+  # "connection interrupted" mid-wheel-download. Both looked like network or spot
+  # problems and were misdiagnosed three times before `No space left on device`
+  # surfaced from a synth call. Container disk is billed only while the pod runs,
+  # so this is nearly free; a too-small value costs an entire run.
+  # SIZE THIS TO len(bakeoff.engines). MEASURED, not estimated: three qwen-only
+  # runs on 2026-07-31/08-01 all reported "disk 43% used" at their peak, i.e.
+  # ~26 GB of the 60 provisioned — base image + main .venv + venvs/qwen +
+  # weights + HF/pip caches. 40 GB keeps ~14 GB of headroom over that peak.
+  # DO NOT cut this to ~30 GB. That was the value that broke seven consecutive
+  # runs on 2026-07-30: a container that exhausts its disk is killed, which
+  # surfaces as `closed by remote host` on the NEXT ssh connection (sshd dies
+  # with it) and as "connection interrupted" mid-download — symptoms that were
+  # misdiagnosed three times as spot preemption, apt, and libstdc++ before
+  # `No space left on device` finally surfaced. The margin is the whole point.
+  # Raise toward 150 if several engines are ever listed in one run again:
+  # per-engine venv isolation multiplies torch by the number of challengers.
+  container_disk_gb: 40
+  # ON-DEMAND (2026-07-30). Four consecutive spot pods died mid-bootstrap with
+  # `closed by remote host` at lifetimes of 62s / 7m27s / 8m32s / 8m53s — three of
+  # them on the SAME host 213.144.200.240. Variable lifetimes rule out a
+  # deterministic step in our setup (apt was investigated and cleared: attempt 4
+  # ran `0 upgraded, 2 newly installed` and still died), and repeatedly landing on
+  # one host points at reclamation / an unhealthy box. On-demand removes that
+  # variable. Cost is irrelevant here: max_runtime_hours caps a run at 3 h, so
+  # worst case moves from ~$0.75 to ~$1.50.
+  # Flip back to true once a run completes end-to-end — spot is genuinely fine
+  # for the batch, where the manifest cache makes a preempted run resumable.
+  interruptible: false         # on-demand; diagnostic (see above)
   budget_usd: 10.0             # HARD cap -> auto-terminate; override with --budget
-  assumed_price_per_hr: 0.25   # deadline = budget / this (conservative)
+  assumed_price_per_hr: 0.70   # MEASURED: the 4090 pods actually billed $0.69/h,
+                               # so the old 0.60 made every budget estimate ~13%
+                               # optimistic. Set to the WORST case in gpu_type_ids
+                               # (the 4090), not the average — this divides the
+                               # budget to set the deadline, so under-stating it
+                               # buys a longer run than the budget really allows.
+                               # deadline = min(budget/this, max_runtime_hours).
+                               # Cheaper cards simply finish under budget.
   max_runtime_hours: 3.0       # absolute ceiling regardless of budget
   ssh_key: ~/.ssh/id_ed25519_runpod
   # OPTIONAL and NOT recommended by default: a RunPod network-volume id to
@@ -117,35 +252,30 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   # into site-packages. An empty/failing snippet => that engine is marked
   # unavailable and skipped, so a partial bake-off still runs.
   #
-  # STATUS: filled best-effort from THIRD_PARTY.md, but UNPINNED (clones default
-  # branch) and NOT yet run on a pod. VALIDATE CHEAPLY FIRST with
-  # `dubadabidu remote setup-check` (~$0.30) — it runs these snippets on one pod
-  # and probes each engine INSIDE its venv, so you don't debug installs on a
-  # billing bake-off. Before trusting a comparison, confirm:
-  #   (a) the checkpoint repo id `IndexTeam/IndexTTS-2` (IndexTTS-2 weights);
-  #   (b) each repo's HEAD still matches the API in pipeline/tts_engine.py.
-  # Clones are guarded with `[ -d ... ] ||` so a persistent-volume re-run
-  # (runpod.network_volume_id) doesn't fail on an existing checkout.
-  # PINNING: each clone-based snippet has a `# pin:` line showing the exact edit —
-  # append `&& git -C third_party/<repo> checkout <SHA>` right after its clone once
-  # a run validates the commit (THIRD_PARTY.md "Pinned commit" lines).
+  # STATUS: VALIDATED and PINNED 2026-07-31. qwen runs at 2.36 s/take on a 4090
+  # with tts.qwen_fast. Clones are guarded with `[ -d ... ] ||` so a re-run does
+  # not fail on an existing checkout, and the checkout is by SHA so a re-clone
+  # cannot drift. Re-pin by editing the SHA below and faster-qwen3-tts's version.
   engine_setup:
-    # CosyVoice: no pip package -> weights via modelscope + a .pth putting the
-    # repo AND its Matcha-TTS submodule on the ENGINE venv's sys.path.
-    # pin: append `&& git -C third_party/CosyVoice checkout <SHA>` after the clone.
-    cosyvoice: "{ [ -d third_party/CosyVoice ] || git clone --recursive https://github.com/FunAudioLLM/CosyVoice third_party/CosyVoice; } && pip install -q -r third_party/CosyVoice/requirements.txt && pip install -q modelscope && python -c 'from modelscope import snapshot_download as d; d(\"iic/CosyVoice2-0.5B\", local_dir=\"pretrained_models/CosyVoice2-0.5B\")' && python -c 'import sysconfig,os;p=sysconfig.get_paths()[\"purelib\"];r=os.getcwd();open(os.path.join(p,\"cosyvoice.pth\"),\"w\").write(r+\"/third_party/CosyVoice\\n\"+r+\"/third_party/CosyVoice/third_party/Matcha-TTS\\n\")'"
-    # VoxCPM2: plain pip. In its own venv the resolver is free to pick its
-    # preferred torch/torchcodec (the old same-line pins defended the shared
-    # venv's torch 2.6.0 — no longer needed). Weights auto-download at load.
-    voxcpm: "pip install -q voxcpm==2.0.3"
     # Qwen3-TTS: editable install makes `qwen_tts` importable; weights (HF id in
     # tts.qwen_model_dir) auto-download at load.
-    # pin: append `&& git -C third_party/Qwen3-TTS checkout <SHA>` after the clone.
-    qwen: "{ [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && pip install -q -e third_party/Qwen3-TTS"
-    # IndexTTS-2 (en/zh; also powers emotion_from_source for en). Editable install
-    # makes `indextts` importable; checkpoints -> ./checkpoints (indextts_model_dir).
-    # pin: append `&& git -C third_party/index-tts checkout <SHA>` after the clone.
-    indextts: "{ [ -d third_party/index-tts ] || git clone https://github.com/index-tts/index-tts third_party/index-tts; } && pip install -q -e third_party/index-tts && pip install -q -U \"huggingface_hub[cli]\" && huggingface-cli download IndexTeam/IndexTTS-2 --local-dir checkpoints"
+    # PINNED: 022e286 (2026-03-17, HEAD of main at validation).
+    # Qwen3-TTS declares no install_requires, so `pip install -e .` alone
+    # completed in 62 s having pulled NOTHING — exit 0, then `import qwen_tts`
+    # would fail at synthesis. Install its requirements.txt when the repo ships
+    # one, else fall back to the minimum the adapter needs (torch/torchaudio/
+    # transformers). flash-attn stays opt-in (tts.qwen_flash_attn).
+    # CUDA torch FIRST, from the cu121 index, before anything else can drag in a
+    # CPU-only wheel as a transitive dep. Measured 2026-07-30: qwen ran at a
+    # median 126 s/take vs voxcpm's 2.9 s on the SAME pod — the suspected cause
+    # is exactly this, a CPU torch in venvs/qwen degrading silently to fp32 on
+    # CPU. pipeline/device.py:require_gpu now refuses that fallback loudly.
+    # The final `import torch; assert torch.cuda.is_available()` makes the
+    # install fail here rather than 10 minutes later at synthesis time.
+    # faster-qwen3-tts is installed ALONGSIDE the stock clone so tts.qwen_fast
+    # can be flipped either way on the same pod without a reinstall (the A/B is
+    # the point). It needs torch>=2.5.1, which the cu121 line above provides.
+    qwen: "pip install -q --index-url https://download.pytorch.org/whl/cu121 torch torchaudio && { [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && git -C third_party/Qwen3-TTS checkout 022e286b98fbec7e1e916cb940cdf532cd9f488e && { [ -f third_party/Qwen3-TTS/requirements.txt ] && pip install -q -r third_party/Qwen3-TTS/requirements.txt || pip install -q transformers; } && pip install -q -e third_party/Qwen3-TTS && pip install -q faster-qwen3-tts==0.3.2 && python -c 'import qwen_tts, faster_qwen3_tts, torch; assert torch.cuda.is_available(), \"CPU-only torch in venvs/qwen: \"+torch.__version__; print(\"qwen ok, torch\", torch.__version__)'"
   # SAFETY: pod id persisted to work/.runpod_active.json on create; terminate
   # retries+verifies and only clears state on confirmation; an independent
   # pod-side watchdog self-destructs at the deadline even if this process dies;

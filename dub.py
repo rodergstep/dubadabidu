@@ -80,14 +80,6 @@ def doctor(cfg: dict) -> int:
     # through a worker there), otherwise in THIS venv (in-process).
     for eng, mod, hint in [
         ("chatterbox", "chatterbox", "pip install chatterbox-tts==0.1.7"),
-        ("cosyvoice", "cosyvoice",
-         "git clone --recursive FunAudioLLM/CosyVoice into its own venv "
-         "(THIRD_PARTY.md)"),
-        ("indextts", "indextts",
-         "git clone index-tts/index-tts + checkpoints into its own venv "
-         "(THIRD_PARTY.md)"),
-        ("voxcpm", "voxcpm",
-         "pip install voxcpm==2.0.3 in its own venv (THIRD_PARTY.md)"),
         ("qwen", "qwen_tts",
          "git clone QwenLM/Qwen3-TTS + pip install -e . in its own venv "
          "(THIRD_PARTY.md)"),
@@ -156,7 +148,7 @@ def preamble(cfg: dict, video: str, langs: list[str]) -> None:
     over = {"reference_wav": win["reference_wav"]}
     refs = json.loads((wd / "refs.json").read_text(encoding="utf-8"))
     rt = refs.get(Path(win["reference_wav"]).name, {}).get("text_uk", "")
-    if rt:  # ref transcript — required by the cosyvoice engine
+    if rt:  # ref transcript (prep fills refs.json; UA-ref paths skip it)
         over["reference_text"] = rt
     man["tts_overrides"] = over
     M.save(cfg, video, man)
@@ -239,6 +231,20 @@ def main() -> None:
                          "take-SELECTION params (best_of, min_f0st, ...) re-apply "
                          "— they're not in synth_hash, so the cache ignores them "
                          "otherwise. Keeps translations + human verdicts.")
+    ap.add_argument("--keep-alive", dest="keep_alive", action="store_true",
+                    help="`remote`: do NOT terminate the pod when the task "
+                         "ends, so a failing engine install can be debugged "
+                         "IN PLACE over SSH instead of paying a fresh ~4min "
+                         "bootstrap per attempt. Prints the ssh command. The "
+                         "pod-side watchdog still self-destructs at the "
+                         "deadline; `remote kill` ends it sooner.")
+    ap.add_argument("--reuse", action="store_true",
+                    help="`remote`: attach to the pod a previous --keep-alive "
+                         "run left running instead of provisioning a new one. "
+                         "Skips the bootstrap, whose torch download is 4-6 GB "
+                         "and took anywhere from 4 to 60 min depending on the "
+                         "pod's route to PyPI. Falls back to provisioning if "
+                         "no live pod is tracked.")
     ap.add_argument("--budget", type=float, default=None,
                     help="hard USD cap for `remote` (auto-terminates the pod); "
                          "default runpod.budget_usd")
@@ -370,7 +376,10 @@ def main() -> None:
         vids = a.rest[1:]
         if not vids:
             ap.error(f"remote {task} needs a video path")
-        ok = all(rpi.remote_run(cfg, v, langs, task, a.budget) for v in vids)
+        ok = all(rpi.remote_run(cfg, v, langs, task, a.budget,
+                                keep_alive=a.keep_alive,
+                                reuse=a.reuse,
+                                overlays=a.overlay or []) for v in vids)
         sys.exit(0 if ok else 1)
     if a.cmd == "prep":
         for v in a.rest:

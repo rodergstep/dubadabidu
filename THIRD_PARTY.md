@@ -17,117 +17,47 @@ pipeline.engine_worker` from the project root — only the engine's own deps
 Pin the commit you validate on (record it below) — these repos move fast and
 their inference APIs drift; `pipeline/tts_engine.py` targets the APIs noted here.
 
-**PENDING — do this immediately after the first `dubadabidu remote setup-check`.**
-Three of the four snippets in `config.gpu.yaml` currently track HEAD
-(cosyvoice, indextts, qwen — only `voxcpm==2.0.3` is pinned), so the
-`Pinned commit:` lines below are still blank. setup-check reports which engines
-import; capture the revision each one resolved to and record it here, then
-append `&& git -C third_party/<repo> checkout <SHA>` to that engine's snippet
-(the `# pin:` line in config.gpu.yaml shows the exact edit).
+**PINNED 2026-07-31.** `config.gpu.yaml` checks out qwen at a fixed SHA and
+installs `faster-qwen3-tts==0.3.2`, so a bake-off verdict is now reproducible.
+Until this was done a re-run weeks later could clone different code and the
+numbers would move for reasons the scorecard cannot show — the protocol rests on
+"the eval harness decides", and an unpinned harness decides against a moving
+target.
 
-This is not cosmetic. Until it is done, a bake-off verdict is **not
-reproducible**: a re-run weeks later may clone different code, and the numbers
-would move for reasons the scorecard cannot show. The whole protocol rests on
-"the eval harness decides" — an unpinned harness decides against a moving
-target. Cost of doing it: zero. IMPROVEMENT_PLAN.md lists it under Standing
-risks.
+## Removed engines — cosyvoice, voxcpm, indextts (cut 2026-07-31)
 
-## CosyVoice 2/3 — all 5 target languages + cross-lingual (Apache-2.0)
+Both adapters, install recipes, config blocks and tests were deleted. Git
+history has everything, including CosyVoice's full seven-cause failure log and
+the validated-but-unused install recipe: `git show <this commit>^:THIRD_PARTY.md`.
 
-```bash
-# from the project root — its OWN venv; the pipeline auto-routes through it
-python3 -m venv venvs/cosyvoice && . venvs/cosyvoice/bin/activate
-pip install soundfile
-git clone --recursive https://github.com/FunAudioLLM/CosyVoice third_party/CosyVoice
-git -C third_party/CosyVoice checkout <PIN_COMMIT>
-git -C third_party/CosyVoice submodule update --init --recursive
-pip install -r third_party/CosyVoice/requirements.txt
-# model weights (pick one):
-#   modelscope download iic/CosyVoice2-0.5B --local_dir pretrained_models/CosyVoice2-0.5B
-# make the clone importable in THIS venv with no PYTHONPATH (a .pth file —
-# the worker spawns in a fresh process, so an exported PYTHONPATH won't reach it):
-python -c 'import sysconfig,os;p=sysconfig.get_paths()["purelib"];r=os.getcwd();open(os.path.join(p,"cosyvoice.pth"),"w").write(r+"/third_party/CosyVoice\n"+r+"/third_party/CosyVoice/third_party/Matcha-TTS\n")'
-```
-
-Config (`config.gpu.yaml` → `tts`): `cosyvoice_model_dir`, `cosyvoice_mode`.
-- **cross_lingual** (default): audio prompt only — REQUIRED for the Ukrainian
-  ref (UA is not a CosyVoice language; its transcript can't be tokenized).
-- **zero_shot**: needs `reference_text` (English/target-lang ref only).
-- **instruct**: per-segment emotion via `instruct_text` (e.g. "Speak warmly,
-  unhurried") — transcript-free, so also UA-ref safe. Uses `inference_instruct2`.
-
-API used: `inference_cross_lingual(text, prompt_16k)`,
-`inference_zero_shot(text, prompt_text, prompt_16k)`,
-`inference_instruct2(text, instruct_text, prompt_16k)`. Verify on the pinned
-commit; adjust `_synth_cosyvoice` if the release differs.
-
-Pinned commit: `__________`  (fill after validation)
-
-## IndexTTS-2 — EN + Mandarin only, dubbing-native (Apache-2.0)
-
-```bash
-# from the project root — its OWN venv; the pipeline auto-routes through it
-python3 -m venv venvs/indextts && . venvs/indextts/bin/activate
-pip install soundfile
-git clone https://github.com/index-tts/index-tts third_party/index-tts
-git -C third_party/index-tts checkout <PIN_COMMIT>
-pip install -e third_party/index-tts
-# download checkpoints into ./checkpoints (config.yaml + weights) per the repo
-```
-
-Config (`config.gpu.yaml` → `tts`): `indextts_model_dir` (holds `config.yaml`).
-- **Emotion transfer**: set `emotion_wav` to the source UA slice for a segment
-  to carry YOUR original delivery's emotion (disentangled from timbre);
-  `emo_alpha` (default 1.0) scales it. Or set `instruct_text` for a text emotion.
-- **Duration**: `indextts_duration_ratio` (0.75–1.25) native pace control.
-- Only `en` (and `zh`) are allowed; the adapter refuses other languages — route
-  them to chatterbox/cosyvoice via `tts.engine_by_lang`.
-
-API used: `IndexTTS2(cfg_path, model_dir, use_fp16=True).infer(spk_audio_prompt,
-text, output_path, emo_audio_prompt=, emo_alpha=, use_emo_text=, emo_text=)`.
-Verify on the pinned commit; adjust `_synth_indextts` if the API differs.
-
-Pinned commit: `__________`  (fill after validation)
-
-## VoxCPM2 — 30 languages incl. all 5 targets, 48 kHz (Apache-2.0)
-
-The only challenger that is a plain PyPI install (`voxcpm==2.0.3`) — no git
-clone. 2B params, ~8 GB VRAM, language auto-detected from the text, published
-speaker-similarity scores top-tier across our targets (see the model README's
-Minimax-MLS SIM table). Ukrainian is NOT among its 30 languages, so:
-- **clone from the ref audio alone** (`reference_wav_path`) — the adapter's
-  only mode; the transcript-based "ultimate cloning" (`prompt_wav_path` +
-  `prompt_text`) is unusable with a Ukrainian reference.
-- style/emotion per segment: `tts.instruct_text` becomes the `"(...)"` text
-  prefix VoxCPM2 parses (e.g. "warm, unhurried teaching tone").
-
-Install — in its OWN venv its resolver is free to pick its preferred
-torch/torchcodec (the old same-line pins existed only to defend the shared
-venv's torch 2.6.0):
-
-```bash
-# from the project root — its OWN venv; the pipeline auto-routes through it
-python3 -m venv venvs/voxcpm && . venvs/voxcpm/bin/activate
-pip install soundfile voxcpm==2.0.3
-```
-
-Config (`config.gpu.yaml` → `tts`): `voxcpm_model_dir` (HF id `openbmb/VoxCPM2`
-auto-downloads, or a local dir), `voxcpm_cfg_value` (default 2.0),
-`voxcpm_timesteps` (default 10 — more = slower/better).
-
-API used: `VoxCPM.from_pretrained(dir, load_denoiser=False).generate(text=,
-reference_wav_path=, cfg_value=, inference_timesteps=)` → numpy wav at
-`model.tts_model.sample_rate` (48 kHz; s6 handles mixed rates). No seed is
-passed so best_of takes vary. Verify on first pod run; adjust `_synth_voxcpm`
-if the 2.0.x API differs.
-
-Validated version: `voxcpm==2.0.3` (resolver-checked vs torch 2.6.0 2026-07-13;
-runtime validation pending first GPU run)
+- **CosyVoice 2/3** — installed and imported cleanly after six attempts at the
+  build recipe, then never produced a single take in seven runs. Removed because
+  three working engines existed and it had consumed more pod time than all of
+  them combined.
+- **IndexTTS-2** — the best measured mos on the roster (2.739 with per-segment
+  emotion transfer, vs qwen+fast's 2.112). Removed anyway: en/zh ONLY, so it
+  could never serve four of the five targets, and ~2x qwen's cost with no cheap
+  fix — [index-tts-vllm](https://github.com/Ksuriuri/index-tts-vllm) reports no
+  acceleration for IndexTTS-2's GPT and is a vLLM server rather than a library,
+  and [Faster IndexTTS-2](https://arxiv.org/html/2607.21042v1) (TensorRT-LLM) is
+  a paper, not a package. Its `emotion_from_source` machinery
+  (`with_source_emotion`, the `emo/` slice cutter, the pod-side pre-cut) went
+  with it — that was IndexTTS-2-only. CAVEAT: the measured "+0.346 mos from
+  emotion transfer" was never actually verified, because `seg/indextts/` and
+  `seg/indextts+emo/` turned out to hold identical files. Emotion transfer may
+  have been worth more, or nothing; we shipped without finding out.
+- **VoxCPM2** — worked well and was the ear's pick on 2026-07-30 (sim→real 0.804,
+  the best of any engine). Removed because qwen+fast beat it on both speed
+  (2.36 vs 2.92 s/take) and cost once qwen's kernel-launch bottleneck was fixed.
+  CAVEAT worth recording: voxcpm's similarity lead (0.804 vs qwen's 0.614) was
+  the one gap wider than the noise floor, and it was never settled by ear against
+  qwen+fast before the cut. If cloned-voice identity later looks weak, this
+  removal is the first thing to revisit.
 
 ## Qwen3-TTS — 10 languages incl. all 5 targets, 3 s clone (Apache-2.0)
 
 Alibaba's open-weights TTS (0.6B/1.7B), ~4 GB VRAM, released 2026-01-22.
-git-clone install like CosyVoice/IndexTTS. Covers en/de/fr/es/ru (+ zh/ja/ko/
+git-clone install. Covers en/de/fr/es/ru (+ zh/ja/ko/
 pt/it). Ukrainian is not a supported language, so:
 - **x_vector_only_mode** (`tts.qwen_x_vector_only: true`, default) clones from
   the reference's speaker embedding ALONE — no ref transcript, the UA-ref path.
@@ -140,8 +70,9 @@ pt/it). Ukrainian is not a supported language, so:
 python3 -m venv venvs/qwen && . venvs/qwen/bin/activate
 pip install soundfile
 git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS
-git -C third_party/Qwen3-TTS checkout <PIN_COMMIT>
+git -C third_party/Qwen3-TTS checkout 022e286b98fbec7e1e916cb940cdf532cd9f488e
 pip install -e third_party/Qwen3-TTS
+pip install faster-qwen3-tts==0.3.2      # the CUDA-graph path (tts.qwen_fast)
 # flash-attn is CUDA-only and a heavy build — install it separately and set
 # tts.qwen_flash_attn: true only if you want it; the model runs without it:
 #   pip install -U flash-attn --no-build-isolation
@@ -157,7 +88,57 @@ API used: `Qwen3TTSModel.from_pretrained(model_id, device_map=, dtype=)`,
 `wavs[0]` numpy. Verify on the pinned commit; adjust `_synth_qwen` if the API
 differs.
 
-Pinned commit: `__________`  (fill after validation)
+Pinned commit: **`022e286b98fbec7e1e916cb940cdf532cd9f488e`** (2026-03-17, HEAD of
+`main` at validation — upstream had not moved in four months).
+faster-qwen3-tts: **`0.3.2`**.
+
+### SPEED: qwen is kernel-launch bound (`tts.qwen_fast`)
+
+Measured on a 4090, 2026-07-31, after fixing a CPU-only torch in `venvs/qwen`
+(126 -> 14.0 s/take). The remaining cost is NOT the model:
+
+| axis | wall/audio | conclusion |
+|---|---|---|
+| bf16 / fp16 / fp32 | 1.42 / 1.35 / 1.39 | dtype irrelevant |
+| sdpa vs eager | 1.42 / 1.57 | attention impl ~10% |
+| **1.7B vs 0.6B** | **1.42 / 1.38** | **3x smaller = no speedup** |
+
+Model size not mattering rules out compute. Upstream confirms why: each decode
+step dispatches ~500 tiny GPU ops from a Python loop, so the card idles at
+10-12% utilisation between kernel launches. flash-attn does NOT fix this.
+
+[faster-qwen3-tts](https://github.com/andimarafioti/faster-qwen3-tts) (MIT)
+wraps the same weights in CUDA Graphs + `StaticCache` + a vectorized repetition
+penalty — no custom kernels. Upstream measures 4.1x on a 4090 (0.75 -> 0.18
+wall/audio) and 7.1x on an H100.
+
+**MEASURED HERE 2026-07-31: 14.01 -> 2.36 s/take, a 5.9x win** — better than
+upstream's 4.1x, and qwen is now the fastest engine on the roster. 5-language
+cost for a 1 h video drops $14.02 -> $2.36. Output is NOT bit-identical to the
+stock decode loop (mos 1.942 -> 2.112, f0st 2.591 -> 2.874, sim flat at 0.614);
+every shift sits inside qwen's take-to-take mos+- of 0.322 at n=4, so read it as
+different takes, not better ones.
+
+```bash
+pip install faster-qwen3-tts     # installed alongside the stock clone so the
+                                 # A/B needs no reinstall
+```
+`tts.qwen_fast: true` selects it. API differences handled in `_load_qwen` /
+`_qwen_clone_prompt`: `from_pretrained(model_id)` takes NO device/dtype kwargs,
+`create_voice_clone_prompt` lives at `.model`, and `warmup(prefill_len=)`
+captures the graphs up front (without it early calls pay capture cost lazily —
+upstream reports 1.49 vs 0.73 wall/audio on the same setup unwarmed vs warmed).
+
+STATUS: **validated, and the production default.** `qwen_fast` is salted into
+`synth_hash` so an A/B re-synthesizes instead of scoring stock-decoded cache. Note that once dispatch overhead is gone the model
+becomes genuinely compute-bound, which REOPENS 0.6B vs 1.7B (0.6B scored mos
+2.697 vs 2.411 in the dtype probe — inside the noise floor, not worse).
+
+Not adopted: [vLLM-Omni](https://vllm.ai/blog/2026-06-23-vllm-omni-tts) serves
+Qwen3-TTS with continuous batching, which suits our throughput-bound workload
+(~1200 independent generations per video-hour), but it is a server architecture
+and would mean rewriting `engine_client`. Its Code2Wav stage also still
+serializes per request upstream (vllm-omni#3163).
 
 ## Running the bake-off
 
@@ -186,6 +167,6 @@ setting `tts.engine_by_lang`.
 
 ## License hygiene (unchanged)
 
-CosyVoice, IndexTTS-2, VoxCPM2 and Qwen3-TTS are Apache-2.0 (commercial OK).
+Qwen3-TTS is Apache-2.0; faster-qwen3-tts is MIT (commercial OK).
 XTTS-v2 (CPML) and Fish-Speech weights (CC-BY-NC) stay OUT. Verify any new
 candidate's license before first use.

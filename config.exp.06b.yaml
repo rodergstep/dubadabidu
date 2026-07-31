@@ -1,0 +1,32 @@
+# EXPERIMENT: 0.6B vs 1.7B, now that the model is actually compute-bound.
+#   dubadabidu remote bakeoff <video> --langs en --reuse --keep-alive \
+#     --overlay config.gpu.yaml --overlay config.exp.06b.yaml
+#
+# WHY THIS IS WORTH RE-TESTING: we measured 0.6B on 2026-07-31 and it was NOT
+# faster (RTF 1.38 vs 1.7B's 1.42). That result is now obsolete — it was taken
+# while Qwen3-TTS was kernel-LAUNCH bound, where model size cannot matter because
+# the GPU is idle between dispatches anyway. qwen_fast removed that bottleneck,
+# so the transformer is finally the thing being waited on and a 3x smaller model
+# should genuinely show up. Expect roughly 2.36 -> ~1 s/take if the reasoning
+# holds; if it does NOT, that is itself informative (something else is now the
+# floor — most likely the codec/vocoder decode, which does not shrink with the
+# LM).
+#
+# COST: 0.6B would take the 5-language bill for a 1 h video from $2.36 to ~$1.
+#
+# QUALITY IS THE OPEN QUESTION, not speed. In the dtype probe 0.6B scored mos
+# 2.697 vs 1.7B's 2.411 — better on paper, but inside the take-to-take noise
+# floor (mos± 0.322 at n=4), so it means "not worse", not "better". Upstream
+# also documents 0.6B as WEAKER on emotion capture and noise robustness, and
+# instruct-style prompts are unavailable on it. Emotion capture is precisely
+# what the ear liked about indextts+emo, so read the mos number sceptically and
+# listen before adopting.
+#
+# variant_key tags this "+0.6B" so it cannot overwrite the 1.7B row or its audio.
+tts:
+  qwen_model_dir: Qwen/Qwen3-TTS-12Hz-0.6B-Base
+
+bakeoff:
+  tune:
+    enabled: false   # disables the ref sweep; an empty `grids` override would
+                     # NOT (deep_merge merges dicts, so base keys survive)

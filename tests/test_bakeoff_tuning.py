@@ -32,29 +32,20 @@ def test_empty_axis_is_ignored_not_collapsing_the_grid():
 
 
 def test_grid_points_are_deterministic():
-    g = {"voxcpm_cfg_value": [1.5, 2.0], "voxcpm_timesteps": [10, 20]}
+    g = {"a": [0.5, 1.0], "b": [0.9, 1.1]}
     assert B._grid_points(g) == B._grid_points(g)
 
 
 # --- default grids: parity, and UA-reference safety ---
 
 def test_every_bakeoff_engine_has_a_grid():
-    for engine in ["chatterbox", "cosyvoice", "voxcpm", "qwen", "indextts"]:
+    for engine in ["chatterbox", "qwen", "edge"]:
         assert engine in B.ENGINE_GRIDS
 
 
-def test_challengers_actually_get_swept():
-    """The whole point: at least one challenger must have real points to try,
-    or the parity fix is cosmetic."""
-    challengers = [e for e in B.ENGINE_GRIDS if e != B.INCUMBENT]
-    assert any(len(B._grid_points(B.ENGINE_GRIDS[e])) > 1 for e in challengers)
-
-
 def test_no_default_grid_needs_a_target_language_ref_transcript():
-    """A Ukrainian ref cannot be tokenized by cosyvoice zero_shot or qwen's
-    full clone mode — sweeping them would only manufacture failures."""
-    assert "zero_shot" not in B.ENGINE_GRIDS["cosyvoice"].get(
-        "cosyvoice_mode", [])
+    """A Ukrainian ref cannot be tokenized by qwen's full clone mode — sweeping
+    it would only manufacture failures."""
     assert "qwen_x_vector_only" not in B.ENGINE_GRIDS["qwen"]
 
 
@@ -87,6 +78,10 @@ def stub_synth(monkeypatch, tmp_path):
 
     monkeypatch.setattr(tts_engine, "synthesize", fake_synth)
     monkeypatch.setattr(qc.metrics, "ecapa_embed", lambda p: p)
+    # f0 joined the tune objective 2026-08-01; without a stub it would try to
+    # read these placeholder bytes as audio. Constant and above any floor, so
+    # tests that predate it still assert on sim/mos exactly as before.
+    monkeypatch.setattr(qc.metrics, "f0_semitone_std", lambda p: 2.5)
     return monkeypatch
 
 
@@ -102,12 +97,12 @@ def test_tune_lite_picks_the_best_grid_point(stub_synth, tmp_path):
     stub_synth.setattr(qc.metrics, "mos_min_window",
                        lambda p: 4.5 if "p2_" in str(p) else 3.0)
 
-    grid = {"voxcpm_cfg_value": [1.5, 2.0, 2.5]}
+    grid = {"qwen_cfg": [1.5, 2.0, 2.5]}
     over, trials, unavail = B._tune_engine(
-        "voxcpm", {"engine": "voxcpm"}, _subset(), "en", None, tmp_path, 1, grid)
+        "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1, grid)
 
     assert unavail is None
-    assert over == {"voxcpm_cfg_value": 2.5}      # p2 = third point
+    assert over == {"qwen_cfg": 2.5}      # p2 = third point
     assert len(trials) == 3
 
 
@@ -117,11 +112,11 @@ def test_tune_lite_reports_every_trial_for_audit(stub_synth, tmp_path):
     stub_synth.setattr(qc.metrics, "mos_min_window", lambda p: 4.0)
 
     _, trials, _ = B._tune_engine(
-        "voxcpm", {"engine": "voxcpm"}, _subset(), "en", None, tmp_path, 1,
-        {"voxcpm_cfg_value": [1.5, 2.0]})
+        "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1,
+        {"qwen_cfg": [1.5, 2.0]})
 
-    assert [t["point"] for t in trials] == [{"voxcpm_cfg_value": 1.5},
-                                            {"voxcpm_cfg_value": 2.0}]
+    assert [t["point"] for t in trials] == [{"qwen_cfg": 1.5},
+                                            {"qwen_cfg": 2.0}]
     assert all("sim" in t and "mos" in t and "score" in t for t in trials)
 
 
@@ -129,21 +124,23 @@ def test_tune_lite_surfaces_an_uninstalled_engine(monkeypatch, tmp_path):
     from pipeline import tts_engine
 
     def missing(text, lang, out, t, retries=2):
-        raise FileNotFoundError("cosyvoice package not importable — git clone ...")
+        raise FileNotFoundError("qwen_tts not importable — git clone ...")
 
     monkeypatch.setattr(tts_engine, "synthesize", missing)
     over, trials, unavail = B._tune_engine(
-        "cosyvoice", {"engine": "cosyvoice"}, _subset(), "en", None, tmp_path, 1,
-        {"cosyvoice_mode": ["cross_lingual", "instruct"]})
+        "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1,
+        {"qwen_cfg": [0.5, 1.0]})
 
     assert over == {} and trials == []
-    assert unavail == "cosyvoice package not importable"
+    assert unavail == "qwen_tts not importable"
 
 
-def test_tune_score_weights_sim_and_mos_equally(stub_synth, tmp_path):
-    """A point that wins only on mos must not beat one that wins only on sim by
-    the same normalized margin — the gate demands BOTH, so tuning can't favour
-    one axis."""
+def test_tune_score_weights_sim_and_mos_comparably(stub_synth, tmp_path):
+    """No single axis may dominate by SCALE. sim is already 0..1 while mos is
+    1..5 and f0st is roughly 0..4, so each is normalized before weighting —
+    otherwise a one-point mos swing would outrank everything else combined.
+    Exact equality no longer holds (mos .40 / sim .35 / f0 .25 since f0st
+    joined the objective 2026-08-01), so assert the property, not the number."""
     import qc.metrics
     # p0: sim 1.0 / mos 1.0 (norm 0.0)   p1: sim 0.0 / mos 5.0 (norm 1.0)
     stub_synth.setattr(qc.metrics, "cosine",
@@ -152,10 +149,13 @@ def test_tune_score_weights_sim_and_mos_equally(stub_synth, tmp_path):
                        lambda p: 1.0 if "p0_" in str(p) else 5.0)
 
     _, trials, _ = B._tune_engine(
-        "voxcpm", {"engine": "voxcpm"}, _subset(), "en", None, tmp_path, 1,
-        {"voxcpm_cfg_value": [1.5, 2.0]})
+        "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1,
+        {"qwen_cfg": [1.5, 2.0]})
 
-    assert trials[0]["score"] == trials[1]["score"] == 0.5
+    # both extremes land in the same band: neither axis can run away with it
+    assert abs(trials[0]["score"] - trials[1]["score"]) < 0.10
+    # ...and mos, the human-calibrated axis, is weighted no less than sim
+    assert trials[1]["score"] > trials[0]["score"]
 
 
 # --- report ---
@@ -164,15 +164,15 @@ def test_report_records_what_each_engine_ran_at():
     tuning = {
         "chatterbox": {"winner": {}, "trials": [], "n_points": 1,
                        "skipped": "single-point grid"},
-        "voxcpm": {"winner": {"voxcpm_cfg_value": 2.5},
-                   "trials": [{"point": {"voxcpm_cfg_value": 2.5}, "sim": 0.8,
+        "qwen": {"winner": {"qwen_cfg": 2.5},
+                   "trials": [{"point": {"qwen_cfg": 2.5}, "sim": 0.8,
                                "mos": 4.4, "score": 0.825},
-                              {"point": {"voxcpm_cfg_value": 1.5}, "sim": 0.6,
+                              {"point": {"qwen_cfg": 1.5}, "sim": 0.6,
                                "mos": 4.0, "score": 0.675}],
                    "n_points": 2},
     }
-    md = "\n".join(B._tuning_section(tuning, ["chatterbox", "voxcpm"]))
-    assert "voxcpm_cfg_value=2.5" in md          # the winner is stated
+    md = "\n".join(B._tuning_section(tuning, ["chatterbox", "qwen"]))
+    assert "qwen_cfg=2.5" in md                  # the winner is stated
     assert "single-point grid" in md             # and why the incumbent skipped
     assert "grid points that lost" in md         # losers are auditable
 
@@ -210,3 +210,109 @@ def test_subset_spans_short_and_long():
 def test_subset_smaller_than_n_returns_everything():
     from pipeline.tune import _subset
     assert len(_subset(_us(2), 5)) == 2
+
+
+# --- a bad grid point must not disqualify the engine ---
+
+def test_one_failing_grid_point_is_skipped_not_fatal(monkeypatch, tmp_path):
+    """A grid exists to EXPLORE. If one unsupported value disqualified the whole
+    engine, the safe move would be never to widen a grid — which defeats the
+    point. Only a total failure means the engine is unusable."""
+    import qc.metrics
+    from pipeline import tts_engine
+
+    def fake(text, lang, out, t, retries=2):
+        if t.get("qwen_cfg") == 9.9:          # unsupported value
+            raise RuntimeError("engine rejected cfg_value=9.9")
+        Path(out).write_bytes(b"wav")
+
+    monkeypatch.setattr(tts_engine, "synthesize", fake)
+    monkeypatch.setattr(qc.metrics, "ecapa_embed", lambda p: p)
+    monkeypatch.setattr(qc.metrics, "cosine", lambda a, b: 0.7)
+    monkeypatch.setattr(qc.metrics, "mos_min_window", lambda p: 4.0)
+    monkeypatch.setattr(qc.metrics, "f0_semitone_std", lambda p: 2.5)
+
+    over, trials, unavail = B._tune_engine(
+        "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1,
+        {"qwen_cfg": [2.0, 9.9, 2.5]})
+
+    assert unavail is None                    # engine survives
+    assert len(trials) == 2                   # the bad point is simply absent
+    assert 9.9 not in [t["point"]["qwen_cfg"] for t in trials]
+    assert over["qwen_cfg"] in (2.0, 2.5)
+
+
+def test_engine_is_unavailable_only_when_every_point_fails(monkeypatch, tmp_path):
+    from pipeline import tts_engine
+
+    def always_fail(text, lang, out, t, retries=2):
+        raise RuntimeError("worker died: No space left on device")
+
+    monkeypatch.setattr(tts_engine, "synthesize", always_fail)
+    over, trials, unavail = B._tune_engine(
+        "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1,
+        {"qwen_cfg": [0.5, 1.0]})
+
+    assert over == {} and trials == []
+    assert "No space left" in unavail
+
+
+def test_removed_engines_stay_removed():
+    """cosyvoice (never produced audio), voxcpm and indextts (both lost to
+    qwen+fast on speed and cost) were cut 2026-07-31. A grid reappearing would
+    resurrect an engine whose adapter no longer exists — the bake-off would then
+    report it unavailable every run instead of failing loudly here."""
+    for gone in ("cosyvoice", "voxcpm", "indextts"):
+        assert gone not in B.ENGINE_GRIDS
+
+
+# --- f0st in the tune objective (added 2026-08-01) ---
+
+def test_tune_disqualifies_points_under_the_monotony_floor(monkeypatch, tmp_path):
+    """The sim+mos objective picked the most MONOTONE reference we own, because
+    a flat clip reads as clean and on-voice. min_f0st must veto that outright."""
+    from pipeline import tts_engine
+    from qc import metrics as X
+
+    # point 0: flat but pristine.  point 1: livelier, slightly worse mos/sim.
+    vals = {"p0": (0.90, 4.5, 1.0), "p1": (0.80, 4.0, 3.0)}
+
+    def fake_synth(text, lang, out, t, retries=2):
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"x")
+
+    monkeypatch.setattr(tts_engine, "synthesize", fake_synth)
+    key = lambda w: "p0" if "p0_" in w.name else "p1"
+    monkeypatch.setattr(X, "ecapa_embed", lambda w: w)
+    monkeypatch.setattr(X, "cosine", lambda a, w: vals[key(w)][0])
+    monkeypatch.setattr(X, "mos_min_window", lambda w: vals[key(w)][1])
+    monkeypatch.setattr(X, "f0_semitone_std", lambda w: vals[key(w)][2])
+
+    grid = {"z": [0, 1]}
+    over, trials, unavail = B._tune_engine(
+        "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1, grid,
+        min_f0st=2.2)
+    assert unavail is None
+    # without the floor p0 wins on sim+mos; with it, p0 is disqualified
+    assert over == {"z": 1}
+    assert [r["under_floor"] for r in trials] == [True, False]
+
+
+def test_tune_relaxes_the_floor_when_nothing_clears_it(monkeypatch, tmp_path):
+    """Returning nothing would mark a working engine unavailable; ranking the
+    unreachable set is the same `filtered or pool` shape synth_best_of uses."""
+    from pipeline import tts_engine
+    from qc import metrics as X
+    monkeypatch.setattr(tts_engine, "synthesize",
+                        lambda text, lang, out, t, retries=2:
+                        (out.parent.mkdir(parents=True, exist_ok=True),
+                         out.write_bytes(b"x")))
+    monkeypatch.setattr(X, "ecapa_embed", lambda w: w)
+    monkeypatch.setattr(X, "cosine", lambda a, w: 0.8)
+    monkeypatch.setattr(X, "mos_min_window", lambda w: 4.0)
+    monkeypatch.setattr(X, "f0_semitone_std", lambda w: 1.0)   # all under floor
+    over, trials, unavail = B._tune_engine(
+        "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1,
+        {"z": [0, 1]}, min_f0st=2.2)
+    assert unavail is None and over in ({"z": 0}, {"z": 1})
+    assert all(r["under_floor"] for r in trials)

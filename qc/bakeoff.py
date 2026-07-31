@@ -35,11 +35,12 @@ wer (an intelligibility VETO) — or ties and wins the ear on the HTML page. pac
 is reported, not gated (s5 retimes within limits). French additionally needs a
 native-speaker listen.
 
-Engines that aren't installed (cosyvoice/indextts are GPU-only git-clone deps)
+Engines that aren't installed (qwen is a GPU-only git-clone dep)
 are reported as unavailable and skipped, so a partial bake-off still runs.
 """
 from __future__ import annotations
 import html
+import json
 import logging
 import sys
 from pathlib import Path
@@ -68,13 +69,44 @@ def beats_incumbent(challenger: dict, incumbent: dict,
             and challenger["mos"] >= incumbent["mos"] + mos_eps)
 
 
+def variant_key(engine: str, t: dict, lang: str) -> str:
+    """Scorecard/audio key for an engine AS CONFIGURED.
+
+    Rows were keyed on the engine NAME alone, so testing the same engine with a
+    different capability enabled REPLACED the earlier row instead of sitting
+    beside it — and overwrote its audio. That is right for re-running an
+    identical config and wrong for a variant, which is exactly the comparison
+    worth seeing: qwen's CUDA-graph decode path against its stock one.
+
+    Only settings that materially change what the engine DOES earn a suffix."""
+    from pipeline.manifest import resolve_engine
+    eng = resolve_engine(t, lang)
+    suffix = ""
+    # qwen_fast swaps the decode implementation (CUDA graphs). The whole point
+    # of the A/B is to see both rows AND keep both sets of audio for a listen —
+    # without a suffix the second run overwrites the first, which is the exact
+    # failure this function was written for.
+    if t.get("qwen_fast") and eng == "qwen":
+        suffix = "+fast"
+    # ICL clone (ref audio + its transcript in context) vs x_vector_only
+    # (speaker embedding alone). Documented to improve speaker similarity —
+    # our weakest metric — at the risk of source-accent bleed, so both rows
+    # must survive for the ear to arbitrate.
+    if eng == "qwen" and t.get("qwen_x_vector_only") is False:
+        suffix += "+icl"
+    # model SIZE changes what the engine is, not how it is configured. Without
+    # this a 0.6B run overwrites the 1.7B row and its audio — the same failure
+    # that cost us the plain-indextts recordings and nearly cost the
+    # qwen fast-vs-stock comparison.
+    if eng == "qwen" and "0.6B" in str(t.get("qwen_model_dir", "")):
+        suffix += "+0.6B"
+    return engine + suffix
+
+
 def _engine_cfg(base_tts: dict, engine: str) -> dict:
     """tts config for one candidate: base (merged with the video's tts_overrides
     by the caller) + engine + that engine's defaults."""
-    t = {**base_tts, "engine": engine, "engine_by_lang": {}}
-    if engine == "cosyvoice":
-        t.setdefault("cosyvoice_mode", "cross_lingual")  # UA-ref safe default
-    return t
+    return {**base_tts, "engine": engine, "engine_by_lang": {}}
 
 
 # Per-engine tune-lite grids. Only knobs that change a single take's OUTPUT
@@ -84,9 +116,8 @@ def _engine_cfg(base_tts: dict, engine: str) -> dict:
 # selection policy, and every engine gets the same selection downstream.
 #
 # Everything here is UA-REFERENCE SAFE. Modes needing a target-language ref
-# transcript are excluded on purpose: cosyvoice zero_shot and qwen's full
-# clone mode cannot tokenize a Ukrainian ref (see tts_engine), so sweeping
-# them would only produce failures.
+# transcript are excluded on purpose: qwen's full clone mode cannot tokenize a
+# Ukrainian ref (see tts_engine), so sweeping it would only produce failures.
 #
 # A single-point grid means "already tuned, nothing to sweep" and costs nothing:
 #   chatterbox — cfg_weight is FIXED at the config value (0.0 is mandatory for a
@@ -94,21 +125,9 @@ def _engine_cfg(base_tts: dict, engine: str) -> dict:
 #     not reliably move quality (measured 2026-07-14), so the incumbent enters
 #     at its tune-selected point. Widen via bakeoff.grids to re-open it.
 #   qwen — x_vector_only is forced by the UA ref; nothing left to sweep.
-#   indextts — its one real quality knob, emo_alpha, is INERT here: the adapter
-#     only applies it alongside an emotion_wav, which s4 supplies via
-#     with_source_emotion but the bake-off does not. Sweeping it would burn GPU
-#     time re-rolling identical audio and then read as "emo_alpha doesn't
-#     matter". indextts_duration_ratio does reach the output but is a pace knob,
-#     and pace is reported-not-gated by design (s5 retimes). Left empty on
-#     purpose; wiring emotion prompts into the bake-off is a separate decision,
-#     since it would hand indextts an input the other engines can't use.
 ENGINE_GRIDS: dict[str, dict[str, list]] = {
     "chatterbox": {},
-    "cosyvoice": {"cosyvoice_mode": ["cross_lingual"]},
-    "voxcpm": {"voxcpm_cfg_value": [1.5, 2.0, 2.5],
-               "voxcpm_timesteps": [10, 20]},
     "qwen": {},
-    "indextts": {},
     "edge": {},
 }
 
@@ -129,11 +148,37 @@ def _fmt_point(over: dict) -> str:
 
 
 def _tune_engine(engine: str, base_t: dict, subset: list[dict], lang: str,
-                 anchor, seg_root, takes: int, grid: dict) -> tuple:
+                 anchor, seg_root, takes: int, grid: dict,
+                 min_f0st: float = 0.0) -> tuple:
     """tune-lite for ONE engine: score every grid point on a small subset and
-    return its best. Scored on the two axes the adoption gate judges — cosine
-    to the REAL UA voice and MOS, weighted equally — so the point that wins
-    here is the point that maximizes what the gate measures.
+    return its best. Scored on cosine to the REAL UA voice, MOS, and f0
+    liveliness.
+
+    f0st was ADDED 2026-08-01. The score was sim+mos only — the adoption gate's
+    two axes — which left tts.min_f0st, a production floor that take selection
+    DOES enforce, invisible to the thing choosing what we ship. A tuned point
+    could therefore be one s4 would later reject.
+
+    The original justification was wrong and is corrected here so it is not
+    repeated: the first reference sweep was accused of picking the most monotone
+    clip we own (f0st 2.13 of 2.13-2.84). Re-running with f0st measured showed
+    that clip produces the HIGHEST output liveliness (2.76) — reference f0st and
+    output f0st are inversely ordered across our whole reference set, so
+    "expressive reference -> expressive output" is false for this voice. The
+    winner did not change under the new objective, and in that sweep no point
+    fell under the floor at all.
+
+    Two mechanisms, mirroring how take selection already treats f0:
+      FLOOR   — points under min_f0st are disqualified, unless EVERY point is
+                (then the floor is unreachable for this engine and ranking the
+                unreachable set still beats returning nothing). Same
+                `filtered or pool` shape as synth_best_of's gates.
+      WEIGHT  — f0 enters the score, so among qualifying points the livelier
+                one wins ties instead of losing them.
+
+    Weights follow _take_rank's calibrated ordering (mos first, then f0 and
+    sim) rather than the gate's two axes: the gate decides ADOPTION, but tuning
+    decides what we ship, and what we ship has to clear the monotony floor too.
 
     WER is not scored during tuning (a Whisper pass per grid point per take is
     the expensive part of the run, and these knobs are samplers/styles, not text
@@ -146,29 +191,69 @@ def _tune_engine(engine: str, base_t: dict, subset: list[dict], lang: str,
 
     points = _grid_points(grid)
     trials = []
+    last_err = None
     for i, over in enumerate(points):
         t = {**base_t, **over}
-        sims, moss = [], []
+        sims, moss, f0s = [], [], []
+        failed = None
         for u in subset:
             text = u["tr"][lang].get("fitted_text") or u["tr"][lang]["text"]
             for k in range(takes):
                 w = seg_root / f"p{i}_{u['id']}_t{k}.wav"
                 try:
                     synthesize(text, lang, w, t, retries=1)
-                except FileNotFoundError as e:      # engine not installed
-                    return {}, [], str(e).split(" — ")[0]
+                except (FileNotFoundError, RuntimeError) as e:
+                    # FileNotFoundError = package/venv missing (the documented
+                    # engine-unavailable contract). RuntimeError = the worker died
+                    # or synthesis failed every retry — a broken install, an OOM,
+                    # a full disk, or a parameter this engine build rejects.
+                    #
+                    # Skip THIS GRID POINT and keep going: a grid exists to
+                    # explore, so a single unsupported value must not disqualify
+                    # the engine — otherwise widening a grid is a gamble and the
+                    # safe move is never to widen it. The engine is only
+                    # unavailable if EVERY point fails (checked after the loop).
+                    failed = str(e).split(" — ")[0][:120]
+                    last_err = failed
+                    break
                 sims.append(X.cosine(anchor, X.ecapa_embed(w)))
                 moss.append(X.mos_min_window(w))
+                f0s.append(X.f0_semitone_std(w))
+            if failed:
+                break
+        if failed:
+            log.warning("tune-lite %s/%s %s FAILED (%s) — skipping this point",
+                        engine, lang, _fmt_point(over), failed)
+            continue
         sim = sum(sims) / len(sims)
         mos = sum(moss) / len(moss)
-        # equal weight on the gate's two axes; mos normalized 1..5 -> 0..1 so
-        # neither term can dominate the other by scale alone
-        score = 0.5 * sim + 0.5 * max(0.0, min(1.0, (mos - 1.0) / 4.0))
+        f0 = sum(f0s) / len(f0s)
+        # each term normalized to 0..1 so none dominates by scale alone; f0
+        # uses _take_rank's /4.0 so "lively" means the same thing in both places
+        score = (0.4 * max(0.0, min(1.0, (mos - 1.0) / 4.0))
+                 + 0.35 * sim
+                 + 0.25 * max(0.0, min(1.0, f0 / 4.0)))
         trials.append({"point": over, "sim": round(sim, 3),
-                       "mos": round(mos, 3), "score": round(score, 4)})
-        log.info("tune-lite %s/%s %s -> sim %.3f mos %.2f (score %.4f)",
-                 engine, lang, _fmt_point(over), sim, mos, score)
-    best = max(trials, key=lambda r: r["score"])
+                       "mos": round(mos, 3), "f0st": round(f0, 3),
+                       "score": round(score, 4),
+                       "under_floor": f0 < min_f0st})
+        log.info("tune-lite %s/%s %s -> sim %.3f mos %.2f f0st %.2f "
+                 "(score %.4f)%s", engine, lang, _fmt_point(over), sim, mos,
+                 f0, score, "  UNDER min_f0st" if f0 < min_f0st else "")
+    if not trials:      # every point failed -> the engine itself is unusable
+        return {}, [], last_err or "no grid point produced audio"
+    # monotony floor first, score second. Relaxed only if nothing clears it.
+    eligible = [r for r in trials if not r["under_floor"]] or trials
+    if len(eligible) < len(trials):
+        log.info("tune-lite %s/%s: %d of %d points under min_f0st %.2f — "
+                 "disqualified", engine, lang, len(trials) - len(eligible),
+                 len(trials), min_f0st)
+    elif min_f0st and len(eligible) == len(trials) == len(
+            [r for r in trials if r["under_floor"]]):
+        log.warning("tune-lite %s/%s: NO point clears min_f0st %.2f — ranking "
+                    "the unreachable set; this engine may not be able to meet "
+                    "the monotony floor", engine, lang, min_f0st)
+    best = max(eligible, key=lambda r: r["score"])
     if len(trials) > 1:
         log.info("tune-lite %s/%s: %s wins %d points",
                  engine, lang, _fmt_point(best["point"]), len(trials))
@@ -194,7 +279,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     from qc.review_page import _ua_slice
 
     bcfg = cfg.get("bakeoff", {})
-    engines = bcfg.get("engines", [INCUMBENT, "cosyvoice"])
+    engines = bcfg.get("engines", [INCUMBENT, "qwen"])
     takes = int(bcfg.get("takes", 3))
     n = int(bcfg.get("subset_size", 6))
     # tune-lite: per-engine grids, overridable per engine (a config grid
@@ -239,7 +324,11 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         seg_audio: dict[str, dict[str, str]] = {u["id"]: {} for u in subset}
         for engine in engines:
             t = _engine_cfg(base_tts, engine)
-            seg_dir = bo / "seg" / engine / lang
+            # key rows AND audio by the configured variant, so an
+            # emotion-enabled run sits beside the plain one instead
+            # of replacing it (and keeps its own wavs)
+            vkey = variant_key(engine, t, lang)
+            seg_dir = bo / "seg" / vkey / lang
             seg_dir.mkdir(parents=True, exist_ok=True)
             rows, unavailable = [], None
 
@@ -249,17 +338,20 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             grid = grids.get(engine, {})
             points = _grid_points(grid)
             if tune_on and len(points) > 1:
-                tune_dir = bo / "tune" / engine / lang
+                tune_dir = bo / "tune" / vkey / lang
                 tune_dir.mkdir(parents=True, exist_ok=True)
                 over, trials, unavailable = _tune_engine(
                     engine, t, _subset(subset, tune_n), lang, anchor,
-                    tune_dir, tune_takes, grid)
+                    tune_dir, tune_takes, grid,
+                    # the SAME floor take selection enforces, so tuning cannot
+                    # hand the comparison a point that s4 would then reject
+                    min_f0st=float(t.get("min_f0st", 0.0) or 0.0))
                 if not unavailable:
                     t = {**t, **over}
-                    tuning[engine] = {"winner": over, "trials": trials,
+                    tuning[vkey] = {"winner": over, "trials": trials,
                                       "n_points": len(points)}
             else:
-                tuning[engine] = {"winner": {}, "trials": [],
+                tuning[vkey] = {"winner": {}, "trials": [],
                                   "n_points": len(points),
                                   "skipped": "tuning off" if not tune_on
                                              else "single-point grid"}
@@ -272,16 +364,19 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 # DIFFERENCES between engines isolate the engine's speaking rate
                 # (the shared translation-length bias cancels in the comparison).
                 slot = max(u["end"] - u["start"], 0.1)
+                tu = t
                 sims, moss, f0s, wers, paces = [], [], [], [], []
                 first = None
                 for k in range(takes):
                     w = seg_dir / f"{u['id']}_t{k}.wav"
                     try:
                         t0 = time.perf_counter()
-                        synthesize(text, lang, w, t, retries=1)
+                        synthesize(text, lang, w, tu, retries=1)
                         synth_secs.append(time.perf_counter() - t0)
-                    except FileNotFoundError as e:  # engine not installed
-                        unavailable = str(e).split(" — ")[0]
+                    except (FileNotFoundError, RuntimeError) as e:
+                        # see _tune_engine: a dead worker / failed synth must
+                        # disqualify THIS engine, not the whole comparison
+                        unavailable = str(e).split(" — ")[0][:120]
                         break
                     first = first or w
                     sims.append(X.cosine(anchor, X.ecapa_embed(w)))
@@ -296,8 +391,10 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 if unavailable:
                     break
                 # relative to bo/ (where the .html lives), not wd/
-                seg_audio[u["id"]][engine] = str(first.relative_to(bo))
-                rows.append({"sim": sum(sims) / len(sims),
+                seg_audio[u["id"]][vkey] = str(first.relative_to(bo))
+                rows.append({"id": u["id"],   # kept so the report can show WHICH
+                                              # segments are weak, not just means
+                             "sim": sum(sims) / len(sims),
                              "mos": sum(moss) / len(moss),
                              "f0": sum(f0s) / len(f0s),
                              "wer": sum(wers) / len(wers),
@@ -314,10 +411,10 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             engine_client.shutdown(engine)
             release_models()
             if unavailable:
-                per_engine[engine] = {"unavailable": unavailable}
+                per_engine[vkey] = {"unavailable": unavailable}
                 log.warning("%s unavailable: %s", engine, unavailable)
                 continue
-            per_engine[engine] = {"sim": _mean_stat(rows, "sim"),
+            per_engine[vkey] = {"sim": _mean_stat(rows, "sim"),
                                   "mos": _mean_stat(rows, "mos"),
                                   "f0": _mean_stat(rows, "f0"),
                                   "wer": _mean_stat(rows, "wer"),
@@ -329,11 +426,26 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                                   # engine speed.
                                   "s_take": round(statistics.median(synth_secs), 2)
                                             if synth_secs else 0.0,
-                                  "segs": len(rows)}
-            log.info("%s/%s: %s", engine, lang, per_engine[engine])
+                                  "segs": len(rows),
+                                  # per-segment detail: the means hide WHICH
+                                  # segments drag an engine down, and a 4-of-6
+                                  # sample is only obvious if you can see the gaps
+                                  "per_seg": {r["id"]: {k: round(r[k], 3)
+                                                        for k in ("sim", "mos", "f0",
+                                                                  "wer", "pace")}
+                                              for r in rows}}
+            log.info("%s/%s: %s", vkey, lang,
+                     {k: v for k, v in per_engine[vkey].items()
+                      if k != "per_seg"})
 
-        _write_reports(bo, video, lang, subset, per_engine, seg_audio, wd,
-                       _ua_slice, tuning)
+        # MERGE with earlier runs before rendering. Engines are now tested one per
+        # run (each needs its own pod-sized disk), so without this every run
+        # overwrote the previous engine's scorecard and the page could never show
+        # two engines side by side — which defeats the point of a bake-off.
+        merged, merged_tuning = _merge_results(bo, lang, per_engine, tuning)
+        _write_reports(bo, video, lang, subset, merged,
+                       _audio_on_disk(bo, lang, merged, subset), wd,
+                       _ua_slice, merged_tuning)
 
 
 def _verdict(engine: str, stats: dict, inc: dict | None) -> str:
@@ -344,6 +456,81 @@ def _verdict(engine: str, stats: dict, inc: dict | None) -> str:
     return "ADOPT" if beats_incumbent(stats, inc) else "keep incumbent"
 
 
+RESULTS = "results_{lang}.json"      # accumulated across runs, next to the reports
+
+
+def _merge_results(bo: Path, lang: str, per_engine: dict,
+                   tuning: dict) -> tuple[dict, dict]:
+    """Fold this run's engines into the accumulated results and persist them.
+
+    Engines are tested one per run (each wants the whole container disk for its
+    own torch), so a run only ever holds one row. Rendering from just that row
+    overwrote the previous engine's scorecard every time — the audio survived on
+    disk but the comparison page could never show two engines together, which is
+    the one thing a bake-off is for. This run's numbers WIN for the engines it
+    measured (a re-test supersedes an older one) and every other engine is
+    carried forward untouched.
+    """
+    p = bo / RESULTS.format(lang=lang)
+    prev, prev_tune = {}, {}
+    if p.exists():
+        try:
+            saved = json.loads(p.read_text(encoding="utf-8"))
+            prev = saved.get("engines", {})
+            prev_tune = saved.get("tuning", {})
+        except json.JSONDecodeError:
+            log.warning("%s unreadable — starting a fresh scorecard", p)
+    merged = {**prev, **per_engine}
+    merged_tuning = {**prev_tune, **tuning}
+    p.write_text(json.dumps({"engines": merged, "tuning": merged_tuning},
+                            indent=2, ensure_ascii=False), encoding="utf-8")
+    fresh = sorted(per_engine)
+    carried = sorted(set(merged) - set(per_engine))
+    log.info("scorecard: measured %s this run%s", fresh,
+             f", carried forward {carried}" if carried else "")
+    return merged, merged_tuning
+
+
+def _audio_on_disk(bo: Path, lang: str, merged: dict,
+                   subset: list[dict]) -> dict:
+    """{segment_id: {engine: relpath}} for every engine whose audio is still on
+    disk — including engines measured by EARLIER runs, so the listening page can
+    A/B them. Derived from the filesystem rather than this run's bookkeeping,
+    which only knows about the engine it just tested."""
+    out: dict[str, dict[str, str]] = {u["id"]: {} for u in subset}
+    for engine in merged:
+        for u in subset:
+            w = bo / "seg" / engine / lang / f"{u['id']}_t0.wav"
+            if w.exists():
+                out[u["id"]][engine] = str(w.relative_to(bo))
+    return out
+
+
+def _per_segment_section(merged: dict, engines: list) -> list[str]:
+    """Per-segment metrics. The means alone hide which segments drag an engine
+    down, and hide a partial sample: qwen scored on 4 of 6 segments and the only
+    way to see that is a table with gaps in it."""
+    have = [e for e in engines if merged.get(e, {}).get("per_seg")]
+    if not have:
+        return []
+    ids = sorted({sid for e in have for sid in merged[e]["per_seg"]})
+    out = ["", "## per-segment metrics", "",
+           "Means hide which segments are weak, and hide a PARTIAL sample — a "
+           "blank cell means that engine produced no usable take for that "
+           "segment, so its column average is over fewer segments than the "
+           "others. Compare columns only where both have a value.", ""]
+    for metric, label in [("sim", "sim→real"), ("mos", "mos"),
+                          ("f0", "f0st"), ("wer", "wer"), ("pace", "pace")]:
+        out += ["", f"**{label}**", "",
+                "| segment | " + " | ".join(have) + " |",
+                "|---" * (len(have) + 1) + "|"]
+        for sid in ids:
+            cells = [str(merged[e]["per_seg"].get(sid, {}).get(metric, "—"))
+                     for e in have]
+            out.append(f"| {sid} | " + " | ".join(cells) + " |")
+    return out
+
+
 def _tuning_section(tuning: dict, engines: list) -> list[str]:
     """What each engine was tuned to, and what it beat. The adoption decision
     has to be reproducible from the report alone — a scorecard that hides which
@@ -352,28 +539,36 @@ def _tuning_section(tuning: dict, engines: list) -> list[str]:
         return []
     out = ["", "## tune-lite — each engine at its own best point", "",
            "Every engine sweeps its own grid (bakeoff.grids) BEFORE the "
-           "comparison and enters at its winner, scored on the gate's two axes "
-           "(0.5*sim→real + 0.5*normalized mos). A single-point grid means "
-           "'already tuned, nothing to sweep' and costs nothing. Widen a grid "
-           "in config to re-open an engine's parameters.", "",
-           "| engine | points | ran at | sim→real | mos |",
-           "|---|---|---|---|---|"]
+           "comparison and enters at its winner, scored on "
+           "0.4*normalized mos + 0.35*sim→real + 0.25*normalized f0st, with "
+           "points under tts.min_f0st disqualified outright. f0st joined the "
+           "objective 2026-08-01 so that tuning cannot pick a point take "
+           "selection would later reject on the monotony floor. Scores are "
+           "means over a small subset — compare the spread against the "
+           "comparison's mos± before believing an ordering. A single-point "
+           "grid means 'already tuned, nothing to sweep' and costs nothing. "
+           "Widen a grid in config to re-open an engine's parameters.", "",
+           "| engine | points | ran at | sim→real | mos | f0st |",
+           "|---|---|---|---|---|---|"]
     for e in engines:
         tn = tuning.get(e)
         if not tn:
-            out.append(f"| {e} | - | (not reached) | - | - |")
+            out.append(f"| {e} | - | (not reached) | - | - | - |")
             continue
         win = next((r for r in tn["trials"] if r["point"] == tn["winner"]), None)
         note = f" — {tn['skipped']}" if tn.get("skipped") else ""
         out.append(f"| {e} | {tn['n_points']}{note} | "
                    f"{_fmt_point(tn['winner'])} | "
-                   f"{win['sim'] if win else '-'} | {win['mos'] if win else '-'} |")
+                   f"{win['sim'] if win else '-'} | {win['mos'] if win else '-'} "
+                   f"| {win.get('f0st', '-') if win else '-'} |")
     losers = [(e, r) for e in engines for r in tuning.get(e, {}).get("trials", [])
               if r["point"] != tuning[e]["winner"]]
     if losers:
         out += ["", "<details><summary>grid points that lost</summary>", "",
-                "| engine | point | sim→real | mos | score |", "|---|---|---|---|---|"]
+                "| engine | point | sim→real | mos | f0st | score |",
+                "|---|---|---|---|---|---|"]
         out += [f"| {e} | {_fmt_point(r['point'])} | {r['sim']} | {r['mos']} "
+                f"| {r.get('f0st', '-')}{' (under floor)' if r.get('under_floor') else ''} "
                 f"| {r['score']} |" for e, r in losers]
         out += ["", "</details>"]
     return out
@@ -417,6 +612,7 @@ def _write_reports(bo, video, lang, subset, per_engine, seg_audio, wd,
               "engine's tuned parameters from the table below, or production "
               "will run it at defaults the bake-off did not measure."]
     lines += _tuning_section(tuning or {}, engines)
+    lines += _per_segment_section(per_engine, engines)
     (bo / f"bakeoff_{lang}.md").write_text("\n".join(lines) + "\n",
                                            encoding="utf-8")
 

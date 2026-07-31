@@ -1,0 +1,24 @@
+# EXPERIMENT: measure the best_of curve instead of extrapolating it.
+#   dubadabidu remote bakeoff <video> --langs en --reuse --keep-alive \
+#     --overlay config.gpu.yaml --overlay config.exp.bestof.yaml
+#   then, locally, re-run the subsample analysis over seg/qwen+fast/en/
+#
+# WHY: production runs tts.best_of: 5, which is a straight 5x multiplier on the
+# largest cost in the pipeline. The local subsample analysis (2026-07-31) found
+# NO plateau — expected best-of-k rank rose +0.029 from k=1->2 and +0.018 from
+# k=2->3, decaying at a steady ~62% per step — so 5 looked justified. But only
+# 3 takes existed on disk, meaning k=4 and k=5 were EXTRAPOLATED from a fitted
+# decay, not measured. This run puts 6 takes on disk so k=4,5,6 become real
+# numbers and the extrapolation can be checked (or falsified) directly.
+#
+# It also answers the reverse question honestly: if the curve does flatten at 3-4,
+# dropping best_of cuts the bill proportionally — 5 -> 3 would take a 1 h video's
+# 5-language cost from $2.36 to ~$1.42 with no quality loss.
+#
+# NOTE this is deliberately a comparison-side change, not a tune-side one: takes
+# here are what land in seg/, which is what the subsample analysis reads.
+bakeoff:
+  takes: 6
+  subset_size: 6
+  tune:
+    enabled: false

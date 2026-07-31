@@ -188,32 +188,25 @@ def synth_hash(text: str, lang: str, tts_cfg: dict) -> str:
     key_data = {"t": text, "l": lang, "ref": tts_cfg["reference_wav"],
                 "cfg": tts_cfg["cfg_weight"], "ex": tts_cfg["exaggeration"],
                 "engine": engine}
-    if engine == "cosyvoice":  # output depends on mode (+ transcript / instruct)
-        key_data["mode"] = tts_cfg.get("cosyvoice_mode", "cross_lingual")
-        key_data["rt"] = tts_cfg.get("reference_text", "")
-        if tts_cfg.get("instruct_text"):
-            key_data["ins"] = tts_cfg["instruct_text"]
-    if engine == "indextts":  # emotion prompt / alpha / duration change output
-        if tts_cfg.get("emotion_wav"):
-            key_data["emo"] = tts_cfg["emotion_wav"]
-            key_data["ea"] = tts_cfg.get("emo_alpha", 1.0)
-        if tts_cfg.get("instruct_text"):
-            key_data["ins"] = tts_cfg["instruct_text"]
-        if tts_cfg.get("indextts_duration_ratio"):
-            key_data["dr"] = tts_cfg["indextts_duration_ratio"]
     if engine == "qwen":  # clone mode (+ ref transcript when used) change output
         x_only = bool(tts_cfg.get("qwen_x_vector_only", True)) \
             or not tts_cfg.get("reference_text")
         key_data["xv"] = x_only
         if not x_only:
             key_data["rt"] = tts_cfg.get("reference_text", "")
-    if engine == "voxcpm":  # style prefix + sampler params change output
-        if tts_cfg.get("instruct_text"):
-            key_data["ins"] = tts_cfg["instruct_text"]
-        if tts_cfg.get("voxcpm_cfg_value") is not None:
-            key_data["vcfg"] = tts_cfg["voxcpm_cfg_value"]
-        if tts_cfg.get("voxcpm_timesteps") is not None:
-            key_data["vts"] = tts_cfg["voxcpm_timesteps"]
+        # qwen_fast swaps the inference implementation (faster-qwen3-tts:
+        # CUDA Graphs + StaticCache). It SHOULD be numerically identical to the
+        # stock decode loop, but "should" is not "is" — salt the key so an A/B
+        # re-synthesizes instead of comparing new settings against cached audio
+        # produced by the other implementation. Absent/false adds no key, so
+        # pre-existing caches stay valid.
+        if tts_cfg.get("qwen_fast"):
+            key_data["qf"] = True
+        # a trimmed reference is a DIFFERENT reference — the adapter swaps the
+        # path internally, so "ref" above would not see it and the cache would
+        # serve 18 s-reference audio for a 12 s-reference config.
+        if tts_cfg.get("reference_max_s"):
+            key_data["rmax"] = tts_cfg["reference_max_s"]
     if engine == "chatterbox":  # only chatterbox applies normalize_for_tts
         nv = NORM_VERSIONS.get(lang, 1)
         if nv > 1:  # v1 adds no key so pre-existing caches stay valid

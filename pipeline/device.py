@@ -7,6 +7,54 @@ Notes:
 """
 from __future__ import annotations
 import functools
+import logging
+import shutil
+from pathlib import Path
+
+log = logging.getLogger("dubadabidu.device")
+
+
+@functools.lru_cache
+def cuda_host() -> bool:
+    """True if the MACHINE has an NVIDIA GPU — asked of the driver, not of torch.
+
+    Every engine runs in its own venv (venvs/<engine>), so each one resolves its
+    own torch. A venv that picked up a CPU-only wheel makes torch.cuda.is_available()
+    return False on a perfectly good GPU box, and torch_device() then reports
+    "cpu" with no error. The pod's CUDA preflight cannot catch this: it runs in
+    the base .venv, not in the engine's."""
+    return (Path("/proc/driver/nvidia/version").exists()
+            or shutil.which("nvidia-smi") is not None)
+
+
+def require_gpu(engine: str, allow_cpu: bool = False) -> str:
+    """-> the resolved torch device, refusing a silent CPU fallback on a GPU box.
+
+    A CPU-only torch in an engine venv is a broken install, not a reason to run
+    ~40x slower and bill for it. Measured 2026-07-30: Qwen3-TTS-1.7B took a
+    median 126 s/take while voxcpm on the same pod took 2.9 s.
+
+    Set tts.allow_cpu_fallback: true to downgrade this to a warning."""
+    dev = torch_device()
+    try:
+        import torch
+        ver = torch.__version__
+    except Exception:
+        ver = "?"
+    log.info("%s: torch %s -> device=%s (host GPU: %s)",
+             engine, ver, dev, cuda_host())
+    if dev == "cuda" or not cuda_host():
+        return dev
+    msg = (f"{engine}: host has an NVIDIA GPU but this engine's venv resolved "
+           f"torch {ver} -> device={dev}. That is a CPU-only wheel in "
+           f"venvs/{engine}, and synthesis would run ~40x slower at full GPU "
+           f"price. Reinstall with an explicit CUDA index-url (see "
+           f"runpod.engine_setup in config.gpu.yaml), or set "
+           f"tts.allow_cpu_fallback: true to proceed anyway.")
+    if not allow_cpu:
+        raise RuntimeError(msg)
+    log.warning("%s (allow_cpu_fallback)", msg)
+    return dev
 
 
 @functools.lru_cache

@@ -24,7 +24,7 @@ budget:
   gpu_hours_per_video_max: 1.5
 policy:
   translation_model: deepseek-v4-flash
-  engines_allowed: [chatterbox, cosyvoice]
+  engines_allowed: [chatterbox, qwen]
   never: [publish, delete work/, change eval weights without human ack]
 ```
 

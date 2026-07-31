@@ -4,51 +4,37 @@ go through synthesize() so caching and device handling live in one place.
 Engines:
   chatterbox — chatterbox-tts 0.1.7, Multilingual v3 weights from HF (MIT).
                cfg_weight=0.0 mandatory for Ukrainian reference -> other targets.
-  cosyvoice  — CosyVoice 2/3 (Apache-2.0). Covers all 5 targets + cross-lingual
-               cloning. cosyvoice_mode picks the inference path:
-                 cross_lingual — audio prompt ONLY, no ref transcript. The path
-                   for a Ukrainian ref (UA is not a CosyVoice-supported language,
-                   so its transcript can't be tokenized — cross-lingual clones
-                   timbre from the audio alone).
-                 zero_shot     — ref audio + ref transcript (reference_text).
-                 instruct      — ref audio + a natural-language style/emotion
-                   instruction (instruct_text) — per-segment prosody without any
-                   custom modulation code. Also transcript-free (UA-ref safe).
-  indextts   — IndexTTS-2 (Apache-2.0). EN + Mandarin ONLY (guarded). Built for
-               dubbing: DISENTANGLED emotion (a separate emotion_wav prompt — set
-               it to the source UA slice for real per-segment prosody transfer)
-               and duration control. English-track challenger.
-  voxcpm     — VoxCPM2 (Apache-2.0, pip `voxcpm`). 2B, 30 languages auto-detected
-               (covers all 5 targets; UA is NOT among them — clone from the ref
-               audio alone, transcript-free). 48 kHz output, ~8 GB VRAM. Style
-               control via instruct_text -> the "(...)" text prefix it parses.
   qwen       — Qwen3-TTS 12Hz Base (Apache-2.0, git-clone `qwen_tts`). 0.6B/1.7B,
                10 languages incl. all 5 targets, 3 s clone, ~4 GB VRAM. UA ref
                -> x_vector_only_mode (speaker embedding only, no ref transcript).
                The reusable clone prompt is built once per ref and cached.
+               tts.qwen_fast routes through faster-qwen3-tts (CUDA graphs) —
+               measured 14.0 -> 2.36 s/take, the PRODUCTION default.
   edge       — edge-tts 7.2.8, free MS neural voices, CPU-only, no cloning.
 
-The cosyvoice/indextts backends are GPU-only git-clone installs — see
-THIRD_PARTY.md. They fail with an actionable FileNotFoundError (which
-synthesize() re-raises without retry) when their package isn't importable.
+REMOVED 2026-07-31 (git history has them all): cosyvoice never produced audio
+in seven attempts; voxcpm and indextts lost to qwen+fast once its kernel-launch
+bottleneck was fixed. indextts also took its emotion_from_source machinery with
+it — that was disentangled-emotion prompting, an IndexTTS-2-only capability.
+Restoring any of them means reverting that commit, not rewriting the adapter.
+
+qwen is a GPU-only git-clone install — see THIRD_PARTY.md. It fails with an
+actionable FileNotFoundError (which synthesize() re-raises without retry) when
+its package isn't importable.
 
 Per-language routing: tts.engine_by_lang maps a language to an engine,
 falling back to tts.engine (manifest.resolve_engine). The winning assignment
 is decided by the bake-off (qc/bakeoff.py), not by reputation.
 """
 from __future__ import annotations
-import asyncio, logging, subprocess
+import asyncio, logging, subprocess, time
 from pathlib import Path
-from .device import torch_device
+from .device import torch_device, require_gpu
 from .manifest import resolve_engine
 from .text_norm import normalize_for_tts, localize_numbers
 
 log = logging.getLogger("dubadabidu.tts")
-INDEXTTS_LANGS = {"en", "zh"}   # IndexTTS-2 native coverage; others need finetune
 _chatterbox_model = None
-_cosyvoice_model = None
-_indextts_model = None
-_voxcpm_model = None
 _qwen_model = None
 _qwen_prompt = None   # (cache_key, prompt_items) — reused across all segments
 QWEN_LANGS = {"en": "English", "fr": "French", "de": "German",
@@ -85,173 +71,93 @@ def _synth_chatterbox(text: str, lang: str, out: Path, t: dict) -> None:
     ta.save(str(out), wav, m.sr)
 
 
-def _load_cosyvoice(model_dir: str):
-    global _cosyvoice_model
-    if _cosyvoice_model is None:
-        try:  # class name differs across CosyVoice releases; try newest first
-            from cosyvoice.cli.cosyvoice import CosyVoice3 as _CV  # type: ignore
-        except ImportError:
-            from cosyvoice.cli.cosyvoice import CosyVoice2 as _CV  # type: ignore
-        log.info("loading CosyVoice from %s ...", model_dir)
-        _cosyvoice_model = _CV(model_dir)
-    return _cosyvoice_model
-
-
-def _cosyvoice_mode(t: dict) -> str:
-    """Which CosyVoice inference path. Default cross_lingual: the reference is
-    Ukrainian (not a CosyVoice-supported language), so its transcript can't be
-    tokenized — clone timbre from the audio alone. auto upgrades to instruct
-    when an instruct_text is present, or zero_shot when a ref transcript is."""
-    mode = t.get("cosyvoice_mode", "cross_lingual")
-    if mode != "auto":
-        return mode
-    if t.get("instruct_text"):
-        return "instruct"
-    return "zero_shot" if t.get("reference_text") else "cross_lingual"
-
-
-def _synth_cosyvoice(text: str, lang: str, out: Path, t: dict) -> None:
-    """CosyVoice 2/3 cloning. Mode-dependent (see _cosyvoice_mode); the default
-    cross_lingual path needs the ref audio only — the right choice for a
-    Ukrainian reference. GPU-first: expected to run on the RunPod box."""
-    import torch
-    import torchaudio as ta
-    try:
-        from cosyvoice.utils.file_utils import load_wav  # type: ignore
-    except ImportError as e:
-        raise FileNotFoundError(
-            "cosyvoice package not importable — git clone --recursive "
-            "https://github.com/FunAudioLLM/CosyVoice (pin the commit), install "
-            "its requirements, and add it to PYTHONPATH. See THIRD_PARTY.md. "
-            f"({e})")
-    ref = t["reference_wav"]
-    if not Path(ref).exists():
-        raise FileNotFoundError(f"reference_wav not found: {ref}")
-    m = _load_cosyvoice(t.get("cosyvoice_model_dir",
-                              "pretrained_models/CosyVoice2-0.5B"))
-    prompt = load_wav(ref, 16000)
-    mode = _cosyvoice_mode(t)
-    if mode == "zero_shot":
-        ref_text = t.get("reference_text", "")
-        if not ref_text:
-            raise FileNotFoundError(
-                "cosyvoice_mode=zero_shot needs tts.reference_text (the ref "
-                "transcript; `dubadabidu prep` writes refs.json). A Ukrainian "
-                "ref cannot be tokenized here — use cosyvoice_mode=cross_lingual.")
-        gen = m.inference_zero_shot(text, ref_text, prompt, stream=False)
-    elif mode == "instruct":
-        instruct = t.get("instruct_text") or "Speak naturally."
-        # instruct2: prompt speech + a style/emotion instruction, transcript-free
-        gen = m.inference_instruct2(text, instruct, prompt, stream=False)
-    else:  # cross_lingual — audio prompt only, UA-ref safe
-        gen = m.inference_cross_lingual(text, prompt, stream=False)
-    chunks = [r["tts_speech"] for r in gen]
-    ta.save(str(out), torch.cat(chunks, dim=1), m.sample_rate)
-
-
-def _load_indextts(model_dir: str):
-    global _indextts_model
-    if _indextts_model is None:
-        try:
-            from indextts.infer_v2 import IndexTTS2  # type: ignore
-        except ImportError as e:
-            raise FileNotFoundError(
-                "indextts package not importable — git clone "
-                "https://github.com/index-tts/index-tts (pin the commit), install "
-                "its requirements + download checkpoints, add it to PYTHONPATH. "
-                f"See THIRD_PARTY.md. ({e})")
-        cfg_path = str(Path(model_dir) / "config.yaml")
-        log.info("loading IndexTTS-2 from %s ...", model_dir)
-        _indextts_model = IndexTTS2(cfg_path=cfg_path, model_dir=model_dir,
-                                    use_fp16=True)
-    return _indextts_model
-
-
-def _synth_indextts(text: str, lang: str, out: Path, t: dict) -> None:
-    """IndexTTS-2: zero-shot clone from reference_wav, with optional disentangled
-    emotion prompt (emotion_wav — set it per segment to the source UA slice for
-    real prosody transfer) and duration control. EN/Mandarin only."""
-    if lang not in INDEXTTS_LANGS:
-        raise FileNotFoundError(
-            f"indextts engine does not support '{lang}' (native: "
-            f"{sorted(INDEXTTS_LANGS)}). Route {lang} to chatterbox/cosyvoice "
-            f"via tts.engine_by_lang.")
-    ref = t["reference_wav"]
-    if not Path(ref).exists():
-        raise FileNotFoundError(f"reference_wav not found: {ref}")
-    m = _load_indextts(t.get("indextts_model_dir", "checkpoints"))
-    kw = {"spk_audio_prompt": ref, "text": text, "output_path": str(out),
-          "verbose": False}
-    emo = t.get("emotion_wav")
-    if emo and Path(emo).exists():   # disentangled per-segment emotion prompt
-        kw["emo_audio_prompt"] = emo
-        kw["emo_alpha"] = float(t.get("emo_alpha", 1.0))
-    elif t.get("instruct_text"):     # or a text emotion description
-        kw["use_emo_text"] = True
-        kw["emo_text"] = t["instruct_text"]
-    if t.get("indextts_duration_ratio"):   # global 0.75-1.25x pace control
-        kw["duration_ratio"] = float(t["indextts_duration_ratio"])
-    m.infer(**kw)   # writes output_path itself
-
-
-def _load_voxcpm(model_dir: str):
-    global _voxcpm_model
-    if _voxcpm_model is None:
-        try:
-            from voxcpm import VoxCPM  # type: ignore
-        except ImportError as e:
-            raise FileNotFoundError(
-                "voxcpm package not importable — on the torch-2.6 stack install "
-                "it WITH pins: pip install voxcpm==2.0.3 torchcodec==0.2.1 "
-                "torch==2.6.0 torchaudio==2.6.0 'numpy<2'. See THIRD_PARTY.md. "
-                f"({e})")
-        log.info("loading VoxCPM2 from %s ...", model_dir)
-        _voxcpm_model = VoxCPM.from_pretrained(model_dir, load_denoiser=False)
-    return _voxcpm_model
-
-
-def _synth_voxcpm(text: str, lang: str, out: Path, t: dict) -> None:
-    """VoxCPM2 cloning from the reference audio ALONE (reference_wav_path) —
-    Ukrainian is not among its 30 languages, so the transcript-based 'ultimate
-    cloning' mode (prompt_wav_path + prompt_text) is unusable with a UA ref.
-    Language of `text` is auto-detected; no seed is passed so best_of takes
-    vary. instruct_text becomes the "(...)" style prefix VoxCPM2 parses."""
-    import soundfile as sf
-    ref = t["reference_wav"]
-    if not Path(ref).exists():
-        raise FileNotFoundError(f"reference_wav not found: {ref}")
-    m = _load_voxcpm(t.get("voxcpm_model_dir", "openbmb/VoxCPM2"))
-    if t.get("instruct_text"):
-        text = f"({t['instruct_text']})" + text
-    wav = m.generate(text=text, reference_wav_path=ref,
-                     cfg_value=float(t.get("voxcpm_cfg_value", 2.0)),
-                     inference_timesteps=int(t.get("voxcpm_timesteps", 10)))
-    sf.write(str(out), wav, m.tts_model.sample_rate)
-
-
 def _load_qwen(t: dict):
     global _qwen_model
     if _qwen_model is None:
+        # tts.qwen_fast -> faster-qwen3-tts (MIT), a drop-in that wraps the same
+        # weights in CUDA Graphs + StaticCache. Qwen3-TTS is kernel-LAUNCH bound,
+        # not compute bound: each decode step dispatches ~500 tiny GPU ops from a
+        # Python loop and the card idles at 10-12% utilisation between launches.
+        # That is why our probe found 0.6B and 1.7B equally slow (1.38 vs 1.42
+        # wall/audio) and dtype/attention irrelevant — none of those touch
+        # dispatch. Upstream measures 4.1x on a 4090.
+        # NO silent fallback to the stock class: an opt-in that quietly does
+        # nothing is how qwen ran on CPU for a week.
+        fast = bool(t.get("qwen_fast", False))
         try:
             import torch
-            from qwen_tts import Qwen3TTSModel  # type: ignore
+            if fast:
+                from faster_qwen3_tts import FasterQwen3TTS as Qwen3TTSModel  # type: ignore
+            else:
+                from qwen_tts import Qwen3TTSModel  # type: ignore
         except ImportError as e:
+            pkg = ("faster-qwen3-tts (tts.qwen_fast is on) — pip install "
+                   "faster-qwen3-tts" if fast else
+                   "qwen_tts — git clone https://github.com/QwenLM/Qwen3-TTS "
+                   "(pin the commit), pip install -e .")
             raise FileNotFoundError(
-                "qwen_tts not importable — git clone "
-                "https://github.com/QwenLM/Qwen3-TTS (pin the commit), "
-                "pip install -e . (add flash-attn only on CUDA). See "
-                f"THIRD_PARTY.md. ({e})")
-        dev = torch_device()
+                f"{pkg} not importable. See THIRD_PARTY.md. ({e})")
+        # NOT torch_device() — a CPU-only torch in venvs/qwen used to degrade
+        # silently to fp32-on-CPU at 126 s/take (vs 2.9 s for voxcpm on the same
+        # pod). require_gpu turns that into a loud install error.
+        dev = require_gpu("qwen", bool(t.get("allow_cpu_fallback", False)))
         model_id = t.get("qwen_model_dir", "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
-        kw = {"device_map": "cuda:0" if dev == "cuda" else dev,
-              "dtype": torch.bfloat16 if dev == "cuda" else torch.float32}
-        # flash-attn is a heavy CUDA-only build; opt-in (qwen_flash_attn) so a
-        # missing wheel can't fail the load on a fresh pod
-        if dev == "cuda" and t.get("qwen_flash_attn", False):
-            kw["attn_implementation"] = "flash_attention_2"
-        log.info("loading Qwen3-TTS from %s on %s ...", model_id, dev)
+        if fast:
+            # faster-qwen3-tts documents from_pretrained(model_id) only — it
+            # manages device/dtype itself, and an unknown kwarg would fail the
+            # load. Do NOT add device_map/dtype here without checking upstream.
+            kw = {}
+        else:
+            kw = {"device_map": "cuda:0" if dev == "cuda" else dev,
+                  "dtype": torch.bfloat16 if dev == "cuda" else torch.float32}
+            # flash-attn is a heavy CUDA-only build; opt-in (qwen_flash_attn) so
+            # a missing wheel can't fail the load on a fresh pod. Note it is NOT
+            # a fix for the speed problem: dispatch overhead dominates, which is
+            # why eager vs sdpa measured only 1.57 vs 1.42 wall/audio.
+            if dev == "cuda" and t.get("qwen_flash_attn", False):
+                kw["attn_implementation"] = "flash_attention_2"
+        log.info("loading Qwen3-TTS from %s on %s (fast=%s) ...",
+                 model_id, dev, fast)
         _qwen_model = Qwen3TTSModel.from_pretrained(model_id, **kw)
+        if fast:
+            # captures the CUDA graphs up front. Without it the first calls pay
+            # capture cost lazily, which is how a benchmark reads 1.49 wall/audio
+            # and a warmed one reads 0.73 for the same setup.
+            t0 = time.perf_counter()
+            _qwen_model.warmup(prefill_len=int(t.get("qwen_warmup_len", 100)))
+            log.info("qwen warmup (CUDA graph capture): %.1fs",
+                     time.perf_counter() - t0)
     return _qwen_model
+
+
+def trimmed_ref(ref: str, max_s: float | None) -> str:
+    """Reference clipped to max_s, cached next to the original. Returns `ref`
+    unchanged when no trim is configured or the clip is already short enough.
+
+    Qwen3-TTS cloning quality scales with reference length from ~3 s to ~15 s,
+    then PLATEAUS AND DEGRADES, and over-long references are the documented
+    trigger for its worst failure mode (the decoder never emits EOS and loops).
+    Every reference we own is 15-18 s and the configured one is the longest at
+    18.1 s, i.e. all of them sit in the degrading zone.
+
+    soundfile, not ffmpeg, on purpose: an engine venv on a bake-off pod has
+    soundfile (the install recipe adds it) but NOT ffmpeg — installing ffmpeg
+    there upgrades the C runtime and kills sshd. Trimming from the START keeps
+    the speech onset; these refs are continuous speech, so the tail is what goes."""
+    if not max_s:
+        return ref
+    import soundfile as sf
+    src = Path(ref)
+    info = sf.info(str(src))
+    if info.duration <= max_s:
+        return ref
+    out = src.with_name(f"{src.stem}.trim{int(max_s)}s{src.suffix}")
+    if not out.exists():
+        data, sr = sf.read(str(src))
+        sf.write(str(out), data[:int(max_s * sr)], sr)
+        log.info("reference trimmed %.1fs -> %.1fs: %s",
+                 info.duration, max_s, out.name)
+    return str(out)
 
 
 def _qwen_clone_prompt(m, t: dict):
@@ -261,7 +167,7 @@ def _qwen_clone_prompt(m, t: dict):
     (its transcript can't be tokenized). Full mode needs a target-lang ref +
     reference_text and is opt-in via qwen_x_vector_only: false."""
     global _qwen_prompt
-    ref = t["reference_wav"]
+    ref = trimmed_ref(t["reference_wav"], t.get("reference_max_s"))
     ref_text = t.get("reference_text", "")
     x_only = bool(t.get("qwen_x_vector_only", True)) or not ref_text
     key = (ref, x_only, ref_text if not x_only else "")
@@ -269,7 +175,10 @@ def _qwen_clone_prompt(m, t: dict):
         kw = {"ref_audio": ref, "x_vector_only_mode": x_only}
         if not x_only:
             kw["ref_text"] = ref_text
-        _qwen_prompt = (key, m.create_voice_clone_prompt(**kw))
+        # faster-qwen3-tts is a wrapper: the stock model (and this method) sit
+        # at .model. The stock class has no .model, so getattr picks itself.
+        inner = getattr(m, "model", m)
+        _qwen_prompt = (key, inner.create_voice_clone_prompt(**kw))
     return _qwen_prompt[1]
 
 
@@ -277,27 +186,55 @@ def _synth_qwen(text: str, lang: str, out: Path, t: dict) -> None:
     """Qwen3-TTS Base voice clone. Covers all 5 targets; UA ref cloned via the
     speaker-embedding-only path (see _qwen_clone_prompt). Returns (wavs, sr)."""
     import soundfile as sf
+    import time
     ref = t["reference_wav"]
     if not Path(ref).exists():
         raise FileNotFoundError(f"reference_wav not found: {ref}")
+    # attribute the wall-clock: load (once) / prompt (once per ref) / generate
+    # (every call). The bake-off's s_take is a median over takes, so only
+    # `gen` recurs — but the split is what says whether a slow run is a slow
+    # model or a cold start.
+    t0 = time.perf_counter()
     m = _load_qwen(t)
+    t1 = time.perf_counter()
     prompt = _qwen_clone_prompt(m, t)
+    t2 = time.perf_counter()
     wavs, sr = m.generate_voice_clone(
         text=text, language=QWEN_LANGS.get(lang, "Auto"),
         voice_clone_prompt=prompt)
+    t3 = time.perf_counter()
+    dur = len(wavs[0]) / float(sr)
+    # RUNAWAY GUARD. Qwen3-TTS's most common failure is the decoder never
+    # emitting EOS: it fills its token budget with laughing/humming/babble.
+    # engine_client has no per-call timeout by design (a first call may
+    # legitimately spend minutes downloading weights), so a hang is otherwise
+    # bounded only by the pod watchdog — expensive, and a merely-long take is
+    # worse: it is silently SHIPPED. Raising makes it a failed take that
+    # synth_best_of re-rolls. Not passed as max_new_tokens: that kwarg is
+    # undocumented for both implementations and an unknown kwarg would fail
+    # the call outright.
+    cap = float(t.get("qwen_max_audio_s", 60.0))
+    if cap and dur > cap:
+        raise RuntimeError(
+            f"qwen produced {dur:.1f}s of audio for {len(text)} chars "
+            f"(cap {cap:.0f}s) — runaway generation, take rejected. Raise "
+            f"tts.qwen_max_audio_s if a segment is legitimately this long.")
     sf.write(str(out), wavs[0], sr)
+    # RTF = generate seconds per second of audio produced. Device-independent,
+    # so it compares across engines and pods where raw s/take cannot.
+    log.info("qwen timing: load=%.2fs prompt=%.2fs gen=%.2fs audio=%.2fs "
+             "RTF=%.2f chars=%d", t1 - t0, t2 - t1, t3 - t2, dur,
+             (t3 - t2) / dur if dur else float("nan"), len(text))
 
 
 def release_models() -> None:
     """Drop every in-process engine singleton and flush the CUDA cache. The
     bake-off switches engines sequentially and pairs this with
     engine_client.shutdown(engine); without both, models accumulate in VRAM
-    (chatterbox ~7 GB + voxcpm ~8 GB) and a 16 GB card OOMs mid-comparison.
+    (chatterbox ~7 GB + qwen ~4 GB) and a 16 GB card OOMs mid-comparison.
     The next synthesize() through a released engine just reloads it."""
-    global _chatterbox_model, _cosyvoice_model, _indextts_model, \
-        _voxcpm_model, _qwen_model, _qwen_prompt
-    _chatterbox_model = _cosyvoice_model = _indextts_model = None
-    _voxcpm_model = _qwen_model = _qwen_prompt = None
+    global _chatterbox_model, _qwen_model, _qwen_prompt
+    _chatterbox_model = _qwen_model = _qwen_prompt = None
     try:
         import torch
         if torch.cuda.is_available():
@@ -314,34 +251,6 @@ def _synth_edge(text: str, lang: str, out: Path, t: dict) -> None:
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(mp3),
                     "-ar", str(t["sample_rate"]), "-ac", "1", str(out)], check=True)
     mp3.unlink(missing_ok=True)
-
-
-MIN_EMO_SLICE_S = 1.0   # shorter source slices carry no usable prosody
-
-
-def with_source_emotion(t: dict, wd: Path, u: dict, lang: str) -> dict:
-    """Per-segment prosody transfer (tts.emotion_from_source, IndexTTS-2 only):
-    the emotion prompt becomes THIS utterance's slice of the source vocals, so
-    the dub carries the speaker's original delivery segment by segment —
-    IndexTTS-2 disentangles it from timbre. Slices are cut once into
-    work/<video>/emo/ and synth_hash keys on emotion_wav, so every segment
-    caches under its own slice. No-op for other engines or when disabled."""
-    if not t.get("emotion_from_source") or resolve_engine(t, lang) != "indextts":
-        return t
-    if u["end"] - u["start"] < MIN_EMO_SLICE_S:
-        return t
-    src = wd / "vocals.wav"
-    if not src.exists():
-        log.warning("emotion_from_source: %s missing — run s1 first; "
-                    "synthesizing without emotion prompt", src)
-        return t
-    out = wd / "emo" / f"{u['id']}.wav"
-    if not out.exists():
-        out.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error",
-                        "-ss", str(u["start"]), "-to", str(u["end"]),
-                        "-i", str(src), str(out)], check=True)
-    return {**t, "emotion_wav": str(out)}
 
 
 PACE_TOL = 0.35        # |dur/target - 1| that zeroes the pace term
@@ -612,9 +521,8 @@ def synthesize(text: str, lang: str, out: Path, tts_cfg: dict,
     with the same input often fixes it — final quality gate is qc/backcheck)."""
     out.parent.mkdir(parents=True, exist_ok=True)
     engine = resolve_engine(tts_cfg, lang)
-    fn = {"chatterbox": _synth_chatterbox, "cosyvoice": _synth_cosyvoice,
-          "indextts": _synth_indextts, "voxcpm": _synth_voxcpm,
-          "qwen": _synth_qwen, "edge": _synth_edge}[engine]
+    fn = {"chatterbox": _synth_chatterbox, "qwen": _synth_qwen,
+          "edge": _synth_edge}[engine]
     # per-engine venv isolation (engine_client): when this engine has its own
     # venv (venvs/<engine> or tts.engine_venvs), synthesize through its worker
     # process instead of importing it here — its deps then cannot collide with

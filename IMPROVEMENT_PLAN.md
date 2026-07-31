@@ -46,6 +46,13 @@ MOS + the ear before adoption.
 
 ## Phase C — TTS bake-off: Chatterbox v3 vs CosyVoice 3 (per language)
 
+> **RESOLVED 2026-07-31.** The bake-off ran and the roster was cut to **qwen
+> alone** (all 5 languages, `tts.qwen_fast`, 2.36 s/take, pinned at 022e286).
+> cosyvoice never produced audio in seven attempts; voxcpm and indextts both
+> lost to qwen+fast on speed and cost. The plan below is kept as the record of
+> how the decision was reached — see THIRD_PARTY.md for the removal caveats,
+> which are real and worth reading before treating this as settled.
+
 - [ ] Add a `cosyvoice` engine to `pipeline/tts_engine.py` behind the same
       `synthesize()` interface. CosyVoice3 zero-shot cloning needs reference
       audio **plus its transcript** — we have both for free (video-donated ref
@@ -73,6 +80,7 @@ MOS + the ear before adoption.
       lightest challenger — cheapest to run). UA ref → x_vector_only (embedding
       only, no ref transcript). Full bake-off roster is now chatterbox +
       cosyvoice + voxcpm + qwen (+ indextts for en/zh). The harness decides.
+      [Outcome: qwen won outright — see the RESOLVED note at the top of Phase C.]
 - [ ] Decision gate: an engine wins a language only if it beats the incumbent
       on BOTH raw similarity and MOS, or ties metrics and wins the ear test.
       French additionally needs the native-speaker listen (no self-QC there).
