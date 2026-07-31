@@ -4,10 +4,6 @@ go through synthesize() so caching and device handling live in one place.
 Engines:
   chatterbox — chatterbox-tts 0.1.7, Multilingual v3 weights from HF (MIT).
                cfg_weight=0.0 mandatory for Ukrainian reference -> other targets.
-  indextts   — IndexTTS-2 (Apache-2.0). EN + Mandarin ONLY (guarded). Built for
-               dubbing: DISENTANGLED emotion (a separate emotion_wav prompt — set
-               it to the source UA slice for real per-segment prosody transfer)
-               and duration control. English-track challenger.
   qwen       — Qwen3-TTS 12Hz Base (Apache-2.0, git-clone `qwen_tts`). 0.6B/1.7B,
                10 languages incl. all 5 targets, 3 s clone, ~4 GB VRAM. UA ref
                -> x_vector_only_mode (speaker embedding only, no ref transcript).
@@ -16,14 +12,15 @@ Engines:
                measured 14.0 -> 2.36 s/take, the PRODUCTION default.
   edge       — edge-tts 7.2.8, free MS neural voices, CPU-only, no cloning.
 
-REMOVED 2026-07-31 (git history has them): cosyvoice never produced audio in
-seven attempts, and voxcpm lost the bake-off to qwen+fast on both speed and
-cost once qwen's kernel-launch bottleneck was fixed. Restoring either means
-reverting this commit, not rewriting the adapter.
+REMOVED 2026-07-31 (git history has them all): cosyvoice never produced audio
+in seven attempts; voxcpm and indextts lost to qwen+fast once its kernel-launch
+bottleneck was fixed. indextts also took its emotion_from_source machinery with
+it — that was disentangled-emotion prompting, an IndexTTS-2-only capability.
+Restoring any of them means reverting that commit, not rewriting the adapter.
 
-The indextts backend is a GPU-only git-clone install — see THIRD_PARTY.md. It
-fails with an actionable FileNotFoundError (which synthesize() re-raises
-without retry) when its package isn't importable.
+qwen is a GPU-only git-clone install — see THIRD_PARTY.md. It fails with an
+actionable FileNotFoundError (which synthesize() re-raises without retry) when
+its package isn't importable.
 
 Per-language routing: tts.engine_by_lang maps a language to an engine,
 falling back to tts.engine (manifest.resolve_engine). The winning assignment
@@ -37,9 +34,7 @@ from .manifest import resolve_engine
 from .text_norm import normalize_for_tts, localize_numbers
 
 log = logging.getLogger("dubadabidu.tts")
-INDEXTTS_LANGS = {"en", "zh"}   # IndexTTS-2 native coverage; others need finetune
 _chatterbox_model = None
-_indextts_model = None
 _qwen_model = None
 _qwen_prompt = None   # (cache_key, prompt_items) — reused across all segments
 QWEN_LANGS = {"en": "English", "fr": "French", "de": "German",
@@ -74,51 +69,6 @@ def _synth_chatterbox(text: str, lang: str, out: Path, t: dict) -> None:
     wav = m.generate(text, language_id=lang, audio_prompt_path=ref,
                      cfg_weight=t["cfg_weight"], exaggeration=t["exaggeration"])
     ta.save(str(out), wav, m.sr)
-
-
-def _load_indextts(model_dir: str):
-    global _indextts_model
-    if _indextts_model is None:
-        try:
-            from indextts.infer_v2 import IndexTTS2  # type: ignore
-        except ImportError as e:
-            raise FileNotFoundError(
-                "indextts package not importable — git clone "
-                "https://github.com/index-tts/index-tts (pin the commit), install "
-                "its requirements + download checkpoints, add it to PYTHONPATH. "
-                f"See THIRD_PARTY.md. ({e})")
-        cfg_path = str(Path(model_dir) / "config.yaml")
-        log.info("loading IndexTTS-2 from %s ...", model_dir)
-        _indextts_model = IndexTTS2(cfg_path=cfg_path, model_dir=model_dir,
-                                    use_fp16=True)
-    return _indextts_model
-
-
-def _synth_indextts(text: str, lang: str, out: Path, t: dict) -> None:
-    """IndexTTS-2: zero-shot clone from reference_wav, with optional disentangled
-    emotion prompt (emotion_wav — set it per segment to the source UA slice for
-    real prosody transfer) and duration control. EN/Mandarin only."""
-    if lang not in INDEXTTS_LANGS:
-        raise FileNotFoundError(
-            f"indextts engine does not support '{lang}' (native: "
-            f"{sorted(INDEXTTS_LANGS)}). Route {lang} to qwen via "
-            f"tts.engine_by_lang.")
-    ref = t["reference_wav"]
-    if not Path(ref).exists():
-        raise FileNotFoundError(f"reference_wav not found: {ref}")
-    m = _load_indextts(t.get("indextts_model_dir", "checkpoints"))
-    kw = {"spk_audio_prompt": ref, "text": text, "output_path": str(out),
-          "verbose": False}
-    emo = t.get("emotion_wav")
-    if emo and Path(emo).exists():   # disentangled per-segment emotion prompt
-        kw["emo_audio_prompt"] = emo
-        kw["emo_alpha"] = float(t.get("emo_alpha", 1.0))
-    elif t.get("instruct_text"):     # or a text emotion description
-        kw["use_emo_text"] = True
-        kw["emo_text"] = t["instruct_text"]
-    if t.get("indextts_duration_ratio"):   # global 0.75-1.25x pace control
-        kw["duration_ratio"] = float(t["indextts_duration_ratio"])
-    m.infer(**kw)   # writes output_path itself
 
 
 def _load_qwen(t: dict):
@@ -236,11 +186,10 @@ def release_models() -> None:
     """Drop every in-process engine singleton and flush the CUDA cache. The
     bake-off switches engines sequentially and pairs this with
     engine_client.shutdown(engine); without both, models accumulate in VRAM
-    (chatterbox ~7 GB + indextts) and a 16 GB card OOMs mid-comparison.
+    (chatterbox ~7 GB + qwen ~4 GB) and a 16 GB card OOMs mid-comparison.
     The next synthesize() through a released engine just reloads it."""
-    global _chatterbox_model, _indextts_model, _qwen_model, _qwen_prompt
-    _chatterbox_model = _indextts_model = None
-    _qwen_model = _qwen_prompt = None
+    global _chatterbox_model, _qwen_model, _qwen_prompt
+    _chatterbox_model = _qwen_model = _qwen_prompt = None
     try:
         import torch
         if torch.cuda.is_available():
@@ -257,34 +206,6 @@ def _synth_edge(text: str, lang: str, out: Path, t: dict) -> None:
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(mp3),
                     "-ar", str(t["sample_rate"]), "-ac", "1", str(out)], check=True)
     mp3.unlink(missing_ok=True)
-
-
-MIN_EMO_SLICE_S = 1.0   # shorter source slices carry no usable prosody
-
-
-def with_source_emotion(t: dict, wd: Path, u: dict, lang: str) -> dict:
-    """Per-segment prosody transfer (tts.emotion_from_source, IndexTTS-2 only):
-    the emotion prompt becomes THIS utterance's slice of the source vocals, so
-    the dub carries the speaker's original delivery segment by segment —
-    IndexTTS-2 disentangles it from timbre. Slices are cut once into
-    work/<video>/emo/ and synth_hash keys on emotion_wav, so every segment
-    caches under its own slice. No-op for other engines or when disabled."""
-    if not t.get("emotion_from_source") or resolve_engine(t, lang) != "indextts":
-        return t
-    if u["end"] - u["start"] < MIN_EMO_SLICE_S:
-        return t
-    src = wd / "vocals.wav"
-    if not src.exists():
-        log.warning("emotion_from_source: %s missing — run s1 first; "
-                    "synthesizing without emotion prompt", src)
-        return t
-    out = wd / "emo" / f"{u['id']}.wav"
-    if not out.exists():
-        out.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error",
-                        "-ss", str(u["start"]), "-to", str(u["end"]),
-                        "-i", str(src), str(out)], check=True)
-    return {**t, "emotion_wav": str(out)}
 
 
 PACE_TOL = 0.35        # |dur/target - 1| that zeroes the pace term
@@ -555,8 +476,8 @@ def synthesize(text: str, lang: str, out: Path, tts_cfg: dict,
     with the same input often fixes it — final quality gate is qc/backcheck)."""
     out.parent.mkdir(parents=True, exist_ok=True)
     engine = resolve_engine(tts_cfg, lang)
-    fn = {"chatterbox": _synth_chatterbox, "indextts": _synth_indextts,
-          "qwen": _synth_qwen, "edge": _synth_edge}[engine]
+    fn = {"chatterbox": _synth_chatterbox, "qwen": _synth_qwen,
+          "edge": _synth_edge}[engine]
     # per-engine venv isolation (engine_client): when this engine has its own
     # venv (venvs/<engine> or tts.engine_venvs), synthesize through its worker
     # process instead of importing it here — its deps then cannot collide with

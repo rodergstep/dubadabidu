@@ -298,33 +298,6 @@ def wait_ssh(rp: dict, host: str, port: int, deadline: float) -> bool:
 _MODEL_CACHE_EXCLUDES = (".models/ecapa", ".models/audio-separator")
 
 
-def _precut_emotion_slices(cfg: dict, video: str, langs: list[str]) -> None:
-    """Cut the per-utterance emotion prompts locally, before the sync.
-
-    tts.emotion_from_source is IndexTTS-2's whole reason for being on the roster:
-    the emotion prompt becomes THIS utterance's slice of the source vocals, so
-    the dub carries the speaker's own delivery segment by segment. The cut needs
-    ffmpeg, and a bake-off pod installs rsync only (ffmpeg's apt tree upgrades the
-    C runtime). Doing it locally sidesteps that entirely — no-op when the feature
-    is off."""
-    t = cfg.get("tts", {})
-    if not t.get("emotion_from_source"):
-        return
-    from .tts_engine import with_source_emotion
-    man = M.load(cfg, video)
-    wd = M.video_workdir(cfg, video)
-    lang = langs[0] if langs else "en"
-    # force the indextts route so the helper actually cuts (it is engine-gated)
-    tt = {**t, "engine": "indextts", "engine_by_lang": {}}
-    n = 0
-    for u in man["utterances"]:
-        before = (wd / "emo" / f"{u['id']}.wav").exists()
-        with_source_emotion(tt, wd, u, lang)
-        n += (wd / "emo" / f"{u['id']}.wav").exists() and not before
-    log.info("emotion_from_source: %d slices cut locally (emo/ ships to the pod)",
-             n)
-
-
 def _live_pod() -> tuple[str, str, int] | None:
     """(pod_id, host, port) for the pod in the state file when it is still up and
     reachable, else None. Used by --reuse to attach to a pod a previous
@@ -546,7 +519,7 @@ def apt_setup(with_ffmpeg: bool = True) -> str:
     synthesizes through the engines and measures with soundfile / torchaudio /
     faster-whisper (PyAV), and even the side-by-side UA slices are cut by
     soundfile in review_page._ua_slice. s5's atempo/rubberband, s6's loudnorm,
-    _synth_edge and with_source_emotion are the only ffmpeg users, and a bake-off
+    _synth_edge is the only ffmpeg user, and a bake-off
     runs none of them. So for bakeoff and setup-check we skip ffmpeg entirely and
     the failure mode disappears rather than being worked around.
 
@@ -574,8 +547,7 @@ def apt_setup(with_ffmpeg: bool = True) -> str:
 
 # faster-whisper short name -> import module, for the engines the bake-off/run
 # may need on the pod. edge is CPU/PyPI (no git-clone) so it's not probed here.
-ENGINE_MODULE = {"chatterbox": "chatterbox", "indextts": "indextts",
-                 "qwen": "qwen_tts"}
+ENGINE_MODULE = {"chatterbox": "chatterbox", "qwen": "qwen_tts"}
 
 # installed into every engine venv alongside the snippet: soundfile because
 # the voxcpm/qwen adapters write via sf and not every engine's own requirements
@@ -723,15 +695,8 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
             # Without it the pod merges into an empty dict and the sync-back
             # overwrites the local scorecard — which silently discarded the
             # voxcpm+qwen comparison twice before this was spotted.
-            # emotion_from_source cuts each utterance's own slice of the
-            # source vocals as an IndexTTS-2 emotion prompt — via FFMPEG,
-            # which a bake-off pod deliberately does not install. Cut them
-            # HERE (ffmpeg is local, vocals.wav is local) and ship them:
-            # with_source_emotion only shells out when the slice is missing,
-            # so a pre-cut emo/ makes the pod-side call a no-op.
-            _precut_emotion_slices(cfg, video, langs)
             needed = [str(wd / n) for n in ("manifest.json", "vocals.wav",
-                                            "qc_ua", "bakeoff", "emo")
+                                            "qc_ua", "bakeoff")
                       if (wd / n).exists()]
             _rsync_paths(rp, port, needed, up)
         else:
@@ -741,10 +706,10 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
                     timeout=1800) != 0:
             raise RuntimeError("remote setup failed: dependency install error "
                                "OR CUDA unavailable (check the log's CUDA: line)")
-        # 2.5 git-clone engines (indextts/qwen) must be installed on the
-        # pod before the task runs. The bake-off lists them explicitly; run and
-        # autopilot need whatever engine_by_lang routes the requested langs to
-        # (e.g. en -> indextts for emotion_from_source). chatterbox/edge need no
+        # 2.5 the git-clone engine (qwen) must be installed on the pod before
+        # the task runs. The bake-off lists it explicitly; run and autopilot
+        # need whatever engine_by_lang routes the requested langs to.
+        # chatterbox/edge need no
         # snippet and are skipped. A failure is non-fatal: the bake-off marks the
         # engine unavailable, and for a run s4 raises an actionable error for the
         # langs that needed it.
@@ -878,8 +843,8 @@ def _require_something_to_validate(engines: list, probe_engines: list) -> None:
         raise SystemExit(
             f"bakeoff.engines is {engines} — only the incumbent, which "
             f"REMOTE_SETUP installs on every run anyway. setup-check exists to "
-            f"validate the git-clone CHALLENGERS (indextts/qwen); add "
-            f"them to bakeoff.engines first.")
+            f"validate the git-clone CHALLENGER (qwen); add it to "
+            f"bakeoff.engines first.")
     if not any(has_snippet for _, _, has_snippet in probe_engines):
         missing = [e for e, _, has_snippet in probe_engines if not has_snippet]
         raise SystemExit(

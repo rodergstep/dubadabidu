@@ -35,7 +35,7 @@ wer (an intelligibility VETO) — or ties and wins the ear on the HTML page. pac
 is reported, not gated (s5 retimes within limits). French additionally needs a
 native-speaker listen.
 
-Engines that aren't installed (indextts/qwen are GPU-only git-clone deps)
+Engines that aren't installed (qwen is a GPU-only git-clone dep)
 are reported as unavailable and skipped, so a partial bake-off still runs.
 """
 from __future__ import annotations
@@ -76,15 +76,12 @@ def variant_key(engine: str, t: dict, lang: str) -> str:
     different capability enabled REPLACED the earlier row instead of sitting
     beside it — and overwrote its audio. That is right for re-running an
     identical config and wrong for a variant, which is exactly the comparison
-    worth seeing: IndexTTS-2 with disentangled emotion measured mos 2.739 against
-    2.393 without it, and the merge silently discarded the 'without' row.
+    worth seeing: qwen's CUDA-graph decode path against its stock one.
 
     Only settings that materially change what the engine DOES earn a suffix."""
     from pipeline.manifest import resolve_engine
     eng = resolve_engine(t, lang)
     suffix = ""
-    if t.get("emotion_from_source") and eng == "indextts":
-        suffix = "+emo"
     # qwen_fast swaps the decode implementation (CUDA graphs). The whole point
     # of the A/B is to see both rows AND keep both sets of audio for a listen —
     # without a suffix the second run overwrites the first, which is the exact
@@ -116,18 +113,9 @@ def _engine_cfg(base_tts: dict, engine: str) -> dict:
 #     not reliably move quality (measured 2026-07-14), so the incumbent enters
 #     at its tune-selected point. Widen via bakeoff.grids to re-open it.
 #   qwen — x_vector_only is forced by the UA ref; nothing left to sweep.
-#   indextts — its one real quality knob, emo_alpha, is INERT here: the adapter
-#     only applies it alongside an emotion_wav, which s4 supplies via
-#     with_source_emotion but the bake-off does not. Sweeping it would burn GPU
-#     time re-rolling identical audio and then read as "emo_alpha doesn't
-#     matter". indextts_duration_ratio does reach the output but is a pace knob,
-#     and pace is reported-not-gated by design (s5 retimes). Left empty on
-#     purpose; wiring emotion prompts into the bake-off is a separate decision,
-#     since it would hand indextts an input the other engines can't use.
 ENGINE_GRIDS: dict[str, dict[str, list]] = {
     "chatterbox": {},
     "qwen": {},
-    "indextts": {},
     "edge": {},
 }
 
@@ -227,8 +215,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     import torch
     import soundfile as sf
     from pipeline import engine_client
-    from pipeline.tts_engine import (release_models, synthesize,
-                                     with_source_emotion)
+    from pipeline.tts_engine import release_models, synthesize
     from pipeline.tune import _subset
     from qc import metrics as X
     from qc.backcheck import segment_wer
@@ -318,13 +305,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 # DIFFERENCES between engines isolate the engine's speaking rate
                 # (the shared translation-length bias cancels in the comparison).
                 slot = max(u["end"] - u["start"], 0.1)
-                # per-segment prosody transfer (tts.emotion_from_source,
-                # IndexTTS-2 only): the emotion prompt is THIS utterance's
-                # slice of the source vocals. A no-op for every other engine.
-                # Without this the bake-off judged IndexTTS-2 as a plain
-                # zero-shot cloner, i.e. with the one capability it is on the
-                # roster FOR switched off — and it still tied voxcpm.
-                tu = with_source_emotion(t, wd, u, lang)
+                tu = t
                 sims, moss, f0s, wers, paces = [], [], [], [], []
                 first = None
                 for k in range(takes):

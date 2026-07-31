@@ -45,22 +45,6 @@ def test_chatterbox_hash_stable():
     assert a == b
 
 
-def test_indextts_emotion_changes_hash():
-    plain = synth_hash("hi", "en", _tts(engine="indextts"))
-    emo = synth_hash("hi", "en", _tts(engine="indextts",
-                                      emotion_wav="work/x/qc_ua/u1.wav"))
-    assert plain != emo
-
-
-def test_indextts_duration_changes_hash():
-    plain = synth_hash("hi", "en", _tts(engine="indextts"))
-    dur = synth_hash("hi", "en", _tts(engine="indextts",
-                                      indextts_duration_ratio=1.15))
-    assert plain != dur
-
-
-# --- real-voice anchor is mandatory ---
-
 def _bakeoff_cfg(work_dir):
     return {"work_dir": str(work_dir),
             "tts": {"engine": "chatterbox", "reference_wav": "ref/x.wav",

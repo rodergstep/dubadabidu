@@ -17,17 +17,11 @@ tts:
   #     kernel-launch bottleneck was fixed (2.36 vs 2.92 s/take). It still led
   #     on sim→real 0.804 vs 0.614, which was never settled by ear before the
   #     cut — that is the one open question this removal closes off.
-  # IndexTTS-2: EN + Mandarin ONLY (guarded). Disentangled emotion — with
-  # emotion_from_source: true, s4/s5 cut each utterance's own slice of the
-  # source vocals as its emotion prompt (real per-segment prosody transfer);
-  # a manual emotion_wav is a global override. indextts_duration_ratio
-  # (0.75-1.25) is native pace control.
-  indextts_model_dir: checkpoints
-  emotion_from_source: true   # cut each utterance's own source slice as the
-                              # emotion prompt (per-segment prosody transfer).
-                              # No-op unless a lang is routed to indextts below.
-  # emo_alpha: 1.0            # scales the transferred emotion (default 1.0)
-  # indextts_duration_ratio: 1.0
+  #   indextts  — REMOVED. Best measured mos (2.739 with emotion transfer) but
+  #     ~2x qwen's cost and en/zh ONLY, so it could never serve 4 of 5 targets.
+  #     No cheap speedup exists: index-tts-vllm reports no gain for IndexTTS-2's
+  #     GPT and is a vLLM server, and Faster-IndexTTS-2 (TensorRT-LLM) is a
+  #     paper, not a package. Its emotion_from_source machinery went with it.
   # Qwen3-TTS Base — THE PRODUCTION ENGINE (all 5 targets), 3 s clone, ~4 GB
   # VRAM, Apache-2.0. UA ref -> x_vector_only (speaker embedding only, no ref
   # transcript). git-clone install (THIRD_PARTY.md).
@@ -53,18 +47,7 @@ tts:
   qwen_fast: true
   # qwen_warmup_len: 100               # prefill length for CUDA graph capture
 
-  # After the bake-off, pin the winning engine per language, e.g.:
-  # engine_by_lang: {en: indextts}   # qwen covers every language otherwise
-  #
-  # emotion_from_source ACTIVATION (one manual step — kept off by default because
-  # indextts is a git-clone engine and NOT yet validated/pinned; enabling it
-  # blind would break `remote run` at s4). To turn on per-segment prosody
-  # transfer for English:
-  #   1. validate + pin the indextts commit and fill runpod.engine_setup.indextts
-  #      below (incl. the checkpoint download) — see THIRD_PARTY.md
-  #   2. uncomment the line below. The pod now auto-installs indextts for a run
-  #      (not just bakeoff) and emotion_from_source (above) activates for en.
-  # engine_by_lang: {en: indextts}
+  # qwen serves every language; engine_by_lang is left empty on purpose.
 
 bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
   # chatterbox REMOVED 2026-07-30 at the user's call — its quality is already
@@ -80,9 +63,8 @@ bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
   # code change (remote_run installs exactly what is listed here) and gives: disk
   # peak of one venv, first result in minutes, and a failure that costs only its
   # own engine. Size container_disk_gb to len(engines).
-  # ROSTER after the 2026-07-31 cut: qwen (production) and indextts (en/zh only,
-  # ~2x the cost, kept for its disentangled emotion). cosyvoice and voxcpm are
-  # gone — see the tts block above.
+  # ROSTER after the 2026-07-31 cut: qwen only. cosyvoice, voxcpm and indextts
+  # are gone — see the tts block above.
   engines: [qwen]
   subset_size: 6               # stratified by source length
   takes: 3                     # averaged per segment to beat TTS variance
@@ -211,22 +193,14 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   # into site-packages. An empty/failing snippet => that engine is marked
   # unavailable and skipped, so a partial bake-off still runs.
   #
-  # STATUS: filled best-effort from THIRD_PARTY.md, but UNPINNED (clones default
-  # branch) and NOT yet run on a pod. VALIDATE CHEAPLY FIRST with
-  # `dubadabidu remote setup-check` (~$0.30) — it runs these snippets on one pod
-  # and probes each engine INSIDE its venv, so you don't debug installs on a
-  # billing bake-off. Before trusting a comparison, confirm:
-  #   (a) the checkpoint repo id `IndexTeam/IndexTTS-2` (IndexTTS-2 weights);
-  #   (b) each repo's HEAD still matches the API in pipeline/tts_engine.py.
-  # Clones are guarded with `[ -d ... ] ||` so a persistent-volume re-run
-  # (runpod.network_volume_id) doesn't fail on an existing checkout.
-  # PINNING: each clone-based snippet has a `# pin:` line showing the exact edit —
-  # append `&& git -C third_party/<repo> checkout <SHA>` right after its clone once
-  # a run validates the commit (THIRD_PARTY.md "Pinned commit" lines).
+  # STATUS: VALIDATED and PINNED 2026-07-31. qwen runs at 2.36 s/take on a 4090
+  # with tts.qwen_fast. Clones are guarded with `[ -d ... ] ||` so a re-run does
+  # not fail on an existing checkout, and the checkout is by SHA so a re-clone
+  # cannot drift. Re-pin by editing the SHA below and faster-qwen3-tts's version.
   engine_setup:
     # Qwen3-TTS: editable install makes `qwen_tts` importable; weights (HF id in
     # tts.qwen_model_dir) auto-download at load.
-    # pin: append `&& git -C third_party/Qwen3-TTS checkout <SHA>` after the clone.
+    # PINNED: 022e286 (2026-03-17, HEAD of main at validation).
     # Qwen3-TTS declares no install_requires, so `pip install -e .` alone
     # completed in 62 s having pulled NOTHING — exit 0, then `import qwen_tts`
     # would fail at synthesis. Install its requirements.txt when the repo ships
@@ -242,12 +216,7 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
     # faster-qwen3-tts is installed ALONGSIDE the stock clone so tts.qwen_fast
     # can be flipped either way on the same pod without a reinstall (the A/B is
     # the point). It needs torch>=2.5.1, which the cu121 line above provides.
-    qwen: "pip install -q --index-url https://download.pytorch.org/whl/cu121 torch torchaudio && { [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && { [ -f third_party/Qwen3-TTS/requirements.txt ] && pip install -q -r third_party/Qwen3-TTS/requirements.txt || pip install -q transformers; } && pip install -q -e third_party/Qwen3-TTS && pip install -q faster-qwen3-tts && python -c 'import qwen_tts, faster_qwen3_tts, torch; assert torch.cuda.is_available(), \"CPU-only torch in venvs/qwen: \"+torch.__version__; print(\"qwen ok, torch\", torch.__version__)'"
-    # IndexTTS-2 (en/zh; also powers emotion_from_source for en). Editable install
-    # makes `indextts` importable; checkpoints -> ./checkpoints (indextts_model_dir).
-    # pin: append `&& git -C third_party/index-tts checkout <SHA>` after the clone.
-    # huggingface_hub[cli] + huggingface-cli BOTH broke 2026-07-30: hf-hub 1.25.1 dropped the 'cli' extra, `huggingface-cli` is deprecated and "no longer works" (replaced by `hf`), and force-upgrading hf-hub to 1.25.1 broke transformers 4.52 and tokenizers 0.21, which both need huggingface-hub<1.0. Use the stable PYTHON api instead: no extra, no CLI name churn, no upgrade — transformers already pulls a compatible hf-hub.
-    indextts: "{ [ -d third_party/index-tts ] || git clone https://github.com/index-tts/index-tts third_party/index-tts; } && pip install -q -e third_party/index-tts && python -c 'from huggingface_hub import snapshot_download; snapshot_download(\"IndexTeam/IndexTTS-2\", local_dir=\"checkpoints\")' && python -c 'import indextts'"
+    qwen: "pip install -q --index-url https://download.pytorch.org/whl/cu121 torch torchaudio && { [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && git -C third_party/Qwen3-TTS checkout 022e286b98fbec7e1e916cb940cdf532cd9f488e && { [ -f third_party/Qwen3-TTS/requirements.txt ] && pip install -q -r third_party/Qwen3-TTS/requirements.txt || pip install -q transformers; } && pip install -q -e third_party/Qwen3-TTS && pip install -q faster-qwen3-tts==0.3.2 && python -c 'import qwen_tts, faster_qwen3_tts, torch; assert torch.cuda.is_available(), \"CPU-only torch in venvs/qwen: \"+torch.__version__; print(\"qwen ok, torch\", torch.__version__)'"
   # SAFETY: pod id persisted to work/.runpod_active.json on create; terminate
   # retries+verifies and only clears state on confirmation; an independent
   # pod-side watchdog self-destructs at the deadline even if this process dies;

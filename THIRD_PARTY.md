@@ -17,47 +17,14 @@ pipeline.engine_worker` from the project root — only the engine's own deps
 Pin the commit you validate on (record it below) — these repos move fast and
 their inference APIs drift; `pipeline/tts_engine.py` targets the APIs noted here.
 
-**PENDING — do this immediately after the first `dubadabidu remote setup-check`.**
-Both remaining snippets in `config.gpu.yaml` track HEAD (indextts, qwen), so the
-`Pinned commit:` lines below are still blank. setup-check reports which engines
-import; capture the revision each one resolved to and record it here, then
-append `&& git -C third_party/<repo> checkout <SHA>` to that engine's snippet
-(the `# pin:` line in config.gpu.yaml shows the exact edit).
+**PINNED 2026-07-31.** `config.gpu.yaml` checks out qwen at a fixed SHA and
+installs `faster-qwen3-tts==0.3.2`, so a bake-off verdict is now reproducible.
+Until this was done a re-run weeks later could clone different code and the
+numbers would move for reasons the scorecard cannot show — the protocol rests on
+"the eval harness decides", and an unpinned harness decides against a moving
+target.
 
-This is not cosmetic. Until it is done, a bake-off verdict is **not
-reproducible**: a re-run weeks later may clone different code, and the numbers
-would move for reasons the scorecard cannot show. The whole protocol rests on
-"the eval harness decides" — an unpinned harness decides against a moving
-target. Cost of doing it: zero. IMPROVEMENT_PLAN.md lists it under Standing
-risks.
-
-## IndexTTS-2 — EN + Mandarin only, dubbing-native (Apache-2.0)
-
-```bash
-# from the project root — its OWN venv; the pipeline auto-routes through it
-python3 -m venv venvs/indextts && . venvs/indextts/bin/activate
-pip install soundfile
-git clone https://github.com/index-tts/index-tts third_party/index-tts
-git -C third_party/index-tts checkout <PIN_COMMIT>
-pip install -e third_party/index-tts
-# download checkpoints into ./checkpoints (config.yaml + weights) per the repo
-```
-
-Config (`config.gpu.yaml` → `tts`): `indextts_model_dir` (holds `config.yaml`).
-- **Emotion transfer**: set `emotion_wav` to the source UA slice for a segment
-  to carry YOUR original delivery's emotion (disentangled from timbre);
-  `emo_alpha` (default 1.0) scales it. Or set `instruct_text` for a text emotion.
-- **Duration**: `indextts_duration_ratio` (0.75–1.25) native pace control.
-- Only `en` (and `zh`) are allowed; the adapter refuses other languages — route
-  them to qwen via `tts.engine_by_lang`.
-
-API used: `IndexTTS2(cfg_path, model_dir, use_fp16=True).infer(spk_audio_prompt,
-text, output_path, emo_audio_prompt=, emo_alpha=, use_emo_text=, emo_text=)`.
-Verify on the pinned commit; adjust `_synth_indextts` if the API differs.
-
-Pinned commit: `__________`  (fill after validation)
-
-## Removed engines — cosyvoice, voxcpm (cut 2026-07-31)
+## Removed engines — cosyvoice, voxcpm, indextts (cut 2026-07-31)
 
 Both adapters, install recipes, config blocks and tests were deleted. Git
 history has everything, including CosyVoice's full seven-cause failure log and
@@ -67,6 +34,18 @@ the validated-but-unused install recipe: `git show <this commit>^:THIRD_PARTY.md
   build recipe, then never produced a single take in seven runs. Removed because
   three working engines existed and it had consumed more pod time than all of
   them combined.
+- **IndexTTS-2** — the best measured mos on the roster (2.739 with per-segment
+  emotion transfer, vs qwen+fast's 2.112). Removed anyway: en/zh ONLY, so it
+  could never serve four of the five targets, and ~2x qwen's cost with no cheap
+  fix — [index-tts-vllm](https://github.com/Ksuriuri/index-tts-vllm) reports no
+  acceleration for IndexTTS-2's GPT and is a vLLM server rather than a library,
+  and [Faster IndexTTS-2](https://arxiv.org/html/2607.21042v1) (TensorRT-LLM) is
+  a paper, not a package. Its `emotion_from_source` machinery
+  (`with_source_emotion`, the `emo/` slice cutter, the pod-side pre-cut) went
+  with it — that was IndexTTS-2-only. CAVEAT: the measured "+0.346 mos from
+  emotion transfer" was never actually verified, because `seg/indextts/` and
+  `seg/indextts+emo/` turned out to hold identical files. Emotion transfer may
+  have been worth more, or nothing; we shipped without finding out.
 - **VoxCPM2** — worked well and was the ear's pick on 2026-07-30 (sim→real 0.804,
   the best of any engine). Removed because qwen+fast beat it on both speed
   (2.36 vs 2.92 s/take) and cost once qwen's kernel-launch bottleneck was fixed.
@@ -78,7 +57,7 @@ the validated-but-unused install recipe: `git show <this commit>^:THIRD_PARTY.md
 ## Qwen3-TTS — 10 languages incl. all 5 targets, 3 s clone (Apache-2.0)
 
 Alibaba's open-weights TTS (0.6B/1.7B), ~4 GB VRAM, released 2026-01-22.
-git-clone install like IndexTTS. Covers en/de/fr/es/ru (+ zh/ja/ko/
+git-clone install. Covers en/de/fr/es/ru (+ zh/ja/ko/
 pt/it). Ukrainian is not a supported language, so:
 - **x_vector_only_mode** (`tts.qwen_x_vector_only: true`, default) clones from
   the reference's speaker embedding ALONE — no ref transcript, the UA-ref path.
@@ -91,8 +70,9 @@ pt/it). Ukrainian is not a supported language, so:
 python3 -m venv venvs/qwen && . venvs/qwen/bin/activate
 pip install soundfile
 git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS
-git -C third_party/Qwen3-TTS checkout <PIN_COMMIT>
+git -C third_party/Qwen3-TTS checkout 022e286b98fbec7e1e916cb940cdf532cd9f488e
 pip install -e third_party/Qwen3-TTS
+pip install faster-qwen3-tts==0.3.2      # the CUDA-graph path (tts.qwen_fast)
 # flash-attn is CUDA-only and a heavy build — install it separately and set
 # tts.qwen_flash_attn: true only if you want it; the model runs without it:
 #   pip install -U flash-attn --no-build-isolation
@@ -108,7 +88,9 @@ API used: `Qwen3TTSModel.from_pretrained(model_id, device_map=, dtype=)`,
 `wavs[0]` numpy. Verify on the pinned commit; adjust `_synth_qwen` if the API
 differs.
 
-Pinned commit: `__________`  (fill after validation)
+Pinned commit: **`022e286b98fbec7e1e916cb940cdf532cd9f488e`** (2026-03-17, HEAD of
+`main` at validation — upstream had not moved in four months).
+faster-qwen3-tts: **`0.3.2`**.
 
 ### SPEED: qwen is kernel-launch bound (`tts.qwen_fast`)
 
@@ -185,6 +167,6 @@ setting `tts.engine_by_lang`.
 
 ## License hygiene (unchanged)
 
-IndexTTS-2 and Qwen3-TTS are Apache-2.0; faster-qwen3-tts is MIT (commercial OK).
+Qwen3-TTS is Apache-2.0; faster-qwen3-tts is MIT (commercial OK).
 XTTS-v2 (CPML) and Fish-Speech weights (CC-BY-NC) stay OUT. Verify any new
 candidate's license before first use.

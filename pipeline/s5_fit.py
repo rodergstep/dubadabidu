@@ -12,7 +12,7 @@ import soundfile as sf
 from . import manifest as M
 from .logic import choose_placement, retime_step
 from .s3_translate import shorten as llm_shorten
-from .tts_engine import synth_best_of, with_source_emotion
+from .tts_engine import synth_best_of
 
 log = logging.getLogger("dubadabidu.s5")
 
@@ -77,8 +77,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 u["start"], prev_end, next_start, drift_max,
                 0.0 if last else min_gap, hard_end=man["duration"])
             candidates = [tr["text"]] + tr.get("variants", [])
-            # same per-segment emotion prompt as s4, so variant hashes match
-            tu = with_source_emotion(t, wd, u, lang)
+            tu = t
 
             def seg_wav(text: str) -> Path:
                 h = M.synth_hash(text, lang, tu)

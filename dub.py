@@ -80,9 +80,6 @@ def doctor(cfg: dict) -> int:
     # through a worker there), otherwise in THIS venv (in-process).
     for eng, mod, hint in [
         ("chatterbox", "chatterbox", "pip install chatterbox-tts==0.1.7"),
-        ("indextts", "indextts",
-         "git clone index-tts/index-tts + checkpoints into its own venv "
-         "(THIRD_PARTY.md)"),
         ("qwen", "qwen_tts",
          "git clone QwenLM/Qwen3-TTS + pip install -e . in its own venv "
          "(THIRD_PARTY.md)"),

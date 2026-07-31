@@ -188,14 +188,6 @@ def synth_hash(text: str, lang: str, tts_cfg: dict) -> str:
     key_data = {"t": text, "l": lang, "ref": tts_cfg["reference_wav"],
                 "cfg": tts_cfg["cfg_weight"], "ex": tts_cfg["exaggeration"],
                 "engine": engine}
-    if engine == "indextts":  # emotion prompt / alpha / duration change output
-        if tts_cfg.get("emotion_wav"):
-            key_data["emo"] = tts_cfg["emotion_wav"]
-            key_data["ea"] = tts_cfg.get("emo_alpha", 1.0)
-        if tts_cfg.get("instruct_text"):
-            key_data["ins"] = tts_cfg["instruct_text"]
-        if tts_cfg.get("indextts_duration_ratio"):
-            key_data["dr"] = tts_cfg["indextts_duration_ratio"]
     if engine == "qwen":  # clone mode (+ ref transcript when used) change output
         x_only = bool(tts_cfg.get("qwen_x_vector_only", True)) \
             or not tts_cfg.get("reference_text")
