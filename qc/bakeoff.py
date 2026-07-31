@@ -81,9 +81,16 @@ def variant_key(engine: str, t: dict, lang: str) -> str:
 
     Only settings that materially change what the engine DOES earn a suffix."""
     from pipeline.manifest import resolve_engine
+    eng = resolve_engine(t, lang)
     suffix = ""
-    if t.get("emotion_from_source") and resolve_engine(t, lang) == "indextts":
+    if t.get("emotion_from_source") and eng == "indextts":
         suffix = "+emo"
+    # qwen_fast swaps the decode implementation (CUDA graphs). The whole point
+    # of the A/B is to see both rows AND keep both sets of audio for a listen —
+    # without a suffix the second run overwrites the first, which is the exact
+    # failure this function was written for.
+    if t.get("qwen_fast") and eng == "qwen":
+        suffix = "+fast"
     return engine + suffix
 
 
