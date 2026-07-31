@@ -94,6 +94,12 @@ def variant_key(engine: str, t: dict, lang: str) -> str:
     # must survive for the ear to arbitrate.
     if eng == "qwen" and t.get("qwen_x_vector_only") is False:
         suffix += "+icl"
+    # model SIZE changes what the engine is, not how it is configured. Without
+    # this a 0.6B run overwrites the 1.7B row and its audio — the same failure
+    # that cost us the plain-indextts recordings and nearly cost the
+    # qwen fast-vs-stock comparison.
+    if eng == "qwen" and "0.6B" in str(t.get("qwen_model_dir", "")):
+        suffix += "+0.6B"
     return engine + suffix
 
 

@@ -1,0 +1,32 @@
+# EXPERIMENT: ICL clone vs x_vector_only.  Stack on config.gpu.yaml:
+#   dubadabidu remote bakeoff <video> --langs en --reuse --keep-alive \
+#     --overlay config.gpu.yaml --overlay config.exp.icl.yaml
+#
+# WHY: sim→real is qwen's weakest metric (0.614; voxcpm managed 0.804 before it
+# was cut). x_vector_only extracts a speaker EMBEDDING and nothing else. Passing
+# the reference transcript switches on full ICL — ref audio *and* its text in
+# context — which upstream documents as measurably better speaker similarity.
+#
+# WHY IT WAS RULED OUT BEFORE, AND WHY THAT WAS TOO QUICK: Ukrainian is not one
+# of Qwen3-TTS's 10 synthesis languages. But the reference transcript only has to
+# be TOKENIZED, not synthesized, and Qwen3's tokenizer handles Cyrillic. The real
+# risk is accent bleed — UA prosody leaking into the English output — which is
+# exactly what x_vector mode is documented to avoid. So this is a genuine A/B
+# with a plausible downside, not a free win, and the ear arbitrates: variant_key
+# gives it its own "+icl" row so both audio sets survive.
+#
+# reference_text MUST match reference_wav exactly — a mismatched transcript
+# degrades cloning, which would make this test read as "ICL is worse" when it
+# only means "we passed the wrong text". These come from work/sketch60/refs.json.
+# EDIT BOTH LINES TOGETHER to whichever reference the sweep picked.
+tts:
+  qwen_x_vector_only: false
+  reference_wav: ref/sketch60_ref_02.wav
+  reference_text: "Зараз я трошки пропрацьовую дерево, щоб воно було більш завершеним і знову ж таки треба стримувати, щоб не перепрацювати його,"
+
+bakeoff:
+  tune:
+    enabled: false        # the reference is fixed here on purpose: this run
+                          # tests ONE axis (clone mode) against the sweep winner.
+  grids:
+    qwen: {}              # drop the sweep grid so nothing re-sweeps refs
