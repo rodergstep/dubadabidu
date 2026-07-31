@@ -154,13 +154,19 @@ def _tune_engine(engine: str, base_t: dict, subset: list[dict], lang: str,
     return its best. Scored on cosine to the REAL UA voice, MOS, and f0
     liveliness.
 
-    f0st was ADDED 2026-08-01 after the objective picked against it. The score
-    was sim+mos only — the adoption gate's two axes — and the first sweep to
-    range over references duly chose the most MONOTONE clip we own (f0st 2.13
-    of 2.13-2.84), because a flat reference reads as clean and on-voice. The
-    comparison row's f0st fell 2.874 -> 2.404 as a result. Monotony is a
-    standing ear complaint and tts.min_f0st exists precisely to defend it, so
-    an objective blind to it was optimizing the wrong thing.
+    f0st was ADDED 2026-08-01. The score was sim+mos only — the adoption gate's
+    two axes — which left tts.min_f0st, a production floor that take selection
+    DOES enforce, invisible to the thing choosing what we ship. A tuned point
+    could therefore be one s4 would later reject.
+
+    The original justification was wrong and is corrected here so it is not
+    repeated: the first reference sweep was accused of picking the most monotone
+    clip we own (f0st 2.13 of 2.13-2.84). Re-running with f0st measured showed
+    that clip produces the HIGHEST output liveliness (2.76) — reference f0st and
+    output f0st are inversely ordered across our whole reference set, so
+    "expressive reference -> expressive output" is false for this voice. The
+    winner did not change under the new objective, and in that sweep no point
+    fell under the floor at all.
 
     Two mechanisms, mirroring how take selection already treats f0:
       FLOOR   — points under min_f0st are disqualified, unless EVERY point is
@@ -535,13 +541,13 @@ def _tuning_section(tuning: dict, engines: list) -> list[str]:
            "Every engine sweeps its own grid (bakeoff.grids) BEFORE the "
            "comparison and enters at its winner, scored on "
            "0.4*normalized mos + 0.35*sim→real + 0.25*normalized f0st, with "
-           "points under tts.min_f0st disqualified outright. f0st was added "
-           "2026-08-01: on sim+mos alone the first reference sweep picked the "
-           "most MONOTONE clip available (a flat reference reads as clean and "
-           "on-voice) and the comparison's f0st fell 2.87 -> 2.40. A "
-           "single-point grid means 'already tuned, nothing to sweep' and "
-           "costs nothing. Widen a grid in config to re-open an engine's "
-           "parameters.", "",
+           "points under tts.min_f0st disqualified outright. f0st joined the "
+           "objective 2026-08-01 so that tuning cannot pick a point take "
+           "selection would later reject on the monotony floor. Scores are "
+           "means over a small subset — compare the spread against the "
+           "comparison's mos± before believing an ordering. A single-point "
+           "grid means 'already tuned, nothing to sweep' and costs nothing. "
+           "Widen a grid in config to re-open an engine's parameters.", "",
            "| engine | points | ran at | sim→real | mos | f0st |",
            "|---|---|---|---|---|---|"]
     for e in engines:
