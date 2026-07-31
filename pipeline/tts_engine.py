@@ -39,7 +39,7 @@ is decided by the bake-off (qc/bakeoff.py), not by reputation.
 from __future__ import annotations
 import asyncio, logging, subprocess
 from pathlib import Path
-from .device import torch_device
+from .device import torch_device, require_gpu
 from .manifest import resolve_engine
 from .text_norm import normalize_for_tts, localize_numbers
 
@@ -263,7 +263,10 @@ def _load_qwen(t: dict):
                 "https://github.com/QwenLM/Qwen3-TTS (pin the commit), "
                 "pip install -e . (add flash-attn only on CUDA). See "
                 f"THIRD_PARTY.md. ({e})")
-        dev = torch_device()
+        # NOT torch_device() — a CPU-only torch in venvs/qwen used to degrade
+        # silently to fp32-on-CPU at 126 s/take (vs 2.9 s for voxcpm on the same
+        # pod). require_gpu turns that into a loud install error.
+        dev = require_gpu("qwen", bool(t.get("allow_cpu_fallback", False)))
         model_id = t.get("qwen_model_dir", "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
         kw = {"device_map": "cuda:0" if dev == "cuda" else dev,
               "dtype": torch.bfloat16 if dev == "cuda" else torch.float32}
@@ -299,15 +302,30 @@ def _synth_qwen(text: str, lang: str, out: Path, t: dict) -> None:
     """Qwen3-TTS Base voice clone. Covers all 5 targets; UA ref cloned via the
     speaker-embedding-only path (see _qwen_clone_prompt). Returns (wavs, sr)."""
     import soundfile as sf
+    import time
     ref = t["reference_wav"]
     if not Path(ref).exists():
         raise FileNotFoundError(f"reference_wav not found: {ref}")
+    # attribute the wall-clock: load (once) / prompt (once per ref) / generate
+    # (every call). The bake-off's s_take is a median over takes, so only
+    # `gen` recurs — but the split is what says whether a slow run is a slow
+    # model or a cold start.
+    t0 = time.perf_counter()
     m = _load_qwen(t)
+    t1 = time.perf_counter()
     prompt = _qwen_clone_prompt(m, t)
+    t2 = time.perf_counter()
     wavs, sr = m.generate_voice_clone(
         text=text, language=QWEN_LANGS.get(lang, "Auto"),
         voice_clone_prompt=prompt)
+    t3 = time.perf_counter()
     sf.write(str(out), wavs[0], sr)
+    dur = len(wavs[0]) / float(sr)
+    # RTF = generate seconds per second of audio produced. Device-independent,
+    # so it compares across engines and pods where raw s/take cannot.
+    log.info("qwen timing: load=%.2fs prompt=%.2fs gen=%.2fs audio=%.2fs "
+             "RTF=%.2f chars=%d", t1 - t0, t2 - t1, t3 - t2, dur,
+             (t3 - t2) / dur if dur else float("nan"), len(text))
 
 
 def release_models() -> None:
