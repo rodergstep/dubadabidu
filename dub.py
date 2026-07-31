@@ -80,14 +80,9 @@ def doctor(cfg: dict) -> int:
     # through a worker there), otherwise in THIS venv (in-process).
     for eng, mod, hint in [
         ("chatterbox", "chatterbox", "pip install chatterbox-tts==0.1.7"),
-        ("cosyvoice", "cosyvoice",
-         "git clone --recursive FunAudioLLM/CosyVoice into its own venv "
-         "(THIRD_PARTY.md)"),
         ("indextts", "indextts",
          "git clone index-tts/index-tts + checkpoints into its own venv "
          "(THIRD_PARTY.md)"),
-        ("voxcpm", "voxcpm",
-         "pip install voxcpm==2.0.3 in its own venv (THIRD_PARTY.md)"),
         ("qwen", "qwen_tts",
          "git clone QwenLM/Qwen3-TTS + pip install -e . in its own venv "
          "(THIRD_PARTY.md)"),
@@ -156,7 +151,7 @@ def preamble(cfg: dict, video: str, langs: list[str]) -> None:
     over = {"reference_wav": win["reference_wav"]}
     refs = json.loads((wd / "refs.json").read_text(encoding="utf-8"))
     rt = refs.get(Path(win["reference_wav"]).name, {}).get("text_uk", "")
-    if rt:  # ref transcript — required by the cosyvoice engine
+    if rt:  # ref transcript (prep fills refs.json; UA-ref paths skip it)
         over["reference_text"] = rt
     man["tts_overrides"] = over
     M.save(cfg, video, man)

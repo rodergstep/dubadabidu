@@ -67,7 +67,7 @@ DEFAULTS = {
     # (venvs/<engine>, created by engine_install_cmd — the incumbent's .venv is
     # untouchable by construction); empty => that engine is marked unavailable
     # and skipped. Fill with PINNED commands once validated.
-    "engine_setup": {},           # e.g. {"cosyvoice": "git clone ... && pip install ..."}
+    "engine_setup": {},           # e.g. {"qwen": "git clone ... && pip install ..."}
 }
 
 
@@ -574,8 +574,8 @@ def apt_setup(with_ffmpeg: bool = True) -> str:
 
 # faster-whisper short name -> import module, for the engines the bake-off/run
 # may need on the pod. edge is CPU/PyPI (no git-clone) so it's not probed here.
-ENGINE_MODULE = {"chatterbox": "chatterbox", "cosyvoice": "cosyvoice",
-                 "indextts": "indextts", "voxcpm": "voxcpm", "qwen": "qwen_tts"}
+ENGINE_MODULE = {"chatterbox": "chatterbox", "indextts": "indextts",
+                 "qwen": "qwen_tts"}
 
 # installed into every engine venv alongside the snippet: soundfile because
 # the voxcpm/qwen adapters write via sf and not every engine's own requirements
@@ -741,7 +741,7 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
                     timeout=1800) != 0:
             raise RuntimeError("remote setup failed: dependency install error "
                                "OR CUDA unavailable (check the log's CUDA: line)")
-        # 2.5 git-clone engines (cosyvoice/indextts/qwen) must be installed on the
+        # 2.5 git-clone engines (indextts/qwen) must be installed on the
         # pod before the task runs. The bake-off lists them explicitly; run and
         # autopilot need whatever engine_by_lang routes the requested langs to
         # (e.g. en -> indextts for emotion_from_source). chatterbox/edge need no
@@ -878,8 +878,8 @@ def _require_something_to_validate(engines: list, probe_engines: list) -> None:
         raise SystemExit(
             f"bakeoff.engines is {engines} — only the incumbent, which "
             f"REMOTE_SETUP installs on every run anyway. setup-check exists to "
-            f"validate the git-clone CHALLENGERS (cosyvoice/indextts/voxcpm/"
-            f"qwen); add them to bakeoff.engines first.")
+            f"validate the git-clone CHALLENGERS (indextts/qwen); add "
+            f"them to bakeoff.engines first.")
     if not any(has_snippet for _, _, has_snippet in probe_engines):
         missing = [e for e, _, has_snippet in probe_engines if not has_snippet]
         raise SystemExit(

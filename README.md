@@ -39,7 +39,7 @@ there, re-run from s4, and only the changed segments are re-synthesized (content
 | whisperx | 3.8.6 | optional, word-level alignment for tighter subs |
 | audio-separator | 0.30.2 | BS-RoFormer separation; numpy<2 ceiling (chatterbox), install WITH pins (requirements.txt) |
 | demucs | 4.1.0 | fallback backend, model `htdemucs` |
-| voxcpm | 2.0.3 | VoxCPM2 bake-off engine (GPU); install WITH pins (THIRD_PARTY.md) |
+| faster-qwen3-tts | latest | CUDA-graph decode for qwen (GPU); 5.9x measured (THIRD_PARTY.md) |
 | qwen_tts | git-clone | Qwen3-TTS bake-off engine (GPU); Apache-2.0, ~4 GB VRAM (THIRD_PARTY.md) |
 | edge-tts | 7.2.8 | free fallback voices (no cloning) |
 | openai SDK | 2.45.0 | universal client → DeepSeek / OpenAI / LM Studio / Ollama via `base_url` |

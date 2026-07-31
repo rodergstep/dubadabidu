@@ -4,33 +4,26 @@ go through synthesize() so caching and device handling live in one place.
 Engines:
   chatterbox — chatterbox-tts 0.1.7, Multilingual v3 weights from HF (MIT).
                cfg_weight=0.0 mandatory for Ukrainian reference -> other targets.
-  cosyvoice  — CosyVoice 2/3 (Apache-2.0). Covers all 5 targets + cross-lingual
-               cloning. cosyvoice_mode picks the inference path:
-                 cross_lingual — audio prompt ONLY, no ref transcript. The path
-                   for a Ukrainian ref (UA is not a CosyVoice-supported language,
-                   so its transcript can't be tokenized — cross-lingual clones
-                   timbre from the audio alone).
-                 zero_shot     — ref audio + ref transcript (reference_text).
-                 instruct      — ref audio + a natural-language style/emotion
-                   instruction (instruct_text) — per-segment prosody without any
-                   custom modulation code. Also transcript-free (UA-ref safe).
   indextts   — IndexTTS-2 (Apache-2.0). EN + Mandarin ONLY (guarded). Built for
                dubbing: DISENTANGLED emotion (a separate emotion_wav prompt — set
                it to the source UA slice for real per-segment prosody transfer)
                and duration control. English-track challenger.
-  voxcpm     — VoxCPM2 (Apache-2.0, pip `voxcpm`). 2B, 30 languages auto-detected
-               (covers all 5 targets; UA is NOT among them — clone from the ref
-               audio alone, transcript-free). 48 kHz output, ~8 GB VRAM. Style
-               control via instruct_text -> the "(...)" text prefix it parses.
   qwen       — Qwen3-TTS 12Hz Base (Apache-2.0, git-clone `qwen_tts`). 0.6B/1.7B,
                10 languages incl. all 5 targets, 3 s clone, ~4 GB VRAM. UA ref
                -> x_vector_only_mode (speaker embedding only, no ref transcript).
                The reusable clone prompt is built once per ref and cached.
+               tts.qwen_fast routes through faster-qwen3-tts (CUDA graphs) —
+               measured 14.0 -> 2.36 s/take, the PRODUCTION default.
   edge       — edge-tts 7.2.8, free MS neural voices, CPU-only, no cloning.
 
-The cosyvoice/indextts backends are GPU-only git-clone installs — see
-THIRD_PARTY.md. They fail with an actionable FileNotFoundError (which
-synthesize() re-raises without retry) when their package isn't importable.
+REMOVED 2026-07-31 (git history has them): cosyvoice never produced audio in
+seven attempts, and voxcpm lost the bake-off to qwen+fast on both speed and
+cost once qwen's kernel-launch bottleneck was fixed. Restoring either means
+reverting this commit, not rewriting the adapter.
+
+The indextts backend is a GPU-only git-clone install — see THIRD_PARTY.md. It
+fails with an actionable FileNotFoundError (which synthesize() re-raises
+without retry) when its package isn't importable.
 
 Per-language routing: tts.engine_by_lang maps a language to an engine,
 falling back to tts.engine (manifest.resolve_engine). The winning assignment
@@ -46,9 +39,7 @@ from .text_norm import normalize_for_tts, localize_numbers
 log = logging.getLogger("dubadabidu.tts")
 INDEXTTS_LANGS = {"en", "zh"}   # IndexTTS-2 native coverage; others need finetune
 _chatterbox_model = None
-_cosyvoice_model = None
 _indextts_model = None
-_voxcpm_model = None
 _qwen_model = None
 _qwen_prompt = None   # (cache_key, prompt_items) — reused across all segments
 QWEN_LANGS = {"en": "English", "fr": "French", "de": "German",
@@ -85,92 +76,6 @@ def _synth_chatterbox(text: str, lang: str, out: Path, t: dict) -> None:
     ta.save(str(out), wav, m.sr)
 
 
-def _load_cosyvoice(model_dir: str):
-    """Pick the loader class that matches the WEIGHTS on disk, not the newest one
-    the installed repo happens to expose.
-
-    The old heuristic imported CosyVoice3 when available and fell back to
-    CosyVoice2 only on ImportError. Current checkouts ship BOTH classes, so it
-    always chose CosyVoice3 — which then demanded cosyvoice3.yaml from a
-    CosyVoice2-0.5B model dir and died with
-    `ValueError: .../cosyvoice3.yaml not found!` (measured on a pod 2026-07-30).
-    The class is a property of the checkpoint, so probe the config file: each
-    release names it cosyvoice<N>.yaml. Falls back to whatever imports, which
-    keeps a hand-placed model dir working."""
-    global _cosyvoice_model
-    if _cosyvoice_model is None:
-        import importlib
-        mod = importlib.import_module("cosyvoice.cli.cosyvoice")
-        _CV = None
-        for n in (3, 2):
-            if (Path(model_dir) / f"cosyvoice{n}.yaml").exists():
-                _CV = getattr(mod, f"CosyVoice{n}", None)
-                if _CV is not None:
-                    log.info("CosyVoice%d weights detected in %s", n, model_dir)
-                    break
-        if _CV is None:   # no recognisable config — try newest importable class
-            _CV = (getattr(mod, "CosyVoice3", None)
-                   or getattr(mod, "CosyVoice2", None)
-                   or getattr(mod, "CosyVoice"))
-            log.warning("no cosyvoice{2,3}.yaml in %s — falling back to %s",
-                        model_dir, _CV.__name__)
-        log.info("loading %s from %s ...", _CV.__name__, model_dir)
-        _cosyvoice_model = _CV(model_dir)
-    return _cosyvoice_model
-
-
-def _cosyvoice_mode(t: dict) -> str:
-    """Which CosyVoice inference path. Default cross_lingual: the reference is
-    Ukrainian (not a CosyVoice-supported language), so its transcript can't be
-    tokenized — clone timbre from the audio alone. auto upgrades to instruct
-    when an instruct_text is present, or zero_shot when a ref transcript is."""
-    mode = t.get("cosyvoice_mode", "cross_lingual")
-    if mode != "auto":
-        return mode
-    if t.get("instruct_text"):
-        return "instruct"
-    return "zero_shot" if t.get("reference_text") else "cross_lingual"
-
-
-def _synth_cosyvoice(text: str, lang: str, out: Path, t: dict) -> None:
-    """CosyVoice 2/3 cloning. Mode-dependent (see _cosyvoice_mode); the default
-    cross_lingual path needs the ref audio only — the right choice for a
-    Ukrainian reference. GPU-first: expected to run on the RunPod box."""
-    import torch
-    import torchaudio as ta
-    try:
-        from cosyvoice.utils.file_utils import load_wav  # type: ignore
-    except ImportError as e:
-        raise FileNotFoundError(
-            "cosyvoice package not importable — git clone --recursive "
-            "https://github.com/FunAudioLLM/CosyVoice (pin the commit), install "
-            "its requirements, and add it to PYTHONPATH. See THIRD_PARTY.md. "
-            f"({e})")
-    ref = t["reference_wav"]
-    if not Path(ref).exists():
-        raise FileNotFoundError(f"reference_wav not found: {ref}")
-    m = _load_cosyvoice(t.get("cosyvoice_model_dir",
-                              "pretrained_models/CosyVoice2-0.5B"))
-    prompt = load_wav(ref, 16000)
-    mode = _cosyvoice_mode(t)
-    if mode == "zero_shot":
-        ref_text = t.get("reference_text", "")
-        if not ref_text:
-            raise FileNotFoundError(
-                "cosyvoice_mode=zero_shot needs tts.reference_text (the ref "
-                "transcript; `dubadabidu prep` writes refs.json). A Ukrainian "
-                "ref cannot be tokenized here — use cosyvoice_mode=cross_lingual.")
-        gen = m.inference_zero_shot(text, ref_text, prompt, stream=False)
-    elif mode == "instruct":
-        instruct = t.get("instruct_text") or "Speak naturally."
-        # instruct2: prompt speech + a style/emotion instruction, transcript-free
-        gen = m.inference_instruct2(text, instruct, prompt, stream=False)
-    else:  # cross_lingual — audio prompt only, UA-ref safe
-        gen = m.inference_cross_lingual(text, prompt, stream=False)
-    chunks = [r["tts_speech"] for r in gen]
-    ta.save(str(out), torch.cat(chunks, dim=1), m.sample_rate)
-
-
 def _load_indextts(model_dir: str):
     global _indextts_model
     if _indextts_model is None:
@@ -196,8 +101,8 @@ def _synth_indextts(text: str, lang: str, out: Path, t: dict) -> None:
     if lang not in INDEXTTS_LANGS:
         raise FileNotFoundError(
             f"indextts engine does not support '{lang}' (native: "
-            f"{sorted(INDEXTTS_LANGS)}). Route {lang} to chatterbox/cosyvoice "
-            f"via tts.engine_by_lang.")
+            f"{sorted(INDEXTTS_LANGS)}). Route {lang} to qwen via "
+            f"tts.engine_by_lang.")
     ref = t["reference_wav"]
     if not Path(ref).exists():
         raise FileNotFoundError(f"reference_wav not found: {ref}")
@@ -214,41 +119,6 @@ def _synth_indextts(text: str, lang: str, out: Path, t: dict) -> None:
     if t.get("indextts_duration_ratio"):   # global 0.75-1.25x pace control
         kw["duration_ratio"] = float(t["indextts_duration_ratio"])
     m.infer(**kw)   # writes output_path itself
-
-
-def _load_voxcpm(model_dir: str):
-    global _voxcpm_model
-    if _voxcpm_model is None:
-        try:
-            from voxcpm import VoxCPM  # type: ignore
-        except ImportError as e:
-            raise FileNotFoundError(
-                "voxcpm package not importable — on the torch-2.6 stack install "
-                "it WITH pins: pip install voxcpm==2.0.3 torchcodec==0.2.1 "
-                "torch==2.6.0 torchaudio==2.6.0 'numpy<2'. See THIRD_PARTY.md. "
-                f"({e})")
-        log.info("loading VoxCPM2 from %s ...", model_dir)
-        _voxcpm_model = VoxCPM.from_pretrained(model_dir, load_denoiser=False)
-    return _voxcpm_model
-
-
-def _synth_voxcpm(text: str, lang: str, out: Path, t: dict) -> None:
-    """VoxCPM2 cloning from the reference audio ALONE (reference_wav_path) —
-    Ukrainian is not among its 30 languages, so the transcript-based 'ultimate
-    cloning' mode (prompt_wav_path + prompt_text) is unusable with a UA ref.
-    Language of `text` is auto-detected; no seed is passed so best_of takes
-    vary. instruct_text becomes the "(...)" style prefix VoxCPM2 parses."""
-    import soundfile as sf
-    ref = t["reference_wav"]
-    if not Path(ref).exists():
-        raise FileNotFoundError(f"reference_wav not found: {ref}")
-    m = _load_voxcpm(t.get("voxcpm_model_dir", "openbmb/VoxCPM2"))
-    if t.get("instruct_text"):
-        text = f"({t['instruct_text']})" + text
-    wav = m.generate(text=text, reference_wav_path=ref,
-                     cfg_value=float(t.get("voxcpm_cfg_value", 2.0)),
-                     inference_timesteps=int(t.get("voxcpm_timesteps", 10)))
-    sf.write(str(out), wav, m.tts_model.sample_rate)
 
 
 def _load_qwen(t: dict):
@@ -366,12 +236,11 @@ def release_models() -> None:
     """Drop every in-process engine singleton and flush the CUDA cache. The
     bake-off switches engines sequentially and pairs this with
     engine_client.shutdown(engine); without both, models accumulate in VRAM
-    (chatterbox ~7 GB + voxcpm ~8 GB) and a 16 GB card OOMs mid-comparison.
+    (chatterbox ~7 GB + indextts) and a 16 GB card OOMs mid-comparison.
     The next synthesize() through a released engine just reloads it."""
-    global _chatterbox_model, _cosyvoice_model, _indextts_model, \
-        _voxcpm_model, _qwen_model, _qwen_prompt
-    _chatterbox_model = _cosyvoice_model = _indextts_model = None
-    _voxcpm_model = _qwen_model = _qwen_prompt = None
+    global _chatterbox_model, _indextts_model, _qwen_model, _qwen_prompt
+    _chatterbox_model = _indextts_model = None
+    _qwen_model = _qwen_prompt = None
     try:
         import torch
         if torch.cuda.is_available():
@@ -686,8 +555,7 @@ def synthesize(text: str, lang: str, out: Path, tts_cfg: dict,
     with the same input often fixes it — final quality gate is qc/backcheck)."""
     out.parent.mkdir(parents=True, exist_ok=True)
     engine = resolve_engine(tts_cfg, lang)
-    fn = {"chatterbox": _synth_chatterbox, "cosyvoice": _synth_cosyvoice,
-          "indextts": _synth_indextts, "voxcpm": _synth_voxcpm,
+    fn = {"chatterbox": _synth_chatterbox, "indextts": _synth_indextts,
           "qwen": _synth_qwen, "edge": _synth_edge}[engine]
     # per-engine venv isolation (engine_client): when this engine has its own
     # venv (venvs/<engine> or tts.engine_venvs), synthesize through its worker

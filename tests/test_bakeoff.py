@@ -1,5 +1,4 @@
 from pipeline.manifest import synth_hash
-from pipeline.tts_engine import _cosyvoice_mode
 from qc.bakeoff import beats_incumbent
 
 
@@ -38,45 +37,12 @@ def test_wer_veto_skipped_when_absent():
     assert beats_incumbent({"sim": 0.76, "mos": 4.6}, inc)  # gates on sim+mos only
 
 
-# --- cosyvoice mode resolution ---
-
-def test_cosyvoice_default_cross_lingual():
-    assert _cosyvoice_mode({}) == "cross_lingual"
-
-
-def test_cosyvoice_auto_picks_instruct_then_zeroshot():
-    assert _cosyvoice_mode({"cosyvoice_mode": "auto",
-                            "instruct_text": "warmly"}) == "instruct"
-    assert _cosyvoice_mode({"cosyvoice_mode": "auto",
-                            "reference_text": "hi"}) == "zero_shot"
-    assert _cosyvoice_mode({"cosyvoice_mode": "auto"}) == "cross_lingual"
-
-
-def test_cosyvoice_explicit_mode_wins():
-    assert _cosyvoice_mode({"cosyvoice_mode": "zero_shot"}) == "zero_shot"
-
-
 # --- cache keying: new engine params must change the hash, chatterbox unchanged ---
 
 def test_chatterbox_hash_stable():
     a = synth_hash("hello", "en", _tts())
     b = synth_hash("hello", "en", _tts())
     assert a == b
-
-
-def test_cosyvoice_mode_changes_hash():
-    cl = synth_hash("hi", "en", _tts(engine="cosyvoice",
-                                     cosyvoice_mode="cross_lingual"))
-    zs = synth_hash("hi", "en", _tts(engine="cosyvoice",
-                                     cosyvoice_mode="zero_shot"))
-    assert cl != zs
-
-
-def test_cosyvoice_instruct_changes_hash():
-    plain = synth_hash("hi", "en", _tts(engine="cosyvoice"))
-    inst = synth_hash("hi", "en", _tts(engine="cosyvoice",
-                                       instruct_text="sadly"))
-    assert plain != inst
 
 
 def test_indextts_emotion_changes_hash():

@@ -46,6 +46,13 @@ MOS + the ear before adoption.
 
 ## Phase C — TTS bake-off: Chatterbox v3 vs CosyVoice 3 (per language)
 
+> **RESOLVED 2026-07-31.** The bake-off ran and the roster was cut to **qwen
+> (production, all 5 languages) + indextts (en/zh, kept for disentangled
+> emotion)**. cosyvoice never produced audio in seven attempts; voxcpm lost to
+> qwen+fast on speed and cost. The plan below is kept as the record of how the
+> decision was reached — see THIRD_PARTY.md for the current roster and the
+> removal caveats.
+
 - [ ] Add a `cosyvoice` engine to `pipeline/tts_engine.py` behind the same
       `synthesize()` interface. CosyVoice3 zero-shot cloning needs reference
       audio **plus its transcript** — we have both for free (video-donated ref

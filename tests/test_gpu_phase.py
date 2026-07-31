@@ -18,8 +18,8 @@ def test_deep_merge_nested_and_replace():
 
 def test_resolve_engine_default_and_override():
     assert resolve_engine(TTS, "en") == "chatterbox"
-    t = dict(TTS, engine_by_lang={"fr": "cosyvoice"})
-    assert resolve_engine(t, "fr") == "cosyvoice"
+    t = dict(TTS, engine_by_lang={"fr": "qwen"})
+    assert resolve_engine(t, "fr") == "qwen"
     assert resolve_engine(t, "en") == "chatterbox"
 
 
@@ -32,16 +32,12 @@ def test_synth_hash_stable_without_new_features():
     assert old_style == new_style
 
 
-def test_synth_hash_changes_with_override_and_ref_text():
+def test_synth_hash_changes_with_engine_override():
     base = synth_hash("hello", "fr", TTS)
-    routed = synth_hash("hello", "fr", dict(TTS, engine_by_lang={"fr": "cosyvoice"},
-                                            reference_text="привіт"))
+    routed = synth_hash("hello", "fr", dict(TTS, engine_by_lang={"fr": "qwen"}))
     assert base != routed
-    # for cosyvoice, a different reference transcript is a different output
-    other_rt = synth_hash("hello", "fr", dict(TTS, engine_by_lang={"fr": "cosyvoice"},
-                                              reference_text="інший текст"))
-    assert routed != other_rt
-    # but reference_text must NOT affect non-cosyvoice engines
+    # reference_text reaches no surviving engine's key (the UA ref cannot be
+    # tokenized by any of them), so it must not perturb a hash
     assert synth_hash("hello", "en", dict(TTS, reference_text="x")) == \
         synth_hash("hello", "en", TTS)
 
@@ -51,18 +47,18 @@ def test_synth_hash_changes_with_override_and_ref_text():
 def test_isolated_python_convention_and_override(tmp_path):
     from pipeline.engine_client import isolated_python
     # no venv anywhere -> in-process (the local Mac path, unchanged)
-    assert isolated_python("cosyvoice", {}, root=tmp_path) is None
+    assert isolated_python("qwen", {}, root=tmp_path) is None
     # convention: venvs/<engine>/bin/python under the root -> isolated
-    py = tmp_path / "venvs" / "cosyvoice" / "bin" / "python"
+    py = tmp_path / "venvs" / "qwen" / "bin" / "python"
     py.parent.mkdir(parents=True)
     py.touch()
-    assert isolated_python("cosyvoice", {}, root=tmp_path) == py
+    assert isolated_python("qwen", {}, root=tmp_path) == py
     # explicit tts.engine_venvs override wins over the convention
     over = tmp_path / "elsewhere"
     (over / "bin").mkdir(parents=True)
     (over / "bin" / "python").touch()
-    t = {"engine_venvs": {"cosyvoice": str(over)}}
-    assert isolated_python("cosyvoice", t, root=tmp_path) == \
+    t = {"engine_venvs": {"qwen": str(over)}}
+    assert isolated_python("qwen", t, root=tmp_path) == \
         over / "bin" / "python"
 
 

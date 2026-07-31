@@ -35,7 +35,7 @@ wer (an intelligibility VETO) — or ties and wins the ear on the HTML page. pac
 is reported, not gated (s5 retimes within limits). French additionally needs a
 native-speaker listen.
 
-Engines that aren't installed (cosyvoice/indextts are GPU-only git-clone deps)
+Engines that aren't installed (indextts/qwen are GPU-only git-clone deps)
 are reported as unavailable and skipped, so a partial bake-off still runs.
 """
 from __future__ import annotations
@@ -97,10 +97,7 @@ def variant_key(engine: str, t: dict, lang: str) -> str:
 def _engine_cfg(base_tts: dict, engine: str) -> dict:
     """tts config for one candidate: base (merged with the video's tts_overrides
     by the caller) + engine + that engine's defaults."""
-    t = {**base_tts, "engine": engine, "engine_by_lang": {}}
-    if engine == "cosyvoice":
-        t.setdefault("cosyvoice_mode", "cross_lingual")  # UA-ref safe default
-    return t
+    return {**base_tts, "engine": engine, "engine_by_lang": {}}
 
 
 # Per-engine tune-lite grids. Only knobs that change a single take's OUTPUT
@@ -110,9 +107,8 @@ def _engine_cfg(base_tts: dict, engine: str) -> dict:
 # selection policy, and every engine gets the same selection downstream.
 #
 # Everything here is UA-REFERENCE SAFE. Modes needing a target-language ref
-# transcript are excluded on purpose: cosyvoice zero_shot and qwen's full
-# clone mode cannot tokenize a Ukrainian ref (see tts_engine), so sweeping
-# them would only produce failures.
+# transcript are excluded on purpose: qwen's full clone mode cannot tokenize a
+# Ukrainian ref (see tts_engine), so sweeping it would only produce failures.
 #
 # A single-point grid means "already tuned, nothing to sweep" and costs nothing:
 #   chatterbox — cfg_weight is FIXED at the config value (0.0 is mandatory for a
@@ -130,18 +126,6 @@ def _engine_cfg(base_tts: dict, engine: str) -> dict:
 #     since it would hand indextts an input the other engines can't use.
 ENGINE_GRIDS: dict[str, dict[str, list]] = {
     "chatterbox": {},
-    "cosyvoice": {"cosyvoice_mode": ["cross_lingual"]},
-    # voxcpm_timesteps DROPPED from the sweep 2026-07-30: measured on sketch60/en
-    # it is noise. At ts=20 the mos went 2.36 / 2.05 / 2.19 across cfg with no
-    # pattern, ts=10 won at two of three cfg levels, and doubling the diffusion
-    # steps bought nothing while costing time. Fixed at the 10 default below.
-    # cfg_value keeps three levels but they are now spent on TAKES instead of a
-    # second axis — see bakeoff.tune.takes. Same synth budget, twice the samples
-    # per point, because the first sweep could not resolve its own winner:
-    # it picked cfg=2.5 on mos 2.515, and the larger comparison sample measured
-    # 2.382 at that very config — indistinguishable from the cfg=2.0 default's
-    # 2.389, with take-to-take mos± of 0.374 against a grid spread of only 0.46.
-    "voxcpm": {"voxcpm_cfg_value": [2.0, 2.5, 3.0]},
     "qwen": {},
     "indextts": {},
     "edge": {},
@@ -252,7 +236,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     from qc.review_page import _ua_slice
 
     bcfg = cfg.get("bakeoff", {})
-    engines = bcfg.get("engines", [INCUMBENT, "cosyvoice"])
+    engines = bcfg.get("engines", [INCUMBENT, "qwen"])
     takes = int(bcfg.get("takes", 3))
     n = int(bcfg.get("subset_size", 6))
     # tune-lite: per-engine grids, overridable per engine (a config grid

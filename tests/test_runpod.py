@@ -62,18 +62,18 @@ def test_ssh_target_not_ready():
 # --- per-engine venv isolation (the pod-side install command) ---
 
 def test_engine_install_cmd_isolates_per_engine():
-    cmd = engine_install_cmd("~/dubadabidu", "voxcpm", "pip install -q voxcpm")
+    cmd = engine_install_cmd("~/dubadabidu", "qwen", "pip install -q qwen")
     # the snippet must run inside the ENGINE's venv, never the main .venv
-    assert "venvs/voxcpm" in cmd
-    assert ". venvs/voxcpm/bin/activate" in cmd
-    assert ".venv/bin/activate" not in cmd.replace("venvs/voxcpm/bin/activate", "")
-    assert cmd.rstrip().endswith("pip install -q voxcpm")
+    assert "venvs/qwen" in cmd
+    assert ". venvs/qwen/bin/activate" in cmd
+    assert ".venv/bin/activate" not in cmd.replace("venvs/qwen/bin/activate", "")
+    assert cmd.rstrip().endswith("pip install -q qwen")
 
 
 def test_engine_install_cmd_distinct_venvs():
-    a = engine_install_cmd("~/d", "cosyvoice", "true")
+    a = engine_install_cmd("~/d", "indextts", "true")
     b = engine_install_cmd("~/d", "qwen", "true")
-    assert "venvs/cosyvoice" in a and "venvs/cosyvoice" not in b
+    assert "venvs/indextts" in a and "venvs/indextts" not in b
     assert "venvs/qwen" in b and "venvs/qwen" not in a
 
 
@@ -104,7 +104,7 @@ def test_incumbent_only_is_refused():
 def test_challengers_without_install_snippets_are_refused():
     import pytest
     from pipeline.runpod_infra import _require_something_to_validate
-    engines = ["chatterbox", "cosyvoice", "voxcpm"]
+    engines = ["chatterbox", "indextts", "qwen"]
     with pytest.raises(SystemExit, match="no runpod.engine_setup snippet"):
         _require_something_to_validate(engines, _probe(engines, {}))
 
@@ -112,8 +112,8 @@ def test_challengers_without_install_snippets_are_refused():
 def test_one_snippet_is_enough_to_proceed():
     """A partial bake-off is legitimate — only a total absence is refused."""
     from pipeline.runpod_infra import _require_something_to_validate
-    engines = ["chatterbox", "cosyvoice", "voxcpm"]
-    _require_something_to_validate(engines, _probe(engines, {"voxcpm"}))
+    engines = ["chatterbox", "indextts", "qwen"]
+    _require_something_to_validate(engines, _probe(engines, {"qwen"}))
 
 
 def test_the_actual_missing_overlay_case_is_caught():
