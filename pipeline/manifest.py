@@ -202,6 +202,11 @@ def synth_hash(text: str, lang: str, tts_cfg: dict) -> str:
         # pre-existing caches stay valid.
         if tts_cfg.get("qwen_fast"):
             key_data["qf"] = True
+        # a trimmed reference is a DIFFERENT reference — the adapter swaps the
+        # path internally, so "ref" above would not see it and the cache would
+        # serve 18 s-reference audio for a 12 s-reference config.
+        if tts_cfg.get("reference_max_s"):
+            key_data["rmax"] = tts_cfg["reference_max_s"]
     if engine == "chatterbox":  # only chatterbox applies normalize_for_tts
         nv = NORM_VERSIONS.get(lang, 1)
         if nv > 1:  # v1 adds no key so pre-existing caches stay valid

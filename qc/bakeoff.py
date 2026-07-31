@@ -88,6 +88,12 @@ def variant_key(engine: str, t: dict, lang: str) -> str:
     # failure this function was written for.
     if t.get("qwen_fast") and eng == "qwen":
         suffix = "+fast"
+    # ICL clone (ref audio + its transcript in context) vs x_vector_only
+    # (speaker embedding alone). Documented to improve speaker similarity —
+    # our weakest metric — at the risk of source-accent bleed, so both rows
+    # must survive for the ear to arbitrate.
+    if eng == "qwen" and t.get("qwen_x_vector_only") is False:
+        suffix += "+icl"
     return engine + suffix
 
 

@@ -130,6 +130,36 @@ def _load_qwen(t: dict):
     return _qwen_model
 
 
+def trimmed_ref(ref: str, max_s: float | None) -> str:
+    """Reference clipped to max_s, cached next to the original. Returns `ref`
+    unchanged when no trim is configured or the clip is already short enough.
+
+    Qwen3-TTS cloning quality scales with reference length from ~3 s to ~15 s,
+    then PLATEAUS AND DEGRADES, and over-long references are the documented
+    trigger for its worst failure mode (the decoder never emits EOS and loops).
+    Every reference we own is 15-18 s and the configured one is the longest at
+    18.1 s, i.e. all of them sit in the degrading zone.
+
+    soundfile, not ffmpeg, on purpose: an engine venv on a bake-off pod has
+    soundfile (the install recipe adds it) but NOT ffmpeg — installing ffmpeg
+    there upgrades the C runtime and kills sshd. Trimming from the START keeps
+    the speech onset; these refs are continuous speech, so the tail is what goes."""
+    if not max_s:
+        return ref
+    import soundfile as sf
+    src = Path(ref)
+    info = sf.info(str(src))
+    if info.duration <= max_s:
+        return ref
+    out = src.with_name(f"{src.stem}.trim{int(max_s)}s{src.suffix}")
+    if not out.exists():
+        data, sr = sf.read(str(src))
+        sf.write(str(out), data[:int(max_s * sr)], sr)
+        log.info("reference trimmed %.1fs -> %.1fs: %s",
+                 info.duration, max_s, out.name)
+    return str(out)
+
+
 def _qwen_clone_prompt(m, t: dict):
     """Reusable clone prompt for the current reference, built once and cached
     (a full video is hundreds of segments off ONE ref). x_vector_only_mode:
@@ -137,7 +167,7 @@ def _qwen_clone_prompt(m, t: dict):
     (its transcript can't be tokenized). Full mode needs a target-lang ref +
     reference_text and is opt-in via qwen_x_vector_only: false."""
     global _qwen_prompt
-    ref = t["reference_wav"]
+    ref = trimmed_ref(t["reference_wav"], t.get("reference_max_s"))
     ref_text = t.get("reference_text", "")
     x_only = bool(t.get("qwen_x_vector_only", True)) or not ref_text
     key = (ref, x_only, ref_text if not x_only else "")
@@ -173,8 +203,23 @@ def _synth_qwen(text: str, lang: str, out: Path, t: dict) -> None:
         text=text, language=QWEN_LANGS.get(lang, "Auto"),
         voice_clone_prompt=prompt)
     t3 = time.perf_counter()
-    sf.write(str(out), wavs[0], sr)
     dur = len(wavs[0]) / float(sr)
+    # RUNAWAY GUARD. Qwen3-TTS's most common failure is the decoder never
+    # emitting EOS: it fills its token budget with laughing/humming/babble.
+    # engine_client has no per-call timeout by design (a first call may
+    # legitimately spend minutes downloading weights), so a hang is otherwise
+    # bounded only by the pod watchdog — expensive, and a merely-long take is
+    # worse: it is silently SHIPPED. Raising makes it a failed take that
+    # synth_best_of re-rolls. Not passed as max_new_tokens: that kwarg is
+    # undocumented for both implementations and an unknown kwarg would fail
+    # the call outright.
+    cap = float(t.get("qwen_max_audio_s", 60.0))
+    if cap and dur > cap:
+        raise RuntimeError(
+            f"qwen produced {dur:.1f}s of audio for {len(text)} chars "
+            f"(cap {cap:.0f}s) — runaway generation, take rejected. Raise "
+            f"tts.qwen_max_audio_s if a segment is legitimately this long.")
+    sf.write(str(out), wavs[0], sr)
     # RTF = generate seconds per second of audio produced. Device-independent,
     # so it compares across engines and pods where raw s/take cannot.
     log.info("qwen timing: load=%.2fs prompt=%.2fs gen=%.2fs audio=%.2fs "

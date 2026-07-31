@@ -33,6 +33,17 @@ tts:
   # in the dtype probe, inside the noise floor but not worse).
   qwen_model_dir: Qwen/Qwen3-TTS-12Hz-1.7B-Base
   qwen_x_vector_only: true             # UA ref: clone from audio embedding only
+  # Qwen3-TTS cloning quality rises from ~3 s to ~15 s of reference, then
+  # PLATEAUS AND DEGRADES; over-long refs also trigger its worst failure mode
+  # (decoder never emits EOS -> babble). Every ref we own is 15-18 s and the
+  # configured one is the LONGEST at 18.1 s, so all of them sit in the degrading
+  # zone. The adapter trims a cached copy; salted into synth_hash.
+  reference_max_s: 12
+  qwen_max_audio_s: 60                 # reject a take longer than this as a
+                                       # runaway generation (engine_client has
+                                       # no per-call timeout, so an unbounded
+                                       # loop otherwise burns pod time and, worse,
+                                       # a merely-long babble take ships silently)
   # qwen_flash_attn: true              # enable only if flash-attn is installed
                                        # (NOT a speed fix — see qwen_fast)
   # faster-qwen3-tts (MIT): same weights, CUDA Graphs + StaticCache around the
@@ -92,7 +103,21 @@ bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
   # valid (otherwise the cache serves one point's audio for another) and all of
   # them must be Ukrainian-reference safe. An empty/single-point grid means
   # "already tuned, nothing to sweep" and costs nothing.
-  # grids:
+  # SWEEP 2026-07-31: qwen's weakest metric is sim→real (0.614; voxcpm managed
+  # 0.804 before it was cut), and two reference-side knobs plausibly move it.
+  #   reference_wav   — the active ref won a tune run against CHATTERBOX, a
+  #     different engine with different preferences. qwen additionally rewards
+  #     varied intonation in the clip, which that selection never scored.
+  #   reference_max_s — 12 s is inside the documented optimum, 18 s is what we
+  #     have been using and sits in the degrading zone. This is the A/B.
+  # tune-lite scores on 0.5*sim→real + 0.5*mos, so it optimises exactly the
+  # metric in question. 12 points x 3 segments x 4 takes at 2.36 s/take ~ 6 min.
+  grids:
+    qwen:
+      reference_wav: [ref/sketch60_ref_01.wav, ref/sketch60_ref_02.wav,
+                      ref/sketch60_ref_03.wav, ref/sketch_ref_06.wav,
+                      ref/sketch_ref_07.wav, ref/sketch_ref_08.wav]
+      reference_max_s: [12, 18]
   #   chatterbox: {exaggeration: [0.4, 0.55, 0.7]}   # re-open the incumbent
 
 runpod:                        # M2 infra agent — `dubadabidu remote <task> <video>`
