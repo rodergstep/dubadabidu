@@ -751,7 +751,16 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # (rsync-over-ssh needs rsync on the pod). A bake-off never invokes the
         # ffmpeg binary, so it skips ffmpeg and dodges the runtime-upgrade that
         # kills sshd; run/autopilot need s5/s6 and still take it. See apt_setup.
-        if not alive and ssh_exec(rp, host, port, apt_setup(task != "bakeoff"),
+        # ffmpeg is needed only by stages that actually shell out to it — s5's
+        # atempo/rubberband, s6's loudnorm, _synth_edge. If the pod is running a
+        # NARROWED range that excludes them (e.g. s4 only, with fit/mix done
+        # locally), skip it: the apt tree behind ffmpeg upgrades the C runtime
+        # and has killed sshd mid-run before. Do not "work around" that by
+        # retrying — just do not install what is not used.
+        needs_ffmpeg = task != "bakeoff" and not (
+            stages and "s4_synthesize" in stages and "s5" not in stages
+            and "s6" not in stages and "s7" not in stages)
+        if not alive and ssh_exec(rp, host, port, apt_setup(needs_ffmpeg),
                                   timeout=600) != 0:
             raise RuntimeError("could not install rsync/ffmpeg on the pod after "
                                "retries (see log for the apt error)")
