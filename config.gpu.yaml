@@ -55,6 +55,18 @@ tts:
   # sweepable axis (bakeoff.grids) rather than a global default. The trim
   # MECHANISM stays: it is also the guard against over-long references, the
   # documented trigger for the decoder's never-emits-EOS failure.
+  # PARALLEL TAKES. best_of rolls the same text N times sharing no state, but
+  # they were generated strictly one after another — which is why the card sat
+  # at ~7% utilisation while synthesis was still 60% of wall clock. Each worker
+  # is a separate process holding its OWN model copy (~4 GB for 1.7B plus its
+  # own CUDA-graph capture), spawned lazily, so a pool that never sees
+  # concurrent demand costs one model rather than three.
+  # SIZE IT TO THE CARD, not to the core count: 3 fits 24 GB comfortably
+  # (3x4 GB + Distill-MOS + faster-whisper) and is tight on a 16 GB A4000, which
+  # is the FIRST entry in gpu_type_ids. Raise only after seeing the GPU actually
+  # obtained in the provisioning log. An OOM mid-run costs the whole experiment;
+  # the saving is a fraction of one.
+  synth_workers: 2
   qwen_max_audio_s: 60                 # reject a take longer than this as a
                                        # runaway generation (engine_client has
                                        # no per-call timeout, so an unbounded

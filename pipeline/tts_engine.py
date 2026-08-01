@@ -550,8 +550,17 @@ def synthesize(text: str, lang: str, out: Path, tts_cfg: dict,
     from .engine_client import isolated_python, synth as _worker_synth
     worker_py = isolated_python(engine, tts_cfg)
     if worker_py is not None:
+        # tts.synth_workers — how many takes may be IN FLIGHT at once. Takes
+        # share no state, so this is safe; the cost is one model copy per worker
+        # (~4 GB VRAM for qwen 1.7B plus its own CUDA-graph capture), which is
+        # why it defaults to 1 and must be raised deliberately against the card
+        # actually in use. Only meaningful on the isolated-venv path: the
+        # in-process path below holds ONE model in module globals and is not
+        # thread-safe, so it stays serial by construction.
+        _nw = max(1, int(tts_cfg.get("synth_workers", 1)))
+
         def fn(text, lang, out, t, _py=worker_py):  # noqa: F811 — same signature
-            _worker_synth(engine, _py, text, lang, out, t)
+            _worker_synth(engine, _py, text, lang, out, t, workers=_nw)
     # number/symbol localization is engine-agnostic (digits read wrong-language
     # otherwise) — apply to every engine; manifest/subs/QC keep clean digits.
     text = localize_numbers(text, lang)

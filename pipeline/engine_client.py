@@ -30,13 +30,15 @@ again and the worker is respawned with a fresh model load.
 from __future__ import annotations
 import atexit
 import json
+import queue
+import threading
 import logging
 import subprocess
 from pathlib import Path
 
 log = logging.getLogger("dubadabidu.engine_client")
 ROOT = Path(__file__).resolve().parents[1]
-_workers: dict[str, "_Worker"] = {}
+_workers: dict[str, "_Pool"] = {}
 
 
 def isolated_python(engine: str, t: dict, root: Path = ROOT) -> Path | None:
@@ -103,21 +105,71 @@ class _Worker:
                 self.proc.kill()
 
 
+class _Pool:
+    """N workers for one engine, checked out one thread at a time.
+
+    Takes are INDEPENDENT — best_of rolls the same text N times sharing no
+    state — but they were generated strictly one after another, so a 1.7B model
+    decoding a single sequence left the GPU at ~7% utilisation while synthesis
+    still accounted for 60% of wall clock. Each worker is its own process with
+    its own pipes, so concurrency needs nothing more than making sure two
+    threads never share one worker; the queue is that guarantee.
+
+    Workers spawn LAZILY. Each one loads its own copy of the model (~4 GB for
+    qwen 1.7B, plus its own CUDA-graph capture), so a pool sized past the card
+    turns a speedup into an OOM mid-run. Spawning on demand means a pool of 3
+    that only ever sees serial calls costs one model, not three."""
+
+    def __init__(self, engine: str, python: Path, size: int):
+        self.engine, self.python, self.size = engine, python, max(1, size)
+        self._idle: queue.Queue = queue.Queue()
+        self._spawned = 0
+        self._lock = threading.Lock()
+
+    def _checkout(self) -> _Worker:
+        try:
+            return self._idle.get_nowait()
+        except queue.Empty:
+            pass
+        with self._lock:
+            if self._spawned < self.size:
+                self._spawned += 1
+                return _Worker(self.engine, self.python)
+        return self._idle.get()          # all spawned and busy — wait for one
+
+    def call(self, req: dict) -> None:
+        w = self._checkout()
+        try:
+            w.call(req)
+        finally:
+            # returned even on failure: _Worker.call respawns a dead process on
+            # its next use, so a crashed worker must stay in the pool or the
+            # pool silently shrinks to nothing over a long run.
+            self._idle.put(w)
+
+    def stop(self) -> None:
+        while True:
+            try:
+                self._idle.get_nowait().stop()
+            except queue.Empty:
+                return
+
+
 def synth(engine: str, python: Path, text: str, lang: str, out: Path,
-          t: dict) -> None:
-    """One synthesis through the engine's worker (spawned on first use)."""
-    w = _workers.get(engine)
-    if w is None:
-        w = _workers[engine] = _Worker(engine, python)
-    w.call({"text": text, "lang": lang, "out": str(out), "t": t})
+          t: dict, workers: int = 1) -> None:
+    """One synthesis through the engine's worker pool (spawned on first use)."""
+    pool = _workers.get(engine)
+    if pool is None:
+        pool = _workers[engine] = _Pool(engine, python, workers)
+    pool.call({"text": text, "lang": lang, "out": str(out), "t": t})
 
 
 def shutdown(engine: str) -> None:
-    """Stop one engine's worker, releasing its VRAM/RAM. The bake-off calls
+    """Stop one engine's workers, releasing their VRAM/RAM. The bake-off calls
     this between engines so challengers don't accumulate on the GPU."""
-    w = _workers.pop(engine, None)
-    if w:
-        w.stop()
+    pool = _workers.pop(engine, None)
+    if pool:
+        pool.stop()
 
 
 def shutdown_all() -> None:

@@ -466,20 +466,35 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 # ThreadPool, not ProcessPool: the heavy parts (torch, librosa)
                 # release the GIL, and the models must not be re-loaded per
                 # process. `scoring_workers` also parallelises WITHIN a segment.
-                futures = []
-                for k in range(takes):
+                def _synth_one(k: int):
                     w = seg_dir / f"{u['id']}_t{k}.wav"
-                    try:
-                        t0 = time.perf_counter()
-                        synthesize(text, lang, w, tu, retries=1)
-                        _d = time.perf_counter() - t0
-                        synth_secs.append(_d)
-                        PHASE["synth"] += _d
-                    except (FileNotFoundError, RuntimeError) as e:
-                        # see _tune_engine: a dead worker / failed synth must
-                        # disqualify THIS engine, not the whole comparison
-                        unavailable = str(e).split(" — ")[0][:120]
-                        break
+                    t0 = time.perf_counter()
+                    synthesize(text, lang, w, tu, retries=1)
+                    _d = time.perf_counter() - t0
+                    return w, _d
+
+                futures = []
+                # tts.synth_workers > 1 puts several TAKES in flight at once.
+                # They share no state, and each lands on its own path, so the
+                # only ordering that matters is the takes list — rebuilt from
+                # the submission order below. Serial when workers == 1, which
+                # is also the only safe mode for the in-process engine path.
+                n_workers = max(1, int(base_tts.get("synth_workers", 1)))
+                try:
+                    if n_workers > 1:
+                        with ThreadPoolExecutor(max_workers=n_workers,
+                                                thread_name_prefix="synth") as sp:
+                            done = list(sp.map(_synth_one, range(takes)))
+                    else:
+                        done = [_synth_one(k) for k in range(takes)]
+                except (FileNotFoundError, RuntimeError) as e:
+                    # see _tune_engine: a dead worker / failed synth must
+                    # disqualify THIS engine, not the whole comparison
+                    unavailable = str(e).split(" — ")[0][:120]
+                    done = []
+                for w, _d in done:
+                    synth_secs.append(_d)
+                    PHASE["synth"] += _d
                     first = first or w
                     futures.append(pool.submit(_score_take, X, cfg, anchor,
                                                w, text, lang, slot))
