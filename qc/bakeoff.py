@@ -308,11 +308,18 @@ def _tune_engine(engine: str, base_t: dict, subset: list[dict], lang: str,
         sim = sum(sims) / len(sims)
         mos = sum(moss) / len(moss)
         f0 = sum(f0s) / len(f0s)
-        # each term normalized to 0..1 so none dominates by scale alone; f0
-        # uses _take_rank's /4.0 so "lively" means the same thing in both places
-        score = (0.4 * max(0.0, min(1.0, (mos - 1.0) / 4.0))
-                 + 0.35 * sim
-                 + 0.25 * max(0.0, min(1.0, f0 / 4.0)))
+        # f0 is NOT in the score — measured, then removed 2026-08-01. Two
+        # control runs put its run-to-run band at 0.24 (ru) to 0.44 (en) on an
+        # unchanged config, so a 0.25 weight injected ~0.015 of pure noise into
+        # every tune score. The ru reference sweep was decided by 0.029, i.e.
+        # under 2x its own injected noise. A term that cannot resolve itself
+        # cannot rank anything.
+        # The min_f0st FLOOR below stays: as a veto against a genuinely flat
+        # take it costs nothing, and unlike ranking it does not need to resolve
+        # small differences. It has never actually bound (24 sweep points, all
+        # 2.27-3.27 against a 2.2 floor).
+        # mos normalized 1..5 -> 0..1 so neither term dominates by scale alone.
+        score = 0.5 * sim + 0.5 * max(0.0, min(1.0, (mos - 1.0) / 4.0))
         trials.append({"point": over, "sim": round(sim, 3),
                        "mos": round(mos, 3), "f0st": round(f0, 3),
                        "score": round(score, 4),
@@ -668,15 +675,15 @@ def _tuning_section(tuning: dict, engines: list) -> list[str]:
         return []
     out = ["", "## tune-lite — each engine at its own best point", "",
            "Every engine sweeps its own grid (bakeoff.grids) BEFORE the "
-           "comparison and enters at its winner, scored on "
-           "0.4*normalized mos + 0.35*sim→real + 0.25*normalized f0st, with "
-           "points under tts.min_f0st disqualified outright. f0st joined the "
-           "objective 2026-08-01 so that tuning cannot pick a point take "
-           "selection would later reject on the monotony floor. Scores are "
-           "means over a small subset — compare the spread against the "
-           "comparison's mos± before believing an ordering. A single-point "
-           "grid means 'already tuned, nothing to sweep' and costs nothing. "
-           "Widen a grid in config to re-open an engine's parameters.", "",
+           "comparison and enters at its winner, scored on 0.5*sim→real + "
+           "0.5*normalized mos, with points under tts.min_f0st disqualified "
+           "outright. f0st is deliberately NOT in the score: control runs put "
+           "its run-to-run band at 0.24-0.44 on an unchanged config, so "
+           "weighting it injected noise rather than signal. Scores are means "
+           "over a small subset — compare the spread against the measured "
+           "noise floor (sim ±0.010, mos ±0.008) before believing an "
+           "ordering. A single-point grid means 'already tuned, nothing to "
+           "sweep' and costs nothing.", "",
            "| engine | points | ran at | sim→real | mos | f0st |",
            "|---|---|---|---|---|---|"]
     for e in engines:

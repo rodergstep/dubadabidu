@@ -110,7 +110,11 @@ experiments:
       liked about indextts+emo — so listen, do not adopt on s_take alone.
 
   - name: temp-07
-    enabled: true
+    enabled: false
+    answered: >
+      2026-08-01. REFUTED. mos± 0.458 vs 0.492 baseline — inside its own 0.18
+      run-to-run band, so no consistency gain. mos rose (2.408) and s/take rose
+      to 3.89. See temp-05 for the three-point read.
     langs: [en]
     overlays: [config.exp.temp07.yaml]
     asks: Does temperature 0.7 shrink take-to-take spread more than it costs?
@@ -127,7 +131,12 @@ experiments:
       lever than the model choice, which measured close to a wash by ear.
 
   - name: ru-noise-floor
-    enabled: true
+    enabled: false
+    answered: >
+      2026-08-01. The ru band MATCHES en: sim 0.007 (en 0.010), mos 0.008
+      (0.007), wer 0.009 (0.005), f0 0.238 (0.438). So reading ru results
+      against the en floor was justified. It also exposed s_take as far noisier
+      than assumed — 2.38 vs 4.07 on an UNCHANGED config.
     langs: [ru]
     overlays: [config.exp.ru-control.yaml]
     asks: Is the Russian noise band the same as the English one?
@@ -141,7 +150,12 @@ experiments:
       coin flip.
 
   - name: qwen-06b-ru
-    enabled: true
+    enabled: false
+    answered: >
+      2026-08-01. The mos-up/sim-down trade REPLICATES (mos +0.202, sim −0.073,
+      both far outside the band) but the sim penalty GROWS in ru — double the
+      en value — and the en wer advantage did NOT replicate (0.009 vs 0.005,
+      inside noise). So the wer win was English-specific, not a model property.
     langs: [ru]
     overlays: [config.exp.06b-ru.yaml]
     asks: Does 0.6B's English win hold in Russian?
@@ -156,7 +170,13 @@ experiments:
       slightly cheaper, at a real but small cost in voice identity.
 
   - name: temp-05
-    enabled: true
+    enabled: false
+    answered: >
+      2026-08-01. Consistency hypothesis dead: mos± 0.443, inside the 0.18 band.
+      But mos rises MONOTONICALLY 2.340/2.347 -> 2.408 -> 2.429 (+0.085 against
+      a 0.007 band, 12x). Real but small, and both low temperatures cost ~60%
+      more per take (3.89/3.80 vs 2.32/2.46 — two replicates each side, so the
+      slowdown is real). Not adopted: that compute buys more as extra takes.
     langs: [en]
     overlays: [config.exp.temp05.yaml]
     asks: Where on the temperature curve are we — slope or plateau?
@@ -169,7 +189,13 @@ experiments:
       run gets cheaper — the largest remaining cost lever.
 
   - name: qwen-06b-variance
-    enabled: true
+    enabled: false
+    answered: >
+      2026-08-01. 0.6B's consistency advantage does NOT survive 6 takes: mos±
+      0.345 sits between the two 1.7B readings of the SAME config (0.492 and
+      0.311). The tighter spread the blind ratings suggested was a 3-take
+      artifact. mos also fell 2.692 -> 2.564 and sim to 0.616 under better
+      sampling. Verdict across all three 0.6B runs: keep 1.7B.
     langs: [en]
     overlays: [config.exp.06b-variance.yaml]
     asks: Is 0.6B's tighter spread real, and how low can its best_of go?
