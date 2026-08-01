@@ -5,8 +5,22 @@
 # (--overlay config.gpu.yaml alone leaves translation at config.yaml's default.)
 
 tts:
-  best_of: 5                  # takes are cheap on GPU; the composite ranking
-                              # (windowed MOS + f0 + ECAPA sim) picks the best
+  # 5 -> 2 on 2026-08-01, at the user's call, on measured evidence that RANKING
+  # does not perceptibly pick the better take. Blind head-to-head of take 1
+  # against the composite's choice, on the 7 segments where they differed:
+  # ranking won 2, lost 1, tied 4, and the two sets scored an IDENTICAL
+  # [3,3,4,4,4,4,5] (mean 3.86 each). refit agrees at n=62: the composite
+  # correlates +0.186 with the ear, and its best-fit proposal cross-validates
+  # NEGATIVE. Separately, best_of 3 and best_of 5 selected the same take on all
+  # four en segments — takes 4 and 5 never won.
+  # 2 rather than 1 on purpose: best_of has a SECOND job the evidence above does
+  # not test — rejecting a disaster rather than picking a winner. Earlier blind
+  # passes produced 1s and 2s, and the WER veto plus the runaway-generation
+  # guard both need a pool to choose from. One roll has no fallback.
+  # Cost: $6.10 -> $2.44 per 1M characters.
+  # RE-TEST ON THE SCALE RUN. Seven pairs cannot measure how often the worst
+  # take ships when only two are rolled, and that is the risk this setting takes.
+  best_of: 2
 
   # --- engine bake-off candidates (GPU-only git-clone installs; THIRD_PARTY.md) ---
   # ROSTER CUT 2026-07-31 (git history has both):
