@@ -852,7 +852,9 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         if extra_overlays:
             log.info("forwarding overlays to the pod: %s",
                      " ".join(extra_overlays))
-        import shlex
+        # (shlex is imported at module scope — a local `import shlex` HERE made
+        # the name function-local for the whole of remote_run, so the earlier
+        # shlex.quote(video) raised UnboundLocalError before this line ever ran.)
         tk = shlex.quote(os.environ.get("TRANSLATE_API_KEY", ""))
         full = (f"cd {remote}; . .venv/bin/activate; "
                 f"export TRANSLATE_API_KEY={tk}; "

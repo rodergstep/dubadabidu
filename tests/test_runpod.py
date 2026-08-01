@@ -275,3 +275,19 @@ def test_ready_probe_is_conservative(monkeypatch):
     assert R._verify_ready({}, "h", 22, "~/d", []) is False
     # an engine with no module mapping (chatterbox lives in the base venv)
     assert R._verify_ready({}, "h", 22, "~/d", ["edge"]) is False
+
+
+def test_remote_run_has_no_function_local_shlex_import():
+    """A local `import shlex` deep inside remote_run made the name
+    function-local for the WHOLE function, so shlex.quote(video) near the top
+    raised UnboundLocalError — after provisioning a pod. Python scoping, not a
+    typo: the failure is invisible to reading the call site."""
+    import ast
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1]
+           / "pipeline" / "runpod_infra.py").read_text()
+    fn = next(n for n in ast.walk(ast.parse(src))
+              if isinstance(n, ast.FunctionDef) and n.name == "remote_run")
+    shadowed = [a.name for n in ast.walk(fn) if isinstance(n, ast.Import)
+                for a in n.names if a.name == "shlex"]
+    assert not shadowed, f"local import shadows module-level shlex: {shadowed}"
