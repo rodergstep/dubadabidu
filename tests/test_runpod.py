@@ -291,3 +291,18 @@ def test_remote_run_has_no_function_local_shlex_import():
     shadowed = [a.name for n in ast.walk(fn) if isinstance(n, ast.Import)
                 for a in n.names if a.name == "shlex"]
     assert not shadowed, f"local import shadows module-level shlex: {shadowed}"
+
+
+def test_remote_stages_reads_the_real_argparse_dests():
+    """argparse stores --from/--to as from_stage/to_stage. Reading "from"/"to"
+    returned None for both, so the pod fell back to the whole pipeline, ran
+    s1/s2 and died on the input video that is deliberately never uploaded."""
+    import argparse
+    from dub import _remote_stages
+    narrowed = argparse.Namespace(from_stage="s4_synthesize",
+                                  to_stage="s4_synthesize")
+    assert _remote_stages(narrowed) == "--from s4_synthesize --to s4_synthesize"
+    # untouched flags keep the long-standing pod default: stop at s7, because
+    # the mux needs the source video and that stays local
+    default = argparse.Namespace(from_stage="s1_extract", to_stage="s8_mux")
+    assert _remote_stages(default) == "--to s7_subtitles"

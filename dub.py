@@ -206,13 +206,20 @@ def _remote_stages(a) -> str | None:
     the whole pipeline every time, including stages that need no GPU — and
     translation, which is API-latency-bound, so the pod billed while waiting on
     DeepSeek. Returns None to keep the previous whole-pipeline default."""
+    # dest names are from_stage / to_stage — NOT "from"/"to". Reading the wrong
+    # attribute returned None for both, so the pod silently fell back to the
+    # whole pipeline, ran s1/s2, and died on the input video that is
+    # deliberately never uploaded. It cost a provisioned pod to find out.
+    # Defaults are real values ("s1_extract" / "s8_mux"), not None, so "did the
+    # user narrow this?" means comparing against them.
     parts = []
-    frm = getattr(a, "from", None)
-    if frm:
-        parts.append(f"--from {frm}")
-    if getattr(a, "to", None):
-        parts.append(f"--to {a.to}")
-    return " ".join(parts) or None
+    if getattr(a, "from_stage", "s1_extract") != "s1_extract":
+        parts.append(f"--from {a.from_stage}")
+    to = getattr(a, "to_stage", "s8_mux")
+    # the pod always stops at s7: the mux needs the source video, which stays
+    # local. An explicit --to wins; otherwise keep that long-standing default.
+    parts.append(f"--to {to if to != 's8_mux' else 's7_subtitles'}")
+    return " ".join(parts)
 
 
 def main() -> None:
