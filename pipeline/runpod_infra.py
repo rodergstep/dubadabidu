@@ -482,23 +482,27 @@ def provision(rp: dict, deadline: float) -> tuple[str, str, int]:
     except BaseException:
         _terminate_tracked()   # crash-safe: reads pid from state, not a local var
         raise
-    # WHICH card did we actually get? Nothing logged this before, so the only
-    # way to find out was the RunPod dashboard — which is how every run silently
-    # landing on a 4090 (7% GPU / 7% CPU / 17% RAM utilisation, top rate) went
-    # unnoticed for a week while gpuTypePriority was hardcoded to "availability"
-    # and the cheapest-first ordering did nothing. Cost per run depends on this
-    # one line more than on anything else in the config.
+    # WHAT ARE WE PAYING? Nothing recorded this before, so the only way to know
+    # was the RunPod dashboard — which is how every run silently landing on a
+    # 4090 (7% GPU / 7% CPU / 17% RAM at top rate) went unnoticed for a week
+    # while gpuTypePriority was hardcoded to "availability" and the
+    # cheapest-first ordering did nothing.
+    # Flagged on PRICE, not on the GPU name: REST v1's GET /pods/{id} returns an
+    # EMPTY `machine` object and no gpuTypeId anywhere (checked 2026-08-01), so
+    # the card's identity is simply not retrievable. Price is the better signal
+    # regardless — it is what the budget is spent in, and vcpu/RAM size with the
+    # GPU tier, so an oversized instance shows up here too.
     try:
         info = get_pod(pid)
-        gpu = (info.get("machine") or {}).get("gpuTypeId") or \
-            (info.get("gpuTypeIds") or [None])[0] or "?"
         price = info.get("costPerHr")
-        want = rp["gpu_type_ids"][0]
-        log.info("pod %s SSH ready at %s:%d — GPU: %s%s%s", pid, host, port, gpu,
-                 f" (${price}/h)" if price else "",
-                 "" if gpu == want else f"  [NOT the preferred {want}]")
+        budgeted = float(rp.get("assumed_price_per_hr", 0) or 0)
+        over = (price is not None and budgeted and float(price) > budgeted)
+        log.info("pod %s SSH ready at %s:%d — $%s/h, %s vCPU, %s GB RAM%s",
+                 pid, host, port, price, info.get("vcpuCount"),
+                 info.get("memoryInGb"),
+                 f"  [OVER the budgeted ${budgeted}/h]" if over else "")
     except Exception as e:      # never fail a run over a log line
-        log.info("pod %s SSH ready at %s:%d (gpu type unknown: %s)",
+        log.info("pod %s SSH ready at %s:%d (price unknown: %s)",
                  pid, host, port, e)
     return pid, host, port
 

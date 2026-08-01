@@ -209,6 +209,16 @@ def test_every_enabled_experiment_isolates_one_axis():
             keys[k] = e["name"]
 
 
+def test_provisioning_logs_the_price_not_a_gpu_name():
+    """REST v1 GET /pods/{id} returns an EMPTY machine object and no gpuTypeId
+    (checked 2026-08-01), so the card's identity is not retrievable. Price is
+    the better signal anyway — it is what the budget is spent in."""
+    from pipeline.runpod_infra import provision
+    import inspect
+    src = inspect.getsource(provision)
+    assert "costPerHr" in src and "OVER the budgeted" in src
+
+
 def test_gpu_type_priority_defaults_to_custom_so_list_order_matters():
     """With "availability" RunPod ignores the order and picks whatever is free,
     which is why a cheapest-first list still landed on a 4090 every run (7% GPU,
