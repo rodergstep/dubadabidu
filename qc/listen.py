@@ -88,5 +88,5 @@ def build(wd: Path, lang: str, variants: list[str]) -> Path:
 if __name__ == "__main__":
     video = sys.argv[1] if len(sys.argv) > 1 else "sketch60"
     lang = sys.argv[2] if len(sys.argv) > 2 else "en"
-    vs = sys.argv[3:] or ["qwen+fast", "qwen+fast+0.6B", "qwen+fast+control"]
+    vs = sys.argv[3:] or ["qwen+fast", "qwen+fast+control"]
     print(build(Path("work") / video, lang, vs))

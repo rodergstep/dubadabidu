@@ -1,6 +1,6 @@
 """Blind rating page — the input the take-ranking weights have never had.
 
-    python -m qc.blind build sketch60 en [variant ...]     # make the page
+    python -m qc.blind build sketch60 en [N] [variant ...]  # make the page
     python -m qc.blind ingest sketch60 en <export.json>    # -> ratings_<lang>.json
 
 WHY BLIND. The listening comparisons so far were labelled, and on 2026-08-01 the
@@ -221,7 +221,7 @@ if __name__ == "__main__":
         per = 2
         if args and args[0].isdigit():        # build <video> <lang> <N> [variants]
             per, args = int(args[0]), args[1:]
-        vs = args or ["qwen+fast", "qwen+fast+0.6B", "qwen+fast+control"]
+        vs = args or ["qwen+fast", "qwen+fast+control"]
         print(build(wd, lang, vs, per))
     else:
         cfg = yaml.safe_load(Path("config.yaml").read_text())

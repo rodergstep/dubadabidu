@@ -18,7 +18,7 @@
 #
 # EACH EXPERIMENT MUST ISOLATE ONE AXIS and carry its own variant_key suffix, or
 # its results overwrite the row before it. qc/bakeoff.variant_key already tags
-# qwen_fast / ICL / 0.6B; a new axis needs a suffix there FIRST.
+# qwen_fast / ICL / variant_label; a new axis needs a suffix there FIRST.
 
 video: input/sketch60/sketch60.mp4
 
@@ -85,29 +85,6 @@ experiments:
       tuning on 4 segments is pointless and the effort belongs in
       scale-validation instead.
 
-  - name: qwen-06b
-    enabled: false
-    answered: >
-      2026-08-01. 0.6B beat 1.7B on mos (2.692 vs 2.340) and wer (0.002 vs
-      0.018), lost sim (0.629 vs 0.665) — all outside the noise floor — and was
-      only 7% faster, so the speed floor is the codec decode, not the
-      transformer. Blind ratings then found no MEAN difference (3.38 vs 3.25)
-      but a much tighter spread (sd 0.48 vs 0.83, nothing below 3). Follow-ups:
-      qwen-06b-ru, qwen-06b-variance.
-    langs: [en]
-    overlays: [config.exp.06b.yaml]
-    asks: Is 0.6B now faster than 1.7B, and is it worse?
-    why: >
-      Our 2026-07-31 measurement (0.6B no faster) is OBSOLETE — it was taken
-      while the model was kernel-launch bound, where size cannot matter because
-      the GPU idles between dispatches anyway. qwen_fast removed that, so a 3x
-      smaller model should finally show. If it does NOT, the floor has moved to
-      the codec decode, which is worth knowing on its own.
-    reads: s_take on the qwen+fast+0.6B row, and the ear on the HTML page.
-    decides: >
-      0.6B at similar quality would roughly halve synthesis cost again. Upstream
-      documents it as WEAKER on emotion capture, which is exactly what the ear
-      liked about indextts+emo — so listen, do not adopt on s_take alone.
 
   - name: temp-07
     enabled: false
@@ -149,25 +126,6 @@ experiments:
       Whether the ru reference sweep's 0.029 winning margin was a result or a
       coin flip.
 
-  - name: qwen-06b-ru
-    enabled: false
-    answered: >
-      2026-08-01. The mos-up/sim-down trade REPLICATES (mos +0.202, sim −0.073,
-      both far outside the band) but the sim penalty GROWS in ru — double the
-      en value — and the en wer advantage did NOT replicate (0.009 vs 0.005,
-      inside noise). So the wer win was English-specific, not a model property.
-    langs: [ru]
-    overlays: [config.exp.06b-ru.yaml]
-    asks: Does 0.6B's English win hold in Russian?
-    why: >
-      In en, 0.6B beat 1.7B on mos (2.692 vs 2.340) and wer (0.002 vs 0.018) —
-      both far outside the noise floor — while losing sim (0.629 vs 0.665). That
-      contradicts upstream, which calls 0.6B the weaker model, so it needs a
-      second language before it drives a config change.
-    reads: sim/mos/wer on qwen+fast+0.6B in results_ru.json, and the ear.
-    decides: >
-      Two languages agreeing would make 0.6B the default: better intelligibility,
-      slightly cheaper, at a real but small cost in voice identity.
 
   - name: temp-05
     enabled: false
@@ -188,26 +146,6 @@ experiments:
       If spread falls monotonically with temperature, best_of drops and every
       run gets cheaper — the largest remaining cost lever.
 
-  - name: qwen-06b-variance
-    enabled: false
-    answered: >
-      2026-08-01. 0.6B's consistency advantage does NOT survive 6 takes: mos±
-      0.345 sits between the two 1.7B readings of the SAME config (0.492 and
-      0.311). The tighter spread the blind ratings suggested was a 3-take
-      artifact. mos also fell 2.692 -> 2.564 and sim to 0.616 under better
-      sampling. Verdict across all three 0.6B runs: keep 1.7B.
-    langs: [en]
-    overlays: [config.exp.06b-variance.yaml]
-    asks: Is 0.6B's tighter spread real, and how low can its best_of go?
-    why: >
-      The blind pass hinted 0.6B is the CONSISTENT model (sd 0.48 vs 0.83/0.93,
-      no take below 3) but that rested on 3 takes per segment; mos± 0.454 from
-      3 takes is barely an estimate of a standard deviation.
-    reads: mos± on qwen+fast+0.6B+bo6, plus its own best_of curve.
-    decides: >
-      A genuinely tighter spread means a LOWER best_of for that model. The two
-      settings interact and cost is takes x s/take, so this is worth more than
-      either measured alone.
 
   # --- blocked, kept visible so they are not forgotten ---
 

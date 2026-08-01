@@ -25,12 +25,19 @@ tts:
   # Qwen3-TTS Base — THE PRODUCTION ENGINE (all 5 targets), 3 s clone, ~4 GB
   # VRAM, Apache-2.0. UA ref -> x_vector_only (speaker embedding only, no ref
   # transcript). git-clone install (THIRD_PARTY.md).
-  # Keep 1.7B for now. Measured 2026-07-31 on a 4090 BEFORE qwen_fast: 0.6B ran
-  # at RTF 1.38 vs 1.7B's 1.42 — a 3x smaller model bought no speed, proving the
-  # transformer was never the bottleneck. CAVEAT: qwen_fast removes the dispatch
-  # overhead, so the model is now genuinely compute-bound and that measurement
-  # no longer applies — 0.6B is worth re-testing (it scored mos 2.697 vs 2.411
-  # in the dtype probe, inside the noise floor but not worse).
+  # 1.7B, SETTLED 2026-08-01 after three runs and two blind rating passes. The
+  # 0.6B variant is not a live option and its machinery has been removed; do not
+  # re-add it without new evidence. What was measured:
+  #   - barely faster (2.16 vs 2.32 s/take) — the speed floor is the codec
+  #     decode, not the transformer, so a 3x smaller LM buys almost nothing
+  #   - mos edge SHRANK under better sampling (2.692 at 3 takes -> 2.564 at 6)
+  #   - sim penalty is real and GROWS with the language that clones best
+  #     (en -0.036, ru -0.073, both far outside the 0.010 noise band)
+  #   - its "tighter spread" was a 3-take artifact: mos± 0.345 at 6 takes sits
+  #     between two readings of the SAME 1.7B config (0.492 and 0.311)
+  #   - the en wer advantage did NOT replicate in ru
+  #   - blind ear: marginally ahead in en, last in ru — a wash
+  # Voice identity is the product; 0.6B costs it for no reliable gain.
   qwen_model_dir: Qwen/Qwen3-TTS-12Hz-1.7B-Base
   qwen_x_vector_only: true             # UA ref: clone from audio embedding only
   # THE REFERENCE, decided by three sweeps (en x2, ru) on 2026-07-31/08-01.
