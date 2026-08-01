@@ -1,0 +1,102 @@
+# Experiment queue — MANY experiments, ONE pod.
+#
+#   python -m pipeline.experiments                 # run everything enabled
+#   python -m pipeline.experiments --dry-run       # print the commands only
+#   python -m pipeline.experiments --only bestof-curve qwen-06b
+#
+# WHY THIS EXISTS. Every question so far cost its own pod: provision, apt,
+# bootstrap, engine install, weights — 5-10 min and ~$0.10 before a single
+# measurement, paid again for the next question. Worse, it biased WHICH
+# questions got asked: anything that looked small was not "worth a pod", so it
+# went unmeasured and got answered by inference instead. Three of my inferences
+# this week were wrong (scoring is half the wall clock; a shorter reference is
+# better; an expressive reference gives expressive output). Cheap experiments
+# are the cure, and they are only cheap if the setup is amortised.
+#
+# The runner attaches every experiment to one live pod via --reuse --keep-alive,
+# and terminates it in a finally block whatever happens.
+#
+# EACH EXPERIMENT MUST ISOLATE ONE AXIS and carry its own variant_key suffix, or
+# its results overwrite the row before it. qc/bakeoff.variant_key already tags
+# qwen_fast / ICL / 0.6B; a new axis needs a suffix there FIRST.
+
+video: input/sketch60/sketch60.mp4
+
+# Stop starting new experiments past this much wall clock. Does not interrupt a
+# running one — it prevents the queue from silently becoming an expensive night.
+max_total_minutes: 45
+
+experiments:
+
+  - name: bestof-curve
+    enabled: true
+    langs: [en]
+    overlays: [config.exp.bestof.yaml]
+    asks: >
+      Does best_of past 3 buy anything? It is a straight 5x multiplier on the
+      biggest cost in the pipeline.
+    why: >
+      The local subsample analysis found NO plateau (rank +0.029 for k=1->2,
+      +0.018 for k=2->3, decaying ~62% per step) — but only 3 takes existed on
+      disk, so k=4 and k=5 were EXTRAPOLATED from a fitted decay. This run puts
+      6 takes down so those become measured numbers.
+    reads: >
+      Re-run the subsample analysis over seg/qwen+fast/en. Also the first run
+      with PHASE instrumentation, so it answers the unexplained wall clock
+      (~58 s per grid point against ~25 s of synthesis) for free.
+    decides: >
+      A flat curve at 3 takes en+ru per video-hour from ~$2.39 to ~$1.53.
+    note: >
+      This overrides no tts setting, so it keys to the SAME row as the baseline
+      (qwen+fast) and REPLACES it — correct, because it is the same config with
+      more takes, but the current qwen+fast audio is overwritten. A copy of the
+      ref_03@12s takes is kept at bakeoff/seg_backup_ref03/.
+
+  - name: qwen-06b
+    enabled: true
+    langs: [en]
+    overlays: [config.exp.06b.yaml]
+    asks: Is 0.6B now faster than 1.7B, and is it worse?
+    why: >
+      Our 2026-07-31 measurement (0.6B no faster) is OBSOLETE — it was taken
+      while the model was kernel-launch bound, where size cannot matter because
+      the GPU idles between dispatches anyway. qwen_fast removed that, so a 3x
+      smaller model should finally show. If it does NOT, the floor has moved to
+      the codec decode, which is worth knowing on its own.
+    reads: s_take on the qwen+fast+0.6B row, and the ear on the HTML page.
+    decides: >
+      0.6B at similar quality would roughly halve synthesis cost again. Upstream
+      documents it as WEAKER on emotion capture, which is exactly what the ear
+      liked about indextts+emo — so listen, do not adopt on s_take alone.
+
+  # --- blocked, kept visible so they are not forgotten ---
+
+  - name: lang-fr-de-es
+    enabled: false
+    blocked_by: >
+      work/sketch60/manifest.json has en and ru translations only. Needs
+      `dubadabidu stage s3_translate --langs fr,de,es` first (local, API cost
+      well under $1, no GPU).
+    langs: [fr, de, es]
+    overlays: []
+    asks: Do the three untested target languages hold up?
+    why: >
+      Three of five production languages have NEVER been synthesized. ru beat en
+      on similarity (0.774 vs 0.681), so they will probably be fine — but that
+      is inference, and inference is what keeps being wrong here.
+
+  - name: scale-validation
+    enabled: false
+    blocked_by: >
+      Needs a REAL lesson in input/, not sketch60. This is the important one.
+    langs: [en, ru]
+    overlays: []
+    asks: Does any of this survive contact with an hour of video?
+    why: >
+      work/sketch60 has FOUR utterances. Every conclusion in this project —
+      engine, reference, cost model, quality metrics — rests on 4 segments of a
+      60 s clip whose speech density is 95%, which no real lesson has. The cost
+      model's "240 segments/hour" is extrapolated from exactly that. An hour
+      also stresses what a minute cannot: s6 builds the whole timeline in pydub
+      RAM, s3 batches translation against full-transcript context, and the
+      manifest grows ~60x. IMPROVEMENT_PLAN Phase D, still unticked.

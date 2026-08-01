@@ -162,3 +162,43 @@ def test_extra_overlays_reach_the_pod_command():
     cmd = base + "".join(f" --overlay {o}" for o in extras)
     assert cmd.count("--overlay config.gpu.yaml") == 1   # not duplicated
     assert cmd.endswith("--overlay config.exp.icl.yaml")  # extras win (last)
+
+
+# --- experiment queue: many experiments, one pod ---
+
+def test_experiment_commands_reuse_and_keep_alive(tmp_path):
+    """Every experiment must attach to the SAME pod. Without --reuse each one
+    re-provisions (5-10 min and ~$0.10 of bootstrap before any measurement),
+    which is what made small questions 'not worth a pod' and got them answered
+    by inference instead."""
+    from pipeline.experiments import _cmd
+    cmd = _cmd("v.mp4", ["en"], ["config.exp.06b.yaml"])
+    assert "--reuse" in cmd and "--keep-alive" in cmd
+    # base overlay first, experiment overlay after, so the experiment wins
+    i_base = cmd.index("config.gpu.yaml")
+    i_exp = cmd.index("config.exp.06b.yaml")
+    assert i_base < i_exp
+
+
+def test_every_enabled_experiment_isolates_one_axis():
+    """An experiment sharing a variant_key with another silently overwrites its
+    row AND its audio — the failure that already cost the plain-indextts
+    recordings. Enabled experiments must therefore produce distinct keys."""
+    import yaml
+    from pathlib import Path
+    from qc.bakeoff import variant_key
+    root = Path(__file__).resolve().parents[1]
+    spec = yaml.safe_load((root / "experiments.yaml").read_text())
+    base = yaml.safe_load((root / "config.gpu.yaml").read_text())["tts"]
+    keys = {}
+    for e in spec["experiments"]:
+        if not e.get("enabled"):
+            continue
+        t = dict(base, engine="qwen")
+        for ov in e.get("overlays") or []:
+            t.update((yaml.safe_load((root / ov).read_text()).get("tts") or {}))
+        k = variant_key("qwen", t, "en")
+        assert k not in keys, (
+            f"{e['name']} and {keys[k]} both key to {k!r} — the second would "
+            f"overwrite the first's scorecard row and audio")
+        keys[k] = e["name"]
