@@ -36,6 +36,11 @@ separation:
   # NOTE: stems are cached per video — delete work/<video>/vocals.wav +
   # background.wav and re-run s1 to re-separate after switching backends.
   backend: roformer          # roformer | demucs
+  # device: cpu              # force separation off the GPU. On Apple Silicon
+                             # RoFormer OOM'd on an 8-minute lesson (asked 1.19 GB
+                             # with 26.3 GB already committed, MPS ceiling 30.2)
+                             # — set this when a longer video fails, at the cost
+                             # of wall-clock. Not a quality change: same model.
   roformer_model: model_bs_roformer_ep_317_sdr_12.9755.ckpt
   # vocals-specialist alternative: model_mel_band_roformer_ep_3005_sdr_11.4360.ckpt
   demucs_model: htdemucs

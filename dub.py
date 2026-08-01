@@ -201,6 +201,20 @@ def report(cfg: dict, video: str) -> None:
               f"\n     Re-score:  dubadabidu qc {video}")
 
 
+def _remote_stages(a) -> str | None:
+    """--from/--to forwarded to the POD-side command. Without this the pod ran
+    the whole pipeline every time, including stages that need no GPU — and
+    translation, which is API-latency-bound, so the pod billed while waiting on
+    DeepSeek. Returns None to keep the previous whole-pipeline default."""
+    parts = []
+    frm = getattr(a, "from", None)
+    if frm:
+        parts.append(f"--from {frm}")
+    if getattr(a, "to", None):
+        parts.append(f"--to {a.to}")
+    return " ".join(parts) or None
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(prog="dubadabidu")
     ap.add_argument("cmd", choices=["run", "stage", "qc", "doctor", "report",
@@ -379,7 +393,8 @@ def main() -> None:
         ok = all(rpi.remote_run(cfg, v, langs, task, a.budget,
                                 keep_alive=a.keep_alive,
                                 reuse=a.reuse,
-                                overlays=a.overlay or []) for v in vids)
+                                overlays=a.overlay or [],
+                                stages=_remote_stages(a)) for v in vids)
         sys.exit(0 if ok else 1)
     if a.cmd == "prep":
         for v in a.rest:

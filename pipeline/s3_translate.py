@@ -2,6 +2,8 @@
 with retry+backoff, per-batch checkpointing, isometric constraint, glossary,
 and n-best shorter variants. See prompts/translate_system.md."""
 from __future__ import annotations
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import csv, json, logging, os, re, time
 from pathlib import Path
 from . import manifest as M
@@ -252,11 +254,22 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     man = M.load(cfg, video)
 
     passes = int(tcfg.get("passes", 1))
-    for lang in langs:
+    # LANGUAGES RUN CONCURRENTLY. Measured 2026-08-01 on a 62-utterance lesson:
+    # 32 minutes elapsed for 1.3 languages while the process used 3.5 SECONDS of
+    # CPU — it is round-trip latency almost end to end, so five languages
+    # sequentially is ~5x longer than it needs to be for no extra work done.
+    # Threads, not processes: the work is I/O, and a second process would load
+    # its own copy of `man` and clobber the first on save.
+    # Each language writes only u["tr"][<its own lang>], so the segment data is
+    # disjoint; `man["stages"]` and the save itself are NOT, hence _save_lock.
+    # API calls stay OUTSIDE the lock or this would be sequential again.
+    save_lock = threading.Lock()
+
+    def _one_lang(lang: str) -> None:
         todo = [u for u in man["utterances"] if "text" not in u["tr"].get(lang, {})]
         if not todo:
             log.info("%s: cached", lang)
-            continue
+            return
         tol, nvar = tcfg["isometric_tolerance"], tcfg["n_short_variants"]
         terms = _terms(client, tcfg, cfg, video, man, lang)
         transcript = "\n".join(u["text_uk"] for u in man["utterances"])
@@ -342,8 +355,21 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             # a cheap LLM-judge flags unfaithful segments BEFORE synthesis.
             if tcfg.get("adequacy_check", True):
                 _adequacy(_ask, adeq_shared, batch, lang, flag, tcfg)
-            man["stages"][f"s3_{lang}"] = f"{min(i+bs, len(todo))}/{len(todo)}"
-            M.save(cfg, video, man)
+            with save_lock:
+                man["stages"][f"s3_{lang}"] = f"{min(i+bs, len(todo))}/{len(todo)}"
+                M.save(cfg, video, man)
             log.info("%s: %d/%d", lang, min(i + bs, len(todo)), len(todo))
-        man["stages"][f"s3_{lang}"] = "done"
-        M.save(cfg, video, man)
+        with save_lock:
+            man["stages"][f"s3_{lang}"] = "done"
+            M.save(cfg, video, man)
+
+    workers = max(1, int(tcfg.get("lang_workers", len(langs))))
+    if workers > 1 and len(langs) > 1:
+        with ThreadPoolExecutor(max_workers=min(workers, len(langs)),
+                                thread_name_prefix="tr") as ex:
+            # list() so an exception in any language surfaces here rather than
+            # being swallowed by the context manager
+            list(ex.map(_one_lang, langs))
+    else:
+        for lang in langs:
+            _one_lang(lang)

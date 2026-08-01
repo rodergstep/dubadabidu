@@ -549,7 +549,12 @@ REMOTE_TASK = {
     # stops at s7: the pod produces dubbed audio + subs; the final mux (a video
     # stream-copy needing the 4K source) runs LOCALLY after sync-back, so the
     # source video never uploads.
-    "run": "dubadabidu run {video} --langs {langs} --to s7_subtitles "
+    # {stages} lets the caller narrow what the POD does. Only s4 needs a GPU:
+    # separation, ASR, translation, fit, mix and subtitles all run fine on the
+    # laptop for free, and translation in particular should NEVER run here —
+    # it is API-latency-bound, so the pod would bill while waiting on DeepSeek.
+    # Default keeps the old whole-pipeline behaviour.
+    "run": "dubadabidu run {video} --langs {langs} {stages} "
            "--overlay config.gpu.yaml --overlay config.deepseek.yaml",
 }
 
@@ -666,7 +671,8 @@ def _install_engines(rp: dict, host: str, port: int, remote: str,
 def remote_run(cfg: dict, video: str, langs: list[str], task: str,
                budget_usd: float | None = None,
                keep_alive: bool = False, reuse: bool = False,
-               overlays: list[str] | None = None) -> bool:
+               overlays: list[str] | None = None,
+               stages: str | None = None) -> bool:
     """Full lifecycle: sweep -> provision -> sync up -> run -> sync back ->
     ALWAYS terminate. Returns True on remote task success.
 
@@ -827,8 +833,9 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # exactly how a real lesson is named) would be split into several
         # arguments and the run would fail after provisioning. _rsync_paths is
         # already safe: it passes a list to subprocess, never a shell.
-        cmd = REMOTE_TASK[task].format(video=shlex.quote(video),
-                                       langs=",".join(langs))
+        cmd = REMOTE_TASK[task].format(
+            video=shlex.quote(video), langs=",".join(langs),
+            stages=stages or "--to s7_subtitles")
         # extras AFTER the hardcoded config.gpu.yaml so they win, matching the
         # local merge order. The files themselves ship with the project rsync.
         for ov in extra_overlays:

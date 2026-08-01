@@ -11,10 +11,13 @@ Stems are cached per video: switching backends does NOT re-separate an
 existing work/<video>/ — delete vocals.wav + background.wav there first.
 """
 from __future__ import annotations
+import logging
 import subprocess
 import sys
 from pathlib import Path
 from .manifest import video_workdir
+
+log = logging.getLogger("dubadabidu.s1")
 
 
 def sh(*args: str) -> None:
@@ -37,12 +40,34 @@ def _separate_roformer(sep_cfg: dict, work_dir: str, full: Path,
     model = sep_cfg.get("roformer_model",
                         "model_bs_roformer_ep_317_sdr_12.9755.ckpt")
     out_dir = wd / "roformer"
+    # separation.device: cpu — force it off the GPU for THIS call only.
+    # audio-separator picks its device by probing torch.backends.mps.is_available()
+    # (separator.py), with no constructor override, so the only lever is the
+    # probe. On an 8-minute lesson RoFormer's attention asked for 1.19 GB with
+    # 26.3 GB already committed system-wide and MPS refused — twice, with an
+    # identical figure, so it is standing pressure rather than a transient.
+    # NOT raising PYTORCH_MPS_HIGH_WATERMARK_RATIO: torch's own error says that
+    # "may cause system failure", which is not a trade worth making on someone's
+    # working laptop to save a few minutes of CPU time.
+    _restore = None
+    if str(sep_cfg.get("device", "")).lower() == "cpu":
+        import torch
+        if hasattr(torch.backends, "mps"):
+            _restore = torch.backends.mps.is_available
+            torch.backends.mps.is_available = lambda: False
+        log.info("separation forced to CPU (separation.device: cpu) — slower "
+                 "but bounded by system RAM rather than the MPS ceiling")
     separator = Separator(
         output_dir=str(out_dir),
         model_file_dir=str(Path(work_dir) / ".models" / "audio-separator"),
         output_format="WAV")
-    separator.load_model(model_filename=model)
-    outs = separator.separate(str(full))
+    try:
+        separator.load_model(model_filename=model)
+        outs = separator.separate(str(full))
+    finally:
+        if _restore is not None:
+            import torch
+            torch.backends.mps.is_available = _restore
 
     def pick(tag: str) -> Path:
         for o in outs:  # names look like "audio_full_(Vocals)_<model>.wav";
