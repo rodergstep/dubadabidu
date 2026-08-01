@@ -36,19 +36,58 @@ def _shuffled(items: list, seed: str) -> list:
         for i, x in enumerate(items))]
 
 
-def _clips(bo: Path, lang: str, variants: list[str]) -> list[dict]:
+def _clips(bo: Path, lang: str, variants: list[str],
+           per_group: int = 0, anchor=None) -> list[dict]:
+    """Takes to rate. per_group>0 keeps only that many per (variant, segment),
+    picked by the production take-ranking so the WORST roll is dropped first.
+
+    Why not simply "keep the best": a rating set truncated to good audio is
+    range-restricted, and Spearman against a truncated range is attenuated —
+    refit would be learning from a sample that never shows it what bad sounds
+    like. Keeping the top AND the median halves the listening while preserving
+    most of the spread; only the clear duds go.
+
+    Groups are balanced on purpose too. The raw directories hold 6 takes of one
+    variant and 3 of the others, so an unbalanced sample would weight the
+    ratings toward whichever variant happened to be run with more takes."""
+    from pipeline.tts_engine import _take_rank
+    from qc import metrics as X
     out = []
     for v in variants:
         d = bo / "seg" / v / lang
+        by_seg: dict[str, list[Path]] = {}
         for w in sorted(d.glob("*_t*.wav")) if d.is_dir() else []:
-            out.append({"variant": v, "seg": w.stem.split("_t")[0],
-                        "path": str(w.relative_to(bo))})
+            by_seg.setdefault(w.stem.split("_t")[0], []).append(w)
+        for seg, ws in by_seg.items():
+            if per_group and len(ws) > per_group:
+                scored = []
+                for w in ws:
+                    m = {"mos_min": X.mos_min_window(str(w)),
+                         "f0st": X.f0_semitone_std(str(w))}
+                    if anchor is not None:
+                        m["sim"] = X.cosine(anchor, X.ecapa_embed(str(w)))
+                    scored.append((_take_rank(m), w))
+                scored.sort(key=lambda x: -x[0])
+                # best, then evenly spaced down the ranking (median-ish), so the
+                # kept set still spans quality rather than clustering at the top
+                idx = [round(i * (len(scored) - 1) / max(1, per_group - 1))
+                       for i in range(per_group)]
+                ws = [scored[i][1] for i in sorted(set(idx))[:per_group]]
+            for w in ws:
+                out.append({"variant": v, "seg": seg,
+                            "path": str(w.relative_to(bo))})
     return out
 
 
-def build(wd: Path, lang: str, variants: list[str]) -> Path:
+def build(wd: Path, lang: str, variants: list[str],
+          per_group: int = 2) -> Path:
     bo = wd / "bakeoff"
-    clips = _shuffled(_clips(bo, lang, variants), f"{wd.name}/{lang}")
+    from qc import metrics as X
+    refs = sorted((wd / "qc_ua").glob("*.wav"))
+    anchor = (sum(X.ecapa_embed(str(p)) for p in refs) / len(refs)
+              if refs else None)
+    clips = _shuffled(_clips(bo, lang, variants, per_group, anchor),
+                      f"{wd.name}/{lang}")
     if not clips:
         raise SystemExit(f"no takes found for {variants}")
     # ANONYMISE THE FILES, not just the labels. Serving seg/<variant>/... would
@@ -178,8 +217,12 @@ if __name__ == "__main__":
     lang = sys.argv[3] if len(sys.argv) > 3 else "en"
     wd = Path("work") / video
     if mode == "build":
-        vs = sys.argv[4:] or ["qwen+fast", "qwen+fast+0.6B"]
-        print(build(wd, lang, vs))
+        args = sys.argv[4:]
+        per = 2
+        if args and args[0].isdigit():        # build <video> <lang> <N> [variants]
+            per, args = int(args[0]), args[1:]
+        vs = args or ["qwen+fast", "qwen+fast+0.6B", "qwen+fast+control"]
+        print(build(wd, lang, vs, per))
     else:
         cfg = yaml.safe_load(Path("config.yaml").read_text())
         ingest(wd, lang, Path(sys.argv[4]), cfg)
