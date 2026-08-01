@@ -127,7 +127,51 @@ So: check names against their definitions, not against intent.
     else:
         ok(f"dispatch {sorted(dispatch)} — all git-clone engines have recipes")
 
-    print("\n=== 6. synth_hash covers every output-changing tts knob ===")
+    print("\n=== 6. config keys named in COMMENTS actually exist ===")
+    # The chatterbox bug was a comment asserting behaviour that was never
+    # wired ("qwen serves every language; engine_by_lang is left empty on
+    # purpose"). Comments that name a `key:` are documentation of a setting —
+    # if the setting is absent, the comment is a claim, not a description.
+    import re as _re
+    for f in ("config.yaml", "config.gpu.yaml"):
+        text = (ROOT / f).read_text()
+        live = set(_re.findall(r"^\s{0,6}([a-z_][a-z0-9_]*):", text, _re.M))
+        # "# key: value" — a commented-out setting is fine (it is a default),
+        # but a comment REFERRING to tts.foo / bakeoff.bar must resolve
+        refs = set(_re.findall(r"#[^\n]*\b(?:tts|bakeoff|runpod|qc)\.([a-z_][a-z0-9_]*)",
+                               text))
+        ghosts = sorted(r for r in refs if r not in live and r not in code)
+        if ghosts:
+            bad(f"{f}: comments reference settings that exist nowhere: {ghosts}")
+    if not any("exist nowhere" in x for x in FAIL):
+        ok("every dotted config reference in comments resolves")
+
+    print("\n=== 7. stage graph: dub.py STAGES vs the stage modules ===")
+    # ORDER = list(STAGES), so read the dict literal rather than the alias.
+    import importlib
+    order = None
+    for n in ast.walk(ast.parse((ROOT / "dub.py").read_text())):
+        if (isinstance(n, ast.Assign)
+                and getattr(n.targets[0], "id", "") == "STAGES"
+                and isinstance(n.value, ast.Dict)):
+            order = [k.value for k in n.value.keys if isinstance(k, ast.Constant)]
+    if not order:
+        bad("dub.py STAGES not found — the stage graph is unverifiable")
+    else:
+        missing = [st for st in order
+                   if not (ROOT / "pipeline" / f"{st}.py").exists()]
+        if missing:
+            bad(f"STAGES lists stages with no module: {missing}")
+        else:
+            ok(f"all {len(order)} stages in STAGES have a pipeline module")
+        norun = [st for st in order
+                 if not hasattr(importlib.import_module(f"pipeline.{st}"), "run")]
+        if norun:
+            bad(f"stage modules without run(): {norun}")
+        else:
+            ok("every stage module exposes run()")
+
+    print("\n=== 8. synth_hash covers every output-changing tts knob ===")
     from pipeline.manifest import synth_hash                   # noqa: E402
     base = {"engine": "qwen", "reference_wav": "r.wav", "cfg_weight": 0.0,
             "exaggeration": 0.5}
