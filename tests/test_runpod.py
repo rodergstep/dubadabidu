@@ -202,3 +202,28 @@ def test_every_enabled_experiment_isolates_one_axis():
             f"{e['name']} and {keys[k]} both key to {k!r} — the second would "
             f"overwrite the first's scorecard row and audio")
         keys[k] = e["name"]
+
+
+def test_gpu_type_priority_defaults_to_custom_so_list_order_matters():
+    """With "availability" RunPod ignores the order and picks whatever is free,
+    which is why a cheapest-first list still landed on a 4090 every run (7% GPU,
+    7% CPU, 17% RAM on a top-rate card). Only "availability" and "custom" are
+    accepted by the API."""
+    from pipeline.runpod_infra import create_pod
+    import inspect
+    src = inspect.getsource(create_pod)
+    assert '"gpuTypePriority": rp.get("gpu_type_priority", "custom")' in src
+    assert '"gpuTypePriority": "availability"' not in src
+
+
+def test_config_puts_cheap_gpus_first_and_4090_last():
+    """The ordering is load-bearing now, so a careless re-sort would silently
+    put us back on the most expensive card."""
+    import yaml
+    from pathlib import Path
+    cfg = yaml.safe_load(
+        (Path(__file__).resolve().parents[1] / "config.gpu.yaml").read_text())
+    ids = cfg["runpod"]["gpu_type_ids"]
+    assert cfg["runpod"]["gpu_type_priority"] == "custom"
+    assert ids[0] == "NVIDIA RTX A4000"
+    assert "4090" in ids[-1]

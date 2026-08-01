@@ -101,7 +101,17 @@ def create_pod(rp: dict) -> dict:
         "name": rp.get("name", "dubadabidu"),
         "imageName": rp["image"],
         "gpuTypeIds": rp["gpu_type_ids"],
-        "gpuTypePriority": "availability",
+        # "custom" honours the ORDER of gpu_type_ids; "availability" picks
+        # whichever type is free and ignores the order entirely. We shipped
+        # "availability" alongside a carefully cheapest-first list, so the
+        # ordering did nothing and every run landed on a 4090 — 7% GPU, 7% CPU
+        # and 17% RAM utilisation on a card we were paying top rate for.
+        # UNVERIFIED: whether "custom" falls back to later entries when the
+        # first has no capacity. If provisioning starts failing with "no
+        # instances currently available", set runpod.gpu_type_priority back to
+        # "availability" and trim the expensive types out of the list instead —
+        # that achieves the same thing by construction.
+        "gpuTypePriority": rp.get("gpu_type_priority", "custom"),
         "gpuCount": rp["gpu_count"],
         "cloudType": rp["cloud_type"],
         "interruptible": rp["interruptible"],

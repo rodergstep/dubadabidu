@@ -151,10 +151,11 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   # RunPod's own datacenters, where on-demand capacity actually exists. Costs
   # roughly 2-3x community per hour; max_runtime_hours still caps a run at 3 h.
   cloud_type: SECURE
-  # Capped at the mid tier: create_pod sends gpuTypePriority=availability, so
-  # RunPod picks whichever is FREE, not whichever is cheapest — listing an
-  # A6000/L40S/H100 class card would risk landing on one at 3-5x the price for
-  # a workload that cannot use it.
+  # ORDER MATTERS ONLY WITH gpu_type_priority: custom. With "availability"
+  # (the old hardcoded value) RunPod picks whichever type is free and the list
+  # order is ignored — which is why a cheapest-first list still landed on a
+  # 4090 every single time. The API accepts only "availability" or "custom".
+  gpu_type_priority: custom
   # SIZING, measured 2026-08-01: qwen 1.7B bf16 is ~4 GB, faster-whisper
   # large-v3 fp16 ~5 GB, ECAPA + Distill-MOS well under 1 GB. Peak is ~12 GB, so
   # 16 GB is sufficient and 24 GB is comfortable. The pod ran at ~7% GPU
@@ -171,10 +172,13 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   # deliberate bad id to refresh this list. ("NVIDIA A30" is NOT a valid id.)
   # All entries below are >=16GB and mid-tier; H100/B200/A100/RTX-6000 class are
   # omitted on purpose so gpuTypePriority=availability cannot land on one.
-  # Enum refreshed from the API 2026-08-01 (see the trick above). 16-24 GB only.
-  # RTX 2000 Ada is DROPPED despite being cheapest: 16 GB but materially slower,
-  # and now that we are compute-bound it would stretch wall clock for little
-  # saving. 4080/4090 stay as availability fallbacks, not preferences.
+  # Enum refreshed from the API 2026-08-01 (see the trick above). 16-24 GB only,
+  # cheapest-capable FIRST — now load-bearing thanks to gpu_type_priority.
+  # Utilisation on a 4090 was 7% GPU / 7% CPU / 17% RAM: on RunPod the CPU and
+  # RAM come bundled with the GPU tier, so all three are one symptom (oversized
+  # instance) with one lever (this list). RTX 2000 Ada stays DROPPED despite
+  # being cheapest — 16 GB but materially slower, and we are compute-bound now.
+  # 4080/4090 remain LAST as capacity fallbacks, not preferences.
   gpu_type_ids: ["NVIDIA RTX A4000", "NVIDIA RTX 4000 Ada Generation",
                  "NVIDIA RTX A4500", "NVIDIA L4",
                  "NVIDIA RTX A5000", "NVIDIA GeForce RTX 3090",

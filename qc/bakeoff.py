@@ -43,6 +43,8 @@ import html
 import json
 import logging
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pipeline import manifest as M  # noqa: E402
@@ -56,6 +58,39 @@ log = logging.getLogger("dubadabidu.qc.bakeoff")
 # inference: whatever dominates shows up here on the next run.
 PHASE: dict[str, float] = {"synth": 0.0, "sim": 0.0, "mos": 0.0,
                            "f0": 0.0, "wer": 0.0}
+
+
+def _score_take(X, cfg, anchor, w, text, lang, slot) -> dict:
+    """Every metric for ONE take. Kept as a single unit so it can be handed to a
+    pool and overlapped with the next take's synthesis — the take is the natural
+    boundary because nothing here depends on any other take.
+
+    PHASE counters are incremented from worker threads. That is safe enough for
+    what they are: `+=` on a float under the GIL can in principle lose an update
+    on a preemption boundary, and these are diagnostics, not results — a lost
+    fraction of a second does not change a percentage. Do NOT promote them to
+    anything load-bearing without a lock."""
+    import soundfile as sf
+    from qc.backcheck import segment_wer
+    out = {}
+    _t = time.perf_counter()
+    out["sim"] = X.cosine(anchor, X.ecapa_embed(w))
+    PHASE["sim"] += time.perf_counter() - _t
+    _t = time.perf_counter()
+    out["mos"] = X.mos_min_window(w)
+    PHASE["mos"] += time.perf_counter() - _t
+    _t = time.perf_counter()
+    out["f0"] = X.f0_semitone_std(w)
+    PHASE["f0"] += time.perf_counter() - _t
+    # WER: back-transcribe and compare to the text we asked for — catches
+    # hallucination/dropped words that sim/mos/f0 are all blind to.
+    _t = time.perf_counter()
+    out["wer"] = segment_wer(cfg, text, w, lang)
+    PHASE["wer"] += time.perf_counter() - _t
+    # pace: synth_dur / source slot (>1 = slower than source, overflow-prone;
+    # s5 would have to stretch it to fit).
+    out["pace"] = sf.info(str(w)).duration / slot
+    return out
 
 
 def log_phase_totals(where: str) -> None:
@@ -368,6 +403,15 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         per_engine: dict[str, dict] = {}
         tuning: dict[str, dict] = {}
         seg_audio: dict[str, dict[str, str]] = {u["id"]: {} for u in subset}
+        # bakeoff.scoring_workers: how many takes may be scored concurrently
+        # while synthesis continues. 1 restores the old strictly-serial
+        # behaviour. Default 3 rather than "number of cores": the scorers share
+        # ONE GPU (Distill-MOS and faster-whisper both run on it) and one
+        # process's memory, so oversubscribing trades a small pipeline win for
+        # VRAM pressure and OOM risk on a card already holding the TTS model.
+        pool = ThreadPoolExecutor(
+            max_workers=max(1, int(bcfg.get("scoring_workers", 3))),
+            thread_name_prefix="score")
         for engine in engines:
             t = _engine_cfg(base_tts, engine)
             # key rows AND audio by the configured variant, so an
@@ -411,8 +455,18 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 # (the shared translation-length bias cancels in the comparison).
                 slot = max(u["end"] - u["start"], 0.1)
                 tu = t
-                sims, moss, f0s, wers, paces = [], [], [], [], []
                 first = None
+                # OVERLAP scoring with the NEXT take's synthesis. Measured
+                # 2026-08-01 on a pod: synth 60% of wall clock, scoring 40%
+                # (mos 9%, f0 14%, wer 15%) — and the two alternated on one
+                # thread, so the GPU idled through the 40% and the CPU through
+                # the 60%. Each take's score depends only on that take, so the
+                # work is trivially overlappable; futures keep take ORDER while
+                # letting take k be scored while take k+1 is synthesized.
+                # ThreadPool, not ProcessPool: the heavy parts (torch, librosa)
+                # release the GIL, and the models must not be re-loaded per
+                # process. `scoring_workers` also parallelises WITHIN a segment.
+                futures = []
                 for k in range(takes):
                     w = seg_dir / f"{u['id']}_t{k}.wav"
                     try:
@@ -427,23 +481,15 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                         unavailable = str(e).split(" — ")[0][:120]
                         break
                     first = first or w
-                    _t = time.perf_counter()
-                    sims.append(X.cosine(anchor, X.ecapa_embed(w)))
-                    PHASE["sim"] += time.perf_counter() - _t
-                    _t = time.perf_counter()
-                    moss.append(X.mos_min_window(w))
-                    PHASE["mos"] += time.perf_counter() - _t
-                    _t = time.perf_counter()
-                    f0s.append(X.f0_semitone_std(w))
-                    PHASE["f0"] += time.perf_counter() - _t
-                    # WER: back-transcribe and compare to the text we asked for —
-                    # catches hallucination/dropped words that sim/mos/f0 miss.
-                    _t = time.perf_counter()
-                    wers.append(segment_wer(cfg, text, w, lang))
-                    PHASE["wer"] += time.perf_counter() - _t
-                    # pace: synth_dur / source slot (>1 = slower than source,
-                    # overflow-prone; s5 would have to stretch it to fit).
-                    paces.append(sf.info(str(w)).duration / slot)
+                    futures.append(pool.submit(_score_take, X, cfg, anchor,
+                                               w, text, lang, slot))
+                # gather in submission order so takes stay aligned
+                scored = [f.result() for f in futures]
+                sims = [r["sim"] for r in scored]
+                moss = [r["mos"] for r in scored]
+                f0s = [r["f0"] for r in scored]
+                wers = [r["wer"] for r in scored]
+                paces = [r["pace"] for r in scored]
                 if unavailable:
                     break
                 # relative to bo/ (where the .html lives), not wd/
@@ -502,6 +548,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         # attribution for THIS language, before the next one resets nothing —
         # the counters are cumulative, so a multi-language run shows the
         # running total and the final line is the whole run.
+        pool.shutdown(wait=True)
         log_phase_totals(f"{Path(video).stem}/{lang}")
         _write_reports(bo, video, lang, subset, merged,
                        _audio_on_disk(bo, lang, merged, subset), wd,
