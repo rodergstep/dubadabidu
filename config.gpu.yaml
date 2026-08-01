@@ -82,11 +82,9 @@ tts:
 bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
   # chatterbox REMOVED 2026-07-30 at the user's call — its quality is already
   # known by ear from the local sketch60 runs, and installing it on the pod costs
-  # ~5 GB of CUDA torch for a row we don't need. CONSEQUENCE: it is the incumbent,
-  # so beats_incumbent() has no baseline and every challenger reports "no
-  # incumbent baseline" — the adoption gate becomes ADVISORY and the decision
-  # moves to the ear on the .html page plus the raw sim→real / mos numbers.
-  # Put chatterbox back at the front of this list to restore the gate.
+  # ~5 GB of CUDA torch for a row we don't need. That silently disabled the
+  # adoption gate for a week (it was still the hardcoded incumbent, so there was
+  # never a baseline); bakeoff.incumbent below is the fix.
   # ONE ENGINE AT A TIME (2026-07-30). Installing every candidate before testing
   # any of them meant each download was paid for before a single result existed —
   # and a late failure threw the lot away, repeatedly. One engine per run needs no
@@ -96,6 +94,12 @@ bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
   # ROSTER after the 2026-07-31 cut: qwen only. cosyvoice, voxcpm and indextts
   # are gone — see the tts block above.
   engines: [qwen]
+  # WHAT A CHALLENGER MUST BEAT. This was hardcoded to chatterbox, which meant
+  # that once engines became [qwen] the gate had no baseline and every run
+  # printed "no incumbent baseline" — advisory, while looking adjudicated. qwen
+  # is what we ship now, so it is the bar. Change this when the shipped engine
+  # changes, or the gate silently stops gating again.
+  incumbent: qwen
   subset_size: 6               # stratified by source length
   takes: 3                     # averaged per segment to beat TTS variance
   # tune-lite: every engine sweeps its own grid BEFORE the head-to-head and

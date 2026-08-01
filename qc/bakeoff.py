@@ -49,7 +49,34 @@ from pipeline import manifest as M  # noqa: E402
 
 log = logging.getLogger("dubadabidu.qc.bakeoff")
 
-INCUMBENT = "chatterbox"
+# Wall-clock attribution. A sweep point measured ~58 s for 12 takes while
+# synthesis accounted for ~25 s and the three metrics for ~2 s — over half the
+# run was unexplained, and guessing at it twice produced two wrong answers
+# (first "scoring is half the cost", then a shrug). Cheap counters beat
+# inference: whatever dominates shows up here on the next run.
+PHASE: dict[str, float] = {"synth": 0.0, "sim": 0.0, "mos": 0.0,
+                           "f0": 0.0, "wer": 0.0}
+
+
+def log_phase_totals(where: str) -> None:
+    total = sum(PHASE.values())
+    if total <= 0:
+        return
+    parts = " ".join(f"{k}={v:.1f}s({100*v/total:.0f}%)"
+                     for k, v in PHASE.items() if v > 0)
+    log.info("phase totals [%s]: %s | accounted %.1f s", where, parts, total)
+
+INCUMBENT = "chatterbox"     # default; override with bakeoff.incumbent
+
+
+def incumbent_of(bcfg: dict) -> str:
+    """Which engine a challenger must beat. Configurable because the answer
+    CHANGES: chatterbox was the incumbent while it was what we shipped, and
+    qwen is now. Leaving it hardcoded is how the gate quietly died — with
+    bakeoff.engines: [qwen] and INCUMBENT still 'chatterbox', beats_incumbent()
+    never had a baseline and every run reported 'no incumbent baseline' while
+    looking like it had adjudicated something."""
+    return (bcfg or {}).get("incumbent", INCUMBENT)
 
 
 def beats_incumbent(challenger: dict, incumbent: dict,
@@ -186,6 +213,7 @@ def _tune_engine(engine: str, base_t: dict, subset: list[dict], lang: str,
 
     Returns (best_overrides, trial_rows, unavailable_or_None).
     """
+    import time
     from pipeline.tts_engine import synthesize
     from qc import metrics as X
 
@@ -201,7 +229,9 @@ def _tune_engine(engine: str, base_t: dict, subset: list[dict], lang: str,
             for k in range(takes):
                 w = seg_root / f"p{i}_{u['id']}_t{k}.wav"
                 try:
+                    _t = time.perf_counter()
                     synthesize(text, lang, w, t, retries=1)
+                    PHASE["synth"] += time.perf_counter() - _t
                 except (FileNotFoundError, RuntimeError) as e:
                     # FileNotFoundError = package/venv missing (the documented
                     # engine-unavailable contract). RuntimeError = the worker died
@@ -216,9 +246,15 @@ def _tune_engine(engine: str, base_t: dict, subset: list[dict], lang: str,
                     failed = str(e).split(" — ")[0][:120]
                     last_err = failed
                     break
+                _t = time.perf_counter()
                 sims.append(X.cosine(anchor, X.ecapa_embed(w)))
+                PHASE["sim"] += time.perf_counter() - _t
+                _t = time.perf_counter()
                 moss.append(X.mos_min_window(w))
+                PHASE["mos"] += time.perf_counter() - _t
+                _t = time.perf_counter()
                 f0s.append(X.f0_semitone_std(w))
+                PHASE["f0"] += time.perf_counter() - _t
             if failed:
                 break
         if failed:
@@ -279,7 +315,8 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     from qc.review_page import _ua_slice
 
     bcfg = cfg.get("bakeoff", {})
-    engines = bcfg.get("engines", [INCUMBENT, "qwen"])
+    incumbent = incumbent_of(bcfg)
+    engines = bcfg.get("engines", [incumbent, "qwen"])
     takes = int(bcfg.get("takes", 3))
     n = int(bcfg.get("subset_size", 6))
     # tune-lite: per-engine grids, overridable per engine (a config grid
@@ -372,19 +409,29 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                     try:
                         t0 = time.perf_counter()
                         synthesize(text, lang, w, tu, retries=1)
-                        synth_secs.append(time.perf_counter() - t0)
+                        _d = time.perf_counter() - t0
+                        synth_secs.append(_d)
+                        PHASE["synth"] += _d
                     except (FileNotFoundError, RuntimeError) as e:
                         # see _tune_engine: a dead worker / failed synth must
                         # disqualify THIS engine, not the whole comparison
                         unavailable = str(e).split(" — ")[0][:120]
                         break
                     first = first or w
+                    _t = time.perf_counter()
                     sims.append(X.cosine(anchor, X.ecapa_embed(w)))
+                    PHASE["sim"] += time.perf_counter() - _t
+                    _t = time.perf_counter()
                     moss.append(X.mos_min_window(w))
+                    PHASE["mos"] += time.perf_counter() - _t
+                    _t = time.perf_counter()
                     f0s.append(X.f0_semitone_std(w))
+                    PHASE["f0"] += time.perf_counter() - _t
                     # WER: back-transcribe and compare to the text we asked for —
                     # catches hallucination/dropped words that sim/mos/f0 miss.
+                    _t = time.perf_counter()
                     wers.append(segment_wer(cfg, text, w, lang))
+                    PHASE["wer"] += time.perf_counter() - _t
                     # pace: synth_dur / source slot (>1 = slower than source,
                     # overflow-prone; s5 would have to stretch it to fit).
                     paces.append(sf.info(str(w)).duration / slot)
@@ -443,16 +490,26 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         # overwrote the previous engine's scorecard and the page could never show
         # two engines side by side — which defeats the point of a bake-off.
         merged, merged_tuning = _merge_results(bo, lang, per_engine, tuning)
+        # attribution for THIS language, before the next one resets nothing —
+        # the counters are cumulative, so a multi-language run shows the
+        # running total and the final line is the whole run.
+        log_phase_totals(f"{Path(video).stem}/{lang}")
         _write_reports(bo, video, lang, subset, merged,
                        _audio_on_disk(bo, lang, merged, subset), wd,
-                       _ua_slice, merged_tuning)
+                       _ua_slice, merged_tuning, incumbent)
 
 
-def _verdict(engine: str, stats: dict, inc: dict | None) -> str:
+def _verdict(engine: str, stats: dict, inc: dict | None,
+             incumbent: str = INCUMBENT) -> str:
     if "unavailable" in stats:
         return "n/a (not installed)"
-    if engine == INCUMBENT or not inc or "unavailable" in inc:
-        return "incumbent" if engine == INCUMBENT else "no incumbent baseline"
+    if engine == incumbent:
+        return f"incumbent ({incumbent})"
+    if not inc or "unavailable" in inc:
+        # say ADVISORY out loud. The old wording ("no incumbent baseline") read
+        # like a neutral note in a column of verdicts, so a run where the gate
+        # never executed looked the same as one where it passed.
+        return f"ADVISORY — {incumbent} not in this run, gate did NOT run"
     return "ADOPT" if beats_incumbent(stats, inc) else "keep incumbent"
 
 
@@ -575,10 +632,10 @@ def _tuning_section(tuning: dict, engines: list) -> list[str]:
 
 
 def _write_reports(bo, video, lang, subset, per_engine, seg_audio, wd,
-                   ua_slice_fn, tuning=None) -> None:
+                   ua_slice_fn, tuning=None, incumbent=INCUMBENT) -> None:
     import os
     name = Path(video).stem
-    inc = per_engine.get(INCUMBENT)
+    inc = per_engine.get(incumbent)
     engines = list(per_engine)
 
     lines = [f"# bake-off — {name} / {lang}", "",
@@ -598,11 +655,11 @@ def _write_reports(bo, video, lang, subset, per_engine, seg_audio, wd,
         s = per_engine[e]
         if "unavailable" in s:
             lines.append(f"| {e} | - | - | - | - | - | - | - "
-                         f"| {_verdict(e, s, inc)} |")
+                         f"| {_verdict(e, s, inc, incumbent)} |")
         else:
             lines.append(f"| {e} | {s['sim']} | {s['mos']} | {s['f0']} "
                          f"| {s['wer']} | {s['pace']} | {s['mos_sd']} "
-                         f"| {s['s_take']} | {_verdict(e, s, inc)} |")
+                         f"| {s['s_take']} | {_verdict(e, s, inc, incumbent)} |")
     lines += ["", "Adoption gate: a challenger must beat chatterbox on sim→real "
               "AND mos, AND not regress wer beyond tolerance (intelligibility "
               "veto), or tie and win the ear on the .html page. pace, mos± and "

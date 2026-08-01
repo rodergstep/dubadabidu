@@ -77,3 +77,34 @@ def test_missing_voice_anchor_fails_with_an_actionable_message(tmp_path,
 
     with pytest.raises(SystemExit, match="no usable reference slices"):
         bakeoff.run(_bakeoff_cfg(tmp_path), "vid", ["en"])
+
+
+# --- adoption gate: it must never look like it ran when it didn't ---
+
+def test_incumbent_is_configurable():
+    """Hardcoding it is how the gate died: engines became [qwen] while INCUMBENT
+    stayed 'chatterbox', so beats_incumbent() never had a baseline."""
+    from qc.bakeoff import incumbent_of, INCUMBENT
+    assert incumbent_of({}) == INCUMBENT              # back-compatible default
+    assert incumbent_of({"incumbent": "qwen"}) == "qwen"
+
+
+def test_missing_baseline_is_reported_as_advisory_not_as_a_pass():
+    """The old wording ('no incumbent baseline') sat in a column of verdicts and
+    read like a neutral note, so a run where the gate never executed looked the
+    same as one where it passed."""
+    from qc.bakeoff import _verdict
+    ch = {"sim": 0.7, "mos": 2.6, "wer": 0.004}
+    v = _verdict("challenger", ch, None, "qwen")
+    assert "ADVISORY" in v and "did NOT run" in v
+    assert "ADOPT" not in v
+
+
+def test_verdict_still_adopts_when_a_baseline_exists():
+    from qc.bakeoff import _verdict
+    inc = {"sim": 0.68, "mos": 2.48, "wer": 0.005}
+    better = {"sim": 0.70, "mos": 2.60, "wer": 0.004}
+    worse = {"sim": 0.60, "mos": 2.30, "wer": 0.004}
+    assert _verdict("c", better, inc, "qwen") == "ADOPT"
+    assert _verdict("c", worse, inc, "qwen") == "keep incumbent"
+    assert _verdict("qwen", inc, inc, "qwen") == "incumbent (qwen)"
