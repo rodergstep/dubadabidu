@@ -127,6 +127,15 @@ def variant_key(engine: str, t: dict, lang: str) -> str:
     # qwen fast-vs-stock comparison.
     if eng == "qwen" and "0.6B" in str(t.get("qwen_model_dir", "")):
         suffix += "+0.6B"
+    # tts.variant_label — an arbitrary tag for a row that must NOT merge with an
+    # identically-configured one. The use is a CONTROL run: synthesize the same
+    # config twice and diff the scorecard, which is the only way to measure the
+    # noise band that nearly every comparison here has landed inside. It changes
+    # no synthesis input, so it is deliberately absent from synth_hash; the
+    # bake-off writes takes under seg/<variant>/, so a distinct label is what
+    # forces fresh takes rather than a cache hit.
+    if t.get("variant_label"):
+        suffix += "+" + str(t["variant_label"])
     return engine + suffix
 
 

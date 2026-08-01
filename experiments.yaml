@@ -52,6 +52,26 @@ experiments:
       more takes, but the current qwen+fast audio is overwritten. A copy of the
       ref_03@12s takes is kept at bakeoff/seg_backup_ref03/.
 
+  - name: noise-floor
+    enabled: true
+    langs: [en]
+    overlays: [config.exp.repeat.yaml]
+    asks: How big is the run-to-run noise band of this whole harness?
+    why: >
+      Nearly every comparison here ended "that is inside the noise" — the top
+      three references were 0.018 apart, qwen fast-vs-stock moved mos 0.17
+      against a mos± of 0.32, the dtype probe spread 0.35. The band itself has
+      NEVER been measured, so "inside noise" has been an assertion. This run
+      changes nothing but the row label, so whatever separates it from the
+      baseline IS the floor.
+    reads: >
+      Diff qwen+fast+control against qwen+fast in results_en.json, per metric.
+    decides: >
+      Calibrates every other result, retroactively included. Anything smaller
+      than this gap is not a finding. If the band turns out to be wide, fine
+      tuning on 4 segments is pointless and the effort belongs in
+      scale-validation instead.
+
   - name: qwen-06b
     enabled: true
     langs: [en]
@@ -74,9 +94,10 @@ experiments:
   - name: lang-fr-de-es
     enabled: false
     blocked_by: >
-      work/sketch60/manifest.json has en and ru translations only. Needs
-      `dubadabidu stage s3_translate --langs fr,de,es` first (local, API cost
-      well under $1, no GPU).
+      POSTPONED 2026-08-01 by decision, not by a technical blocker. When picked
+      up it also needs `dubadabidu stage s3_translate --langs fr,de,es` first
+      (local, API cost well under $1, no GPU) — the manifest has en and ru only.
+      Better folded into scale-validation than run on sketch60's 4 utterances.
     langs: [fr, de, es]
     overlays: []
     asks: Do the three untested target languages hold up?

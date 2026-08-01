@@ -108,3 +108,24 @@ def test_verdict_still_adopts_when_a_baseline_exists():
     assert _verdict("c", better, inc, "qwen") == "ADOPT"
     assert _verdict("c", worse, inc, "qwen") == "keep incumbent"
     assert _verdict("qwen", inc, inc, "qwen") == "incumbent (qwen)"
+
+
+def test_variant_label_separates_an_otherwise_identical_run():
+    """A control run must NOT merge with the row it is being compared against —
+    that is the whole experiment. Identical config + a label = distinct key."""
+    from qc.bakeoff import variant_key
+    t = {"engine": "qwen", "qwen_fast": True}
+    assert variant_key("qwen", t, "en") == "qwen+fast"
+    assert variant_key("qwen", dict(t, variant_label="control"), "en") \
+        == "qwen+fast+control"
+
+
+def test_variant_label_is_not_in_synth_hash():
+    """It changes no synthesis input, so salting the cache key with it would
+    force pointless re-synthesis everywhere else in the pipeline. Fresh takes
+    for the control come from the per-variant seg/ directory instead."""
+    from pipeline.manifest import synth_hash
+    base = {"engine": "qwen", "reference_wav": "r.wav",
+            "cfg_weight": 0.0, "exaggeration": 0.5}
+    assert synth_hash("hi", "en", base) == \
+        synth_hash("hi", "en", dict(base, variant_label="control"))
