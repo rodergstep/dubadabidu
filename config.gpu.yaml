@@ -78,6 +78,19 @@ tts:
   # vCPU and RAM; REST v1 does not expose the GPU model) and ONE axis at a time.
   # An OOM costs a whole experiment; the saving is a fraction of one.
   synth_workers: 1
+  # EARLY-ACCEPT BAR, engine-relative. config.yaml sets 3.6, which was
+  # calibrated when chatterbox was the engine. Distill-MOS scores qwen lower:
+  # measured 2026-08-01 over 60 takes, qwen's worst-3s-window MOS spans
+  # 1.67-3.65, so the 3.6 bar fired on 1 of 16 segment-runs (6%) and the whole
+  # adaptive-best_of mechanism was dead weight. That is the third setting to
+  # silently stop working when the engine changed, after the adoption gate and
+  # the take-ranking weights — thresholds here must be engine-relative.
+  # 2.8 is the highest bar that is provably FREE on the takes we have: it fires
+  # on 3 of 16 (8% fewer takes) and picks the IDENTICAL take every time, zero
+  # rank loss. 2.6 saves 10% for a 0.0021 rank loss; 2.4 saves 15% but changes
+  # the pick on 31% of segments. Re-measure on real-lesson takes before going
+  # lower — 16 segment-runs cannot resolve a small quality cost.
+  early_accept_mos: 2.8
   qwen_max_audio_s: 60                 # reject a take longer than this as a
                                        # runaway generation (engine_client has
                                        # no per-call timeout, so an unbounded
