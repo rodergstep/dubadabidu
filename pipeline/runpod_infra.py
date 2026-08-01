@@ -482,7 +482,24 @@ def provision(rp: dict, deadline: float) -> tuple[str, str, int]:
     except BaseException:
         _terminate_tracked()   # crash-safe: reads pid from state, not a local var
         raise
-    log.info("pod %s SSH ready at %s:%d", pid, host, port)
+    # WHICH card did we actually get? Nothing logged this before, so the only
+    # way to find out was the RunPod dashboard — which is how every run silently
+    # landing on a 4090 (7% GPU / 7% CPU / 17% RAM utilisation, top rate) went
+    # unnoticed for a week while gpuTypePriority was hardcoded to "availability"
+    # and the cheapest-first ordering did nothing. Cost per run depends on this
+    # one line more than on anything else in the config.
+    try:
+        info = get_pod(pid)
+        gpu = (info.get("machine") or {}).get("gpuTypeId") or \
+            (info.get("gpuTypeIds") or [None])[0] or "?"
+        price = info.get("costPerHr")
+        want = rp["gpu_type_ids"][0]
+        log.info("pod %s SSH ready at %s:%d — GPU: %s%s%s", pid, host, port, gpu,
+                 f" (${price}/h)" if price else "",
+                 "" if gpu == want else f"  [NOT the preferred {want}]")
+    except Exception as e:      # never fail a run over a log line
+        log.info("pod %s SSH ready at %s:%d (gpu type unknown: %s)",
+                 pid, host, port, e)
     return pid, host, port
 
 
