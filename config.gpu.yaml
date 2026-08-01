@@ -127,7 +127,16 @@ tts:
   qwen_fast: true
   # qwen_warmup_len: 100               # prefill length for CUDA graph capture
 
-  # qwen serves every language; engine_by_lang is left empty on purpose.
+  # THE PRODUCTION ENGINE. This was missing until 2026-08-02 and the omission
+  # was invisible: bakeoff.engines: [qwen] drives only the BAKE-OFF's own loop,
+  # while a real `run` resolves through tts.engine — which was still inheriting
+  # chatterbox from config.yaml. So every engine decision this week (the roster
+  # cut, the pin, three reference sweeps, best_of) applied to a code path that
+  # production never took, and the first production run was minutes from
+  # synthesizing 62 segments x 5 languages with the wrong engine — successfully,
+  # since chatterbox installs in the base venv, i.e. silently wrong rather than
+  # a crash. engine_by_lang stays empty on purpose: qwen serves all five.
+  engine: qwen
 
 bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
   # chatterbox REMOVED 2026-07-30 at the user's call — its quality is already

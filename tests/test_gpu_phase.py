@@ -189,3 +189,22 @@ def test_failed_worker_is_returned_to_the_pool(monkeypatch):
         with pytest.raises(RuntimeError):
             pool.call({})
     assert pool._idle.qsize() == 1
+
+
+def test_gpu_profile_actually_routes_production_to_qwen():
+    """bakeoff.engines drives only the BAKE-OFF's loop. A real `run` resolves
+    through tts.engine, which config.gpu.yaml never set — so it inherited
+    chatterbox from config.yaml and the first production run was minutes from
+    synthesizing five languages with the wrong engine. Silently, since
+    chatterbox installs in the base venv: wrong output, not a crash."""
+    import yaml
+    from pathlib import Path
+    from pipeline.logic import deep_merge
+    root = Path(__file__).resolve().parents[1]
+    cfg = deep_merge(yaml.safe_load((root / "config.yaml").read_text()),
+                     yaml.safe_load((root / "config.gpu.yaml").read_text()))
+    t = cfg["tts"]
+    for lang in cfg["languages"]:
+        assert resolve_engine(t, lang) == "qwen", (
+            f"{lang} resolves to {resolve_engine(t, lang)}, not the engine the "
+            f"bake-off selected — tts.engine and bakeoff.engines disagree")
