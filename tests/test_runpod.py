@@ -306,3 +306,23 @@ def test_remote_stages_reads_the_real_argparse_dests():
     # the mux needs the source video and that stays local
     default = argparse.Namespace(from_stage="s1_extract", to_stage="s8_mux")
     assert _remote_stages(default) == "--to s7_subtitles"
+
+
+def test_bootstrap_skips_chatterbox_unless_a_language_routes_to_it():
+    """chatterbox-tts is the `clone` extra, present to pin torch/torchaudio
+    2.6.0 — but it also drags diffusers, s3tokenizer, resemble-perth, conformer
+    and spacy-pkuseg, plus EXACT pins (transformers==5.2.0, diffusers==0.29.0)
+    that make pip backtrack. With qwen as the production engine none of it is
+    used, so the pin moves to us and the package goes.
+
+    NOT a claim that this halves the bootstrap: torch itself still dominates
+    the download. This removes chatterbox's dependency tree and the resolver
+    churn, nothing more."""
+    from pipeline.runpod_infra import REMOTE_SETUP
+    qwen_only = REMOTE_SETUP.format(dir="~/d", clone="")
+    assert "chatterbox-tts" not in qwen_only
+    assert "torch==2.6.0 torchaudio==2.6.0" in qwen_only, \
+        "the torch pin must be explicit once chatterbox no longer supplies it"
+    routed = REMOTE_SETUP.format(
+        dir="~/d", clone="pip install --progress-bar off chatterbox-tts==0.1.7 && ")
+    assert "chatterbox-tts==0.1.7" in routed

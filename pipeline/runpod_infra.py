@@ -532,8 +532,17 @@ REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     "pip install -q --upgrade pip; "
     # skip the ~15min reinstall when deps are already present (persistent-volume
     # reuse across runs — see runpod.network_volume_id)
-    "if ! python -c 'import chatterbox' 2>/dev/null; then "
-    "pip install --progress-bar off chatterbox-tts==0.1.7 && "
+    # {clone} is chatterbox-tts, installed ONLY when a language actually routes
+    # to chatterbox. It is the `clone` extra and exists to pin torch/torchaudio
+    # 2.6.0 — but it also drags diffusers, s3tokenizer, resemble-perth,
+    # conformer and spacy-pkuseg, plus EXACT pins (transformers==5.2.0,
+    # diffusers==0.29.0) that make pip backtrack. With qwen as the production
+    # engine none of that is used, so the pin moves to us and the package goes.
+    # torch itself still dominates the download; this is not "half the
+    # bootstrap", it is chatterbox's dependency tree and the resolver churn.
+    "if ! python -c 'import torch' 2>/dev/null; then "
+    "{clone}"
+    "pip install --progress-bar off torch==2.6.0 torchaudio==2.6.0 && "
     "pip install --progress-bar off -e '.[dev]'; fi; "
     # FAIL if CUDA is missing — otherwise the run would silently synth on CPU,
     # which is uselessly slow and defeats the point of renting a GPU
@@ -808,8 +817,18 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
                 log.info("reused pod already provisioned (venv + %s import + "
                          "CUDA all verified) — skipping setup and engine install",
                          "/".join(probe_engines) or "engines")
-        if not setup_ok and ssh_exec(rp, host, port, REMOTE_SETUP.format(dir=remote),
-                    timeout=1800) != 0:
+        # chatterbox only if something actually routes to it
+        tc = cfg.get("tts", {})
+        routed = {(tc.get("engine_by_lang") or {}).get(lg, tc.get("engine"))
+                  for lg in langs}
+        clone = ("pip install --progress-bar off chatterbox-tts==0.1.7 && "
+                 if "chatterbox" in routed else "")
+        if clone:
+            log.info("a language routes to chatterbox — installing the clone extra")
+        if not setup_ok and ssh_exec(
+                rp, host, port,
+                REMOTE_SETUP.format(dir=remote, clone=clone),
+                timeout=1800) != 0:
             raise RuntimeError("remote setup failed: dependency install error "
                                "OR CUDA unavailable (check the log's CUDA: line)")
         # 2.5 the git-clone engine (qwen) must be installed on the pod before
@@ -1014,7 +1033,9 @@ def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
         # code + ref only — no work/ needed for an install check (skip the upload)
         rsync(rp, port, "./", f"{rp['ssh_user']}@{host}:{remote}/",
               extra_excludes=("input", "output", "work"))
-        if ssh_exec(rp, host, port, REMOTE_SETUP.format(dir=remote),
+        # setup-check validates ENGINE installs; it never synthesizes with
+        # chatterbox, so it does not need the clone extra either
+        if ssh_exec(rp, host, port, REMOTE_SETUP.format(dir=remote, clone=""),
                     timeout=1800) != 0:
             raise RuntimeError("remote setup failed: dependency install error OR "
                                "CUDA unavailable (check the log's CUDA: line)")

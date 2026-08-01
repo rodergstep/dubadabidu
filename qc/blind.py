@@ -22,9 +22,12 @@ refresh doesn't lose them, and a Download button that writes the export file.
 """
 from __future__ import annotations
 import hashlib
+import logging
 import json
 import sys
 from pathlib import Path
+
+log = logging.getLogger("dubadabidu.qc.blind")
 
 
 def _shuffled(items: list, seed: str) -> list:
@@ -172,8 +175,21 @@ def ingest(wd: Path, lang: str, export: Path, cfg: dict) -> Path:
 
     refs = sorted((wd / "qc_ua").glob("*.wav"))
     anchor = sum(X.ecapa_embed(str(p)) for p in refs) / len(refs)
-    band = cfg.get("qc", {}).get("sim_band", {})
-    floor, ceiling = float(band.get("floor", 0.0)), float(band.get("ceiling", 1.0))
+    # The calibration band is COMPUTED per reference (evaluate.calibration):
+    # ceiling = mean sim(ref, real UA slices) "same speaker", floor =
+    # sim(ref, an edge-TTS voice) "different speaker". It is NOT a config key.
+    # This originally read a qc.sim_band that does not exist anywhere, so it
+    # silently used floor 0 / ceiling 1 — i.e. qc_sim_cal == raw cosine. The
+    # tell was in refit's own output: qc_sim_cal and qc_sim2 correlated
+    # IDENTICALLY (+0.176), which can only happen if calibration is a no-op.
+    # Rows ingested before this fix carry an uncalibrated feature.
+    from qc.evaluate import calibration
+    import json as _json
+    man = _json.loads((wd / "manifest.json").read_text())
+    cal = calibration(cfg, wd, man, lang)
+    floor, ceiling = float(cal["floor"]), float(cal["ceiling"])
+    log.info("sim band for %s: floor %.3f ceiling %.3f (ref %s)",
+             lang, floor, ceiling, cal["ref"])
 
     rows = []
     for key, stars in ratings.items():
