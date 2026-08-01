@@ -1,0 +1,16 @@
+# EXPERIMENT: the noise floor again, in Russian.
+#
+# en measured sim ±0.010, mos ±0.007, wer ±0.005, f0st ±0.438 by running an
+# identical config twice. Every ru conclusion is currently being read against
+# the ENGLISH band, which assumes the two behave alike — an assumption, and the
+# ru sweep already differed from en in ways that mattered (ref_03 preferred 18 s
+# there and 12 s here).
+#
+# Cheap, and it decides whether the ru reference sweep's 0.029 winning margin
+# was a result or a coin flip.
+tts:
+  variant_label: control
+
+bakeoff:
+  tune:
+    enabled: false

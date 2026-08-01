@@ -1,5 +1,10 @@
 """Pure-logic tests: config overlay merge, per-lang engine routing, cache-safe
 hashing for the GPU phase."""
+import time
+from pathlib import Path
+
+import pytest
+
 from pipeline.logic import deep_merge
 from pipeline.manifest import resolve_engine, synth_hash
 
@@ -94,3 +99,93 @@ def test_worker_handle_error_contract(tmp_path):
     r = handle(req, boom)
     assert r["ok"] is False and r["kind"] == "error"
     assert "ValueError" in r["error"]
+
+
+# --- synth worker pool: takes are independent, so they can run concurrently ---
+
+def test_pool_never_hands_one_worker_to_two_threads(monkeypatch):
+    """The whole safety argument: each worker is a process with its own pipes,
+    so concurrency is safe ONLY if a worker is checked out by one thread at a
+    time. If that breaks, two requests interleave on one stdin/stdout pair and
+    the responses cross."""
+    import threading
+    import pipeline.engine_client as C
+
+    holders, clash = [], []
+    lock = threading.Lock()
+
+    class FakeWorker:
+        def __init__(self, engine, python):
+            self.id = len(holders)
+            holders.append(self.id)
+            self.busy = False
+
+        def call(self, req):
+            with lock:
+                if self.busy:
+                    clash.append(self.id)
+                self.busy = True
+            time.sleep(0.01)
+            self.busy = False
+
+        def stop(self):
+            pass
+
+    monkeypatch.setattr(C, "_Worker", FakeWorker)
+    pool = C._Pool("qwen", Path("py"), size=3)
+    threads = [threading.Thread(target=pool.call, args=({"i": i},))
+               for i in range(12)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not clash, f"worker(s) {clash} used by two threads at once"
+    assert len(holders) <= 3, "pool spawned more workers than its size"
+
+
+def test_pool_spawns_lazily_not_upfront(monkeypatch):
+    """Each worker loads its own model copy (~4 GB VRAM for qwen 1.7B plus its
+    own CUDA-graph capture). A pool of 3 that only ever sees serial calls must
+    cost ONE model, not three."""
+    import pipeline.engine_client as C
+    spawned = []
+
+    class FakeWorker:
+        def __init__(self, engine, python):
+            spawned.append(1)
+
+        def call(self, req):
+            pass
+
+        def stop(self):
+            pass
+
+    monkeypatch.setattr(C, "_Worker", FakeWorker)
+    pool = C._Pool("qwen", Path("py"), size=4)
+    for _ in range(5):
+        pool.call({})            # strictly serial usage
+    assert len(spawned) == 1
+
+
+def test_failed_worker_is_returned_to_the_pool(monkeypatch):
+    """_Worker.call respawns a dead process on its next use, so a crashed
+    worker must stay in the pool — otherwise the pool silently shrinks to
+    nothing over a long run and the last failure deadlocks it."""
+    import pipeline.engine_client as C
+
+    class Boom:
+        def __init__(self, *a):
+            pass
+
+        def call(self, req):
+            raise RuntimeError("worker died")
+
+        def stop(self):
+            pass
+
+    monkeypatch.setattr(C, "_Worker", Boom)
+    pool = C._Pool("qwen", Path("py"), size=1)
+    for _ in range(3):
+        with pytest.raises(RuntimeError):
+            pool.call({})
+    assert pool._idle.qsize() == 1

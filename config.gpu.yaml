@@ -25,12 +25,19 @@ tts:
   # Qwen3-TTS Base — THE PRODUCTION ENGINE (all 5 targets), 3 s clone, ~4 GB
   # VRAM, Apache-2.0. UA ref -> x_vector_only (speaker embedding only, no ref
   # transcript). git-clone install (THIRD_PARTY.md).
-  # Keep 1.7B for now. Measured 2026-07-31 on a 4090 BEFORE qwen_fast: 0.6B ran
-  # at RTF 1.38 vs 1.7B's 1.42 — a 3x smaller model bought no speed, proving the
-  # transformer was never the bottleneck. CAVEAT: qwen_fast removes the dispatch
-  # overhead, so the model is now genuinely compute-bound and that measurement
-  # no longer applies — 0.6B is worth re-testing (it scored mos 2.697 vs 2.411
-  # in the dtype probe, inside the noise floor but not worse).
+  # 1.7B, SETTLED 2026-08-01 after three runs and two blind rating passes. The
+  # 0.6B variant is not a live option and its machinery has been removed; do not
+  # re-add it without new evidence. What was measured:
+  #   - barely faster (2.16 vs 2.32 s/take) — the speed floor is the codec
+  #     decode, not the transformer, so a 3x smaller LM buys almost nothing
+  #   - mos edge SHRANK under better sampling (2.692 at 3 takes -> 2.564 at 6)
+  #   - sim penalty is real and GROWS with the language that clones best
+  #     (en -0.036, ru -0.073, both far outside the 0.010 noise band)
+  #   - its "tighter spread" was a 3-take artifact: mos± 0.345 at 6 takes sits
+  #     between two readings of the SAME 1.7B config (0.492 and 0.311)
+  #   - the en wer advantage did NOT replicate in ru
+  #   - blind ear: marginally ahead in en, last in ru — a wash
+  # Voice identity is the product; 0.6B costs it for no reliable gain.
   qwen_model_dir: Qwen/Qwen3-TTS-12Hz-1.7B-Base
   qwen_x_vector_only: true             # UA ref: clone from audio embedding only
   # THE REFERENCE, decided by three sweeps (en x2, ru) on 2026-07-31/08-01.
@@ -55,6 +62,22 @@ tts:
   # sweepable axis (bakeoff.grids) rather than a global default. The trim
   # MECHANISM stays: it is also the guard against over-long references, the
   # documented trigger for the decoder's never-emits-EOS failure.
+  # PARALLEL TAKES. best_of rolls the same text N times sharing no state, but
+  # they were generated strictly one after another — which is why the card sat
+  # at ~7% utilisation while synthesis was still 60% of wall clock. Each worker
+  # is a separate process holding its OWN model copy (~4 GB for 1.7B plus its
+  # own CUDA-graph capture), spawned lazily, so a pool that never sees
+  # concurrent demand costs one model rather than three.
+  # DEFAULT 1 AFTER AN OOM (2026-08-01). Shipping this at 2 alongside
+  # bakeoff.scoring_workers: 3 AND a move to a cheaper, smaller card raised
+  # three variables at once, none measured — the first experiment died in
+  # faster-whisper with "CUDA failed with error out of memory". VRAM is shared
+  # by everything: N synth workers x ~4 GB, plus Distill-MOS and faster-whisper
+  # allocating per concurrent scorer.
+  # Raise ONLY with the card's VRAM in hand (the provisioning log prints $/h,
+  # vCPU and RAM; REST v1 does not expose the GPU model) and ONE axis at a time.
+  # An OOM costs a whole experiment; the saving is a fraction of one.
+  synth_workers: 1
   qwen_max_audio_s: 60                 # reject a take longer than this as a
                                        # runaway generation (engine_client has
                                        # no per-call timeout, so an unbounded
@@ -82,11 +105,9 @@ tts:
 bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
   # chatterbox REMOVED 2026-07-30 at the user's call — its quality is already
   # known by ear from the local sketch60 runs, and installing it on the pod costs
-  # ~5 GB of CUDA torch for a row we don't need. CONSEQUENCE: it is the incumbent,
-  # so beats_incumbent() has no baseline and every challenger reports "no
-  # incumbent baseline" — the adoption gate becomes ADVISORY and the decision
-  # moves to the ear on the .html page plus the raw sim→real / mos numbers.
-  # Put chatterbox back at the front of this list to restore the gate.
+  # ~5 GB of CUDA torch for a row we don't need. That silently disabled the
+  # adoption gate for a week (it was still the hardcoded incumbent, so there was
+  # never a baseline); bakeoff.incumbent below is the fix.
   # ONE ENGINE AT A TIME (2026-07-30). Installing every candidate before testing
   # any of them meant each download was paid for before a single result existed —
   # and a late failure threw the lot away, repeatedly. One engine per run needs no
@@ -96,6 +117,12 @@ bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
   # ROSTER after the 2026-07-31 cut: qwen only. cosyvoice, voxcpm and indextts
   # are gone — see the tts block above.
   engines: [qwen]
+  # WHAT A CHALLENGER MUST BEAT. This was hardcoded to chatterbox, which meant
+  # that once engines became [qwen] the gate had no baseline and every run
+  # printed "no incumbent baseline" — advisory, while looking adjudicated. qwen
+  # is what we ship now, so it is the bar. Change this when the shipped engine
+  # changes, or the gate silently stops gating again.
+  incumbent: qwen
   subset_size: 6               # stratified by source length
   takes: 3                     # averaged per segment to beat TTS variance
   # tune-lite: every engine sweeps its own grid BEFORE the head-to-head and
@@ -147,10 +174,11 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   # RunPod's own datacenters, where on-demand capacity actually exists. Costs
   # roughly 2-3x community per hour; max_runtime_hours still caps a run at 3 h.
   cloud_type: SECURE
-  # Capped at the mid tier: create_pod sends gpuTypePriority=availability, so
-  # RunPod picks whichever is FREE, not whichever is cheapest — listing an
-  # A6000/L40S/H100 class card would risk landing on one at 3-5x the price for
-  # a workload that cannot use it.
+  # ORDER MATTERS ONLY WITH gpu_type_priority: custom. With "availability"
+  # (the old hardcoded value) RunPod picks whichever type is free and the list
+  # order is ignored — which is why a cheapest-first list still landed on a
+  # 4090 every single time. The API accepts only "availability" or "custom".
+  gpu_type_priority: custom
   # SIZING, measured 2026-08-01: qwen 1.7B bf16 is ~4 GB, faster-whisper
   # large-v3 fp16 ~5 GB, ECAPA + Distill-MOS well under 1 GB. Peak is ~12 GB, so
   # 16 GB is sufficient and 24 GB is comfortable. The pod ran at ~7% GPU
@@ -167,10 +195,13 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   # deliberate bad id to refresh this list. ("NVIDIA A30" is NOT a valid id.)
   # All entries below are >=16GB and mid-tier; H100/B200/A100/RTX-6000 class are
   # omitted on purpose so gpuTypePriority=availability cannot land on one.
-  # Enum refreshed from the API 2026-08-01 (see the trick above). 16-24 GB only.
-  # RTX 2000 Ada is DROPPED despite being cheapest: 16 GB but materially slower,
-  # and now that we are compute-bound it would stretch wall clock for little
-  # saving. 4080/4090 stay as availability fallbacks, not preferences.
+  # Enum refreshed from the API 2026-08-01 (see the trick above). 16-24 GB only,
+  # cheapest-capable FIRST — now load-bearing thanks to gpu_type_priority.
+  # Utilisation on a 4090 was 7% GPU / 7% CPU / 17% RAM: on RunPod the CPU and
+  # RAM come bundled with the GPU tier, so all three are one symptom (oversized
+  # instance) with one lever (this list). RTX 2000 Ada stays DROPPED despite
+  # being cheapest — 16 GB but materially slower, and we are compute-bound now.
+  # 4080/4090 remain LAST as capacity fallbacks, not preferences.
   gpu_type_ids: ["NVIDIA RTX A4000", "NVIDIA RTX 4000 Ada Generation",
                  "NVIDIA RTX A4500", "NVIDIA L4",
                  "NVIDIA RTX A5000", "NVIDIA GeForce RTX 3090",

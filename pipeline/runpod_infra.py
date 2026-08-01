@@ -101,7 +101,17 @@ def create_pod(rp: dict) -> dict:
         "name": rp.get("name", "dubadabidu"),
         "imageName": rp["image"],
         "gpuTypeIds": rp["gpu_type_ids"],
-        "gpuTypePriority": "availability",
+        # "custom" honours the ORDER of gpu_type_ids; "availability" picks
+        # whichever type is free and ignores the order entirely. We shipped
+        # "availability" alongside a carefully cheapest-first list, so the
+        # ordering did nothing and every run landed on a 4090 — 7% GPU, 7% CPU
+        # and 17% RAM utilisation on a card we were paying top rate for.
+        # UNVERIFIED: whether "custom" falls back to later entries when the
+        # first has no capacity. If provisioning starts failing with "no
+        # instances currently available", set runpod.gpu_type_priority back to
+        # "availability" and trim the expensive types out of the list instead —
+        # that achieves the same thing by construction.
+        "gpuTypePriority": rp.get("gpu_type_priority", "custom"),
         "gpuCount": rp["gpu_count"],
         "cloudType": rp["cloud_type"],
         "interruptible": rp["interruptible"],
@@ -298,6 +308,34 @@ def wait_ssh(rp: dict, host: str, port: int, deadline: float) -> bool:
 _MODEL_CACHE_EXCLUDES = (".models/ecapa", ".models/audio-separator")
 
 
+def _verify_ready(rp: dict, host: str, port: int, remote: str,
+                  engines: list[str]) -> bool:
+    """Is this pod ALREADY set up for these engines? Proof, not assumption.
+
+    Checks, in the engine's own venv rather than the base one (a CPU-only torch
+    in venvs/<engine> is exactly the failure that once cost a week of 126 s/take
+    runs, and the base venv cannot see it):
+      - the main .venv exists and imports the qc stack
+      - each engine's module imports
+      - torch.cuda.is_available() inside that venv
+    Any failure, any non-zero rc, any doubt -> False, and setup runs normally.
+    Skipping setup wrongly costs a whole experiment; running it needlessly costs
+    ~50 s, so the asymmetry says be conservative."""
+    if not engines:
+        return False
+    checks = [f'test -x {remote}/.venv/bin/python']
+    for e in engines:
+        mod = ENGINE_MODULE.get(e)
+        if not mod:            # chatterbox/edge live in the base venv
+            return False
+        py = f"{remote}/venvs/{e}/bin/python"
+        checks.append(
+            f"test -x {py} && {py} -c "
+            f"'import {mod}, torch; assert torch.cuda.is_available()'")
+    rc = ssh_exec(rp, host, port, " && ".join(checks), timeout=180)
+    return rc == 0
+
+
 def _live_pod() -> tuple[str, str, int] | None:
     """(pod_id, host, port) for the pod in the state file when it is still up and
     reachable, else None. Used by --reuse to attach to a pod a previous
@@ -444,7 +482,28 @@ def provision(rp: dict, deadline: float) -> tuple[str, str, int]:
     except BaseException:
         _terminate_tracked()   # crash-safe: reads pid from state, not a local var
         raise
-    log.info("pod %s SSH ready at %s:%d", pid, host, port)
+    # WHAT ARE WE PAYING? Nothing recorded this before, so the only way to know
+    # was the RunPod dashboard — which is how every run silently landing on a
+    # 4090 (7% GPU / 7% CPU / 17% RAM at top rate) went unnoticed for a week
+    # while gpuTypePriority was hardcoded to "availability" and the
+    # cheapest-first ordering did nothing.
+    # Flagged on PRICE, not on the GPU name: REST v1's GET /pods/{id} returns an
+    # EMPTY `machine` object and no gpuTypeId anywhere (checked 2026-08-01), so
+    # the card's identity is simply not retrievable. Price is the better signal
+    # regardless — it is what the budget is spent in, and vcpu/RAM size with the
+    # GPU tier, so an oversized instance shows up here too.
+    try:
+        info = get_pod(pid)
+        price = info.get("costPerHr")
+        budgeted = float(rp.get("assumed_price_per_hr", 0) or 0)
+        over = (price is not None and budgeted and float(price) > budgeted)
+        log.info("pod %s SSH ready at %s:%d — $%s/h, %s vCPU, %s GB RAM%s",
+                 pid, host, port, price, info.get("vcpuCount"),
+                 info.get("memoryInGb"),
+                 f"  [OVER the budgeted ${budgeted}/h]" if over else "")
+    except Exception as e:      # never fail a run over a log line
+        log.info("pod %s SSH ready at %s:%d (price unknown: %s)",
+                 pid, host, port, e)
     return pid, host, port
 
 
@@ -714,8 +773,26 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
             _rsync_paths(rp, port, needed, up)
         else:
             rsync(rp, port, "./", up, extra_excludes=("input", "output"))
-        # 2. install + verify CUDA (fails fast if CUDA is unavailable)
-        if ssh_exec(rp, host, port, REMOTE_SETUP.format(dir=remote),
+        # 2. install + verify CUDA (fails fast if CUDA is unavailable).
+        # SKIPPED on a reused pod that PROVES it is already set up. The
+        # experiment queue runs 6 bake-offs back to back against one pod, and
+        # re-running setup + engine install per experiment cost ~50 s each -
+        # roughly a third of the queue's wall clock spent re-confirming what the
+        # first run established. The probe is the proof, not an assumption: it
+        # imports the engine module and asserts CUDA inside the engine's OWN
+        # venv, which is exactly what setup exists to guarantee. Anything less
+        # certain re-runs setup.
+        setup_ok = False
+        if alive:
+            probe_engines = list(dict.fromkeys(
+                cfg.get("bakeoff", {}).get("engines", [])
+                if task == "bakeoff" else []))
+            setup_ok = _verify_ready(rp, host, port, remote, probe_engines)
+            if setup_ok:
+                log.info("reused pod already provisioned (venv + %s import + "
+                         "CUDA all verified) — skipping setup and engine install",
+                         "/".join(probe_engines) or "engines")
+        if not setup_ok and ssh_exec(rp, host, port, REMOTE_SETUP.format(dir=remote),
                     timeout=1800) != 0:
             raise RuntimeError("remote setup failed: dependency install error "
                                "OR CUDA unavailable (check the log's CUDA: line)")
@@ -735,9 +812,11 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # each challenger installs into its own venv, so a collision with the
         # chatterbox baseline is impossible by construction — no post-install
         # baseline check needed (REMOTE_SETUP already verified the main venv).
-        _install_engines(rp, host, port, remote, needed,
-                         "bake-off will mark it unavailable" if task == "bakeoff"
-                         else "s4 will fail for langs routed to it")
+        if not setup_ok:
+            _install_engines(rp, host, port, remote, needed,
+                             "bake-off will mark it unavailable"
+                             if task == "bakeoff"
+                             else "s4 will fail for langs routed to it")
         # 3. run the task, self-capped by remote `timeout` to the deadline.
         # Pass the (low-privilege) translation key inline — an SSH session may
         # not inherit the pod's container env, and s3 needs it. Not logged.

@@ -199,9 +199,26 @@ def _synth_qwen(text: str, lang: str, out: Path, t: dict) -> None:
     t1 = time.perf_counter()
     prompt = _qwen_clone_prompt(m, t)
     t2 = time.perf_counter()
-    wavs, sr = m.generate_voice_clone(
-        text=text, language=QWEN_LANGS.get(lang, "Auto"),
-        voice_clone_prompt=prompt)
+    # tts.qwen_gen_kwargs — sampling passthrough, empty by default so the
+    # shipped generation config (temperature 0.9 / top_k 50 / top_p 1.0 /
+    # repetition_penalty 1.05, identical across all five checkpoints) is what
+    # runs unless deliberately overridden. Worth overriding because take-to-take
+    # VARIANCE is the dominant quality factor we have measured (mos± 0.24-0.49,
+    # and best_of was still climbing at k=6): a lower temperature trades peak
+    # quality for consistency, which could buy back the takes it costs.
+    # An unsupported kwarg fails the call outright, so the error names the knob
+    # rather than surfacing as a bare TypeError from inside the library.
+    gen = dict(t.get("qwen_gen_kwargs") or {})
+    try:
+        wavs, sr = m.generate_voice_clone(
+            text=text, language=QWEN_LANGS.get(lang, "Auto"),
+            voice_clone_prompt=prompt, **gen)
+    except TypeError as e:
+        if not gen:
+            raise
+        raise RuntimeError(
+            f"qwen rejected tts.qwen_gen_kwargs={gen} — this build's "
+            f"generate_voice_clone does not accept those names ({e})")
     t3 = time.perf_counter()
     dur = len(wavs[0]) / float(sr)
     # RUNAWAY GUARD. Qwen3-TTS's most common failure is the decoder never
@@ -533,8 +550,17 @@ def synthesize(text: str, lang: str, out: Path, tts_cfg: dict,
     from .engine_client import isolated_python, synth as _worker_synth
     worker_py = isolated_python(engine, tts_cfg)
     if worker_py is not None:
+        # tts.synth_workers — how many takes may be IN FLIGHT at once. Takes
+        # share no state, so this is safe; the cost is one model copy per worker
+        # (~4 GB VRAM for qwen 1.7B plus its own CUDA-graph capture), which is
+        # why it defaults to 1 and must be raised deliberately against the card
+        # actually in use. Only meaningful on the isolated-venv path: the
+        # in-process path below holds ONE model in module globals and is not
+        # thread-safe, so it stays serial by construction.
+        _nw = max(1, int(tts_cfg.get("synth_workers", 1)))
+
         def fn(text, lang, out, t, _py=worker_py):  # noqa: F811 — same signature
-            _worker_synth(engine, _py, text, lang, out, t)
+            _worker_synth(engine, _py, text, lang, out, t, workers=_nw)
     # number/symbol localization is engine-agnostic (digits read wrong-language
     # otherwise) — apply to every engine; manifest/subs/QC keep clean digits.
     text = localize_numbers(text, lang)

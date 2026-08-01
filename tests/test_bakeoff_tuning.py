@@ -136,11 +136,10 @@ def test_tune_lite_surfaces_an_uninstalled_engine(monkeypatch, tmp_path):
 
 
 def test_tune_score_weights_sim_and_mos_comparably(stub_synth, tmp_path):
-    """No single axis may dominate by SCALE. sim is already 0..1 while mos is
-    1..5 and f0st is roughly 0..4, so each is normalized before weighting —
-    otherwise a one-point mos swing would outrank everything else combined.
-    Exact equality no longer holds (mos .40 / sim .35 / f0 .25 since f0st
-    joined the objective 2026-08-01), so assert the property, not the number."""
+    """No single axis may dominate by SCALE, and f0 is NOT one of the axes.
+    f0st was weighted at 0.25 for one day (2026-08-01) until control runs put
+    its run-to-run band at 0.24-0.44 on an unchanged config — a term that
+    cannot resolve itself cannot rank anything, so it was removed."""
     import qc.metrics
     # p0: sim 1.0 / mos 1.0 (norm 0.0)   p1: sim 0.0 / mos 5.0 (norm 1.0)
     stub_synth.setattr(qc.metrics, "cosine",
@@ -152,10 +151,10 @@ def test_tune_score_weights_sim_and_mos_comparably(stub_synth, tmp_path):
         "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1,
         {"qwen_cfg": [1.5, 2.0]})
 
-    # both extremes land in the same band: neither axis can run away with it
-    assert abs(trials[0]["score"] - trials[1]["score"]) < 0.10
-    # ...and mos, the human-calibrated axis, is weighted no less than sim
-    assert trials[1]["score"] > trials[0]["score"]
+    # sim is 0..1 while mos is 1..5, so mos MUST be normalized before
+    # weighting or a one-point mos swing would outrank everything else. Equal
+    # weights on normalized terms means these mirror-image extremes tie.
+    assert trials[0]["score"] == trials[1]["score"] == 0.5
 
 
 # --- report ---

@@ -1,0 +1,24 @@
+# EXPERIMENT: how big is the noise band, really?
+#   dubadabidu remote bakeoff <video> --langs en --reuse --keep-alive \
+#     --overlay config.gpu.yaml --overlay config.exp.repeat.yaml
+#
+# WHY THIS IS THE MOST USEFUL RUN IN THE QUEUE. Nearly every comparison in this
+# project ended "that is inside the noise" — the top three references were 0.018
+# apart, qwen fast-vs-stock moved mos 0.17 against a mos± of 0.32, the dtype
+# probe spread 0.35. We have never measured the band itself, so "inside noise"
+# has been an assertion, not a measurement.
+#
+# This changes NOTHING except the row label: same engine, same reference, same
+# takes, same segments. Whatever separates this row from the baseline IS the
+# noise floor of the whole harness — run-to-run, not take-to-take (mos± already
+# covers that). Everything smaller than this gap should be treated as no result.
+#
+# variant_label is not in synth_hash on purpose (it changes no synthesis input);
+# the bake-off writes under seg/<variant>/, so the label alone forces fresh
+# takes instead of a cache hit.
+tts:
+  variant_label: control
+
+bakeoff:
+  tune:
+    enabled: false     # a control must not re-sweep — it has to be IDENTICAL

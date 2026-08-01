@@ -1,0 +1,181 @@
+# Experiment queue — MANY experiments, ONE pod.
+#
+#   python -m pipeline.experiments                 # run everything enabled
+#   python -m pipeline.experiments --dry-run       # print the commands only
+#   python -m pipeline.experiments --only bestof-curve qwen-06b
+#
+# WHY THIS EXISTS. Every question so far cost its own pod: provision, apt,
+# bootstrap, engine install, weights — 5-10 min and ~$0.10 before a single
+# measurement, paid again for the next question. Worse, it biased WHICH
+# questions got asked: anything that looked small was not "worth a pod", so it
+# went unmeasured and got answered by inference instead. Three of my inferences
+# this week were wrong (scoring is half the wall clock; a shorter reference is
+# better; an expressive reference gives expressive output). Cheap experiments
+# are the cure, and they are only cheap if the setup is amortised.
+#
+# The runner attaches every experiment to one live pod via --reuse --keep-alive,
+# and terminates it in a finally block whatever happens.
+#
+# EACH EXPERIMENT MUST ISOLATE ONE AXIS and carry its own variant_key suffix, or
+# its results overwrite the row before it. qc/bakeoff.variant_key already tags
+# qwen_fast / ICL / variant_label; a new axis needs a suffix there FIRST.
+
+video: input/sketch60/sketch60.mp4
+
+# Stop starting new experiments past this much wall clock. Does not interrupt a
+# running one — it prevents the queue from silently becoming an expensive night.
+max_total_minutes: 45
+
+experiments:
+
+  - name: bestof-curve
+    enabled: false
+    answered: >
+      2026-08-01. Measured k=1..6: +0.0343 +0.0191 +0.0123 +0.0088 +0.0077 —
+      still rising at 6, no plateau, so best_of 5 is NOT waste. Caveat kept for
+      whoever revisits: max-of-k partly selects for MEASUREMENT noise, so the
+      measured gain overstates the real one. Also produced the first PHASE
+      breakdown (synth 60% / scoring 40%), which is what motivated overlapping
+      the two.
+    langs: [en]
+    overlays: [config.exp.bestof.yaml]
+    asks: >
+      Does best_of past 3 buy anything? It is a straight 5x multiplier on the
+      biggest cost in the pipeline.
+    why: >
+      The local subsample analysis found NO plateau (rank +0.029 for k=1->2,
+      +0.018 for k=2->3, decaying ~62% per step) — but only 3 takes existed on
+      disk, so k=4 and k=5 were EXTRAPOLATED from a fitted decay. This run puts
+      6 takes down so those become measured numbers.
+    reads: >
+      Re-run the subsample analysis over seg/qwen+fast/en. Also the first run
+      with PHASE instrumentation, so it answers the unexplained wall clock
+      (~58 s per grid point against ~25 s of synthesis) for free.
+    decides: >
+      A flat curve at 3 takes en+ru per video-hour from ~$2.39 to ~$1.53.
+    note: >
+      This overrides no tts setting, so it keys to the SAME row as the baseline
+      (qwen+fast) and REPLACES it — correct, because it is the same config with
+      more takes, but the current qwen+fast audio is overwritten. A copy of the
+      ref_03@12s takes is kept at bakeoff/seg_backup_ref03/.
+
+  - name: noise-floor
+    enabled: false
+    answered: >
+      2026-08-01. Run-to-run band: sim ±0.010, mos ±0.007, wer ±0.005,
+      f0st ±0.438. mos/sim/wer are far more stable than feared; f0st cannot
+      rank anything at this sample size. Retroactively: the reference sweep's
+      0.018 top-three spread was NOT resolvable, and the f0st weight added to
+      the tune objective that morning was weighting noise.
+    langs: [en]
+    overlays: [config.exp.repeat.yaml]
+    asks: How big is the run-to-run noise band of this whole harness?
+    why: >
+      Nearly every comparison here ended "that is inside the noise" — the top
+      three references were 0.018 apart, qwen fast-vs-stock moved mos 0.17
+      against a mos± of 0.32, the dtype probe spread 0.35. The band itself has
+      NEVER been measured, so "inside noise" has been an assertion. This run
+      changes nothing but the row label, so whatever separates it from the
+      baseline IS the floor.
+    reads: >
+      Diff qwen+fast+control against qwen+fast in results_en.json, per metric.
+    decides: >
+      Calibrates every other result, retroactively included. Anything smaller
+      than this gap is not a finding. If the band turns out to be wide, fine
+      tuning on 4 segments is pointless and the effort belongs in
+      scale-validation instead.
+
+
+  - name: temp-07
+    enabled: false
+    answered: >
+      2026-08-01. REFUTED. mos± 0.458 vs 0.492 baseline — inside its own 0.18
+      run-to-run band, so no consistency gain. mos rose (2.408) and s/take rose
+      to 3.89. See temp-05 for the three-point read.
+    langs: [en]
+    overlays: [config.exp.temp07.yaml]
+    asks: Does temperature 0.7 shrink take-to-take spread more than it costs?
+    why: >
+      The control run proved variance, not configuration, dominates what the ear
+      hears — two IDENTICAL configs were ranked apart. mos± is 0.24-0.49 and the
+      best_of curve was still climbing at k=6, so we are paying for spread twice
+      over. Temperature is the direct control; Qwen ships 0.9.
+    reads: >
+      mos± on the qwen+fast+temp07 row, NOT mos. A lower mean with a much
+      tighter spread is a win, because best_of exists to paper over spread.
+    decides: >
+      If spread halves, best_of can drop and every run gets cheaper — a bigger
+      lever than the model choice, which measured close to a wash by ear.
+
+  - name: ru-noise-floor
+    enabled: false
+    answered: >
+      2026-08-01. The ru band MATCHES en: sim 0.007 (en 0.010), mos 0.008
+      (0.007), wer 0.009 (0.005), f0 0.238 (0.438). So reading ru results
+      against the en floor was justified. It also exposed s_take as far noisier
+      than assumed — 2.38 vs 4.07 on an UNCHANGED config.
+    langs: [ru]
+    overlays: [config.exp.ru-control.yaml]
+    asks: Is the Russian noise band the same as the English one?
+    why: >
+      Every ru conclusion is being read against the ENGLISH floor (sim 0.010 /
+      mos 0.007 / wer 0.005 / f0st 0.438), which assumes the two behave alike.
+      The ru sweep already differed from en in ways that mattered.
+    reads: Diff qwen+fast+control against qwen+fast in results_ru.json.
+    decides: >
+      Whether the ru reference sweep's 0.029 winning margin was a result or a
+      coin flip.
+
+
+  - name: temp-05
+    enabled: false
+    answered: >
+      2026-08-01. Consistency hypothesis dead: mos± 0.443, inside the 0.18 band.
+      But mos rises MONOTONICALLY 2.340/2.347 -> 2.408 -> 2.429 (+0.085 against
+      a 0.007 band, 12x). Real but small, and both low temperatures cost ~60%
+      more per take (3.89/3.80 vs 2.32/2.46 — two replicates each side, so the
+      slowdown is real). Not adopted: that compute buys more as extra takes.
+    langs: [en]
+    overlays: [config.exp.temp05.yaml]
+    asks: Where on the temperature curve are we — slope or plateau?
+    why: >
+      Paired with temp-07 so the axis has three points (0.5 / 0.7 / 0.9 shipped)
+      rather than a single A/B that cannot show a direction.
+    reads: mos± and rating spread across the three temperatures, not the mean.
+    decides: >
+      If spread falls monotonically with temperature, best_of drops and every
+      run gets cheaper — the largest remaining cost lever.
+
+
+  # --- blocked, kept visible so they are not forgotten ---
+
+  - name: lang-fr-de-es
+    enabled: false
+    blocked_by: >
+      POSTPONED 2026-08-01 by decision, not by a technical blocker. When picked
+      up it also needs `dubadabidu stage s3_translate --langs fr,de,es` first
+      (local, API cost well under $1, no GPU) — the manifest has en and ru only.
+      Better folded into scale-validation than run on sketch60's 4 utterances.
+    langs: [fr, de, es]
+    overlays: []
+    asks: Do the three untested target languages hold up?
+    why: >
+      Three of five production languages have NEVER been synthesized. ru beat en
+      on similarity (0.774 vs 0.681), so they will probably be fine — but that
+      is inference, and inference is what keeps being wrong here.
+
+  - name: scale-validation
+    enabled: false
+    blocked_by: >
+      Needs a REAL lesson in input/, not sketch60. This is the important one.
+    langs: [en, ru]
+    overlays: []
+    asks: Does any of this survive contact with an hour of video?
+    why: >
+      work/sketch60 has FOUR utterances. Every conclusion in this project —
+      engine, reference, cost model, quality metrics — rests on 4 segments of a
+      60 s clip whose speech density is 95%, which no real lesson has. The cost
+      model's "240 segments/hour" is extrapolated from exactly that. An hour
+      also stresses what a minute cannot: s6 builds the whole timeline in pydub
+      RAM, s3 batches translation against full-transcript context, and the
+      manifest grows ~60x. IMPROVEMENT_PLAN Phase D, still unticked.

@@ -77,3 +77,55 @@ def test_missing_voice_anchor_fails_with_an_actionable_message(tmp_path,
 
     with pytest.raises(SystemExit, match="no usable reference slices"):
         bakeoff.run(_bakeoff_cfg(tmp_path), "vid", ["en"])
+
+
+# --- adoption gate: it must never look like it ran when it didn't ---
+
+def test_incumbent_is_configurable():
+    """Hardcoding it is how the gate died: engines became [qwen] while INCUMBENT
+    stayed 'chatterbox', so beats_incumbent() never had a baseline."""
+    from qc.bakeoff import incumbent_of, INCUMBENT
+    assert incumbent_of({}) == INCUMBENT              # back-compatible default
+    assert incumbent_of({"incumbent": "qwen"}) == "qwen"
+
+
+def test_missing_baseline_is_reported_as_advisory_not_as_a_pass():
+    """The old wording ('no incumbent baseline') sat in a column of verdicts and
+    read like a neutral note, so a run where the gate never executed looked the
+    same as one where it passed."""
+    from qc.bakeoff import _verdict
+    ch = {"sim": 0.7, "mos": 2.6, "wer": 0.004}
+    v = _verdict("challenger", ch, None, "qwen")
+    assert "ADVISORY" in v and "did NOT run" in v
+    assert "ADOPT" not in v
+
+
+def test_verdict_still_adopts_when_a_baseline_exists():
+    from qc.bakeoff import _verdict
+    inc = {"sim": 0.68, "mos": 2.48, "wer": 0.005}
+    better = {"sim": 0.70, "mos": 2.60, "wer": 0.004}
+    worse = {"sim": 0.60, "mos": 2.30, "wer": 0.004}
+    assert _verdict("c", better, inc, "qwen") == "ADOPT"
+    assert _verdict("c", worse, inc, "qwen") == "keep incumbent"
+    assert _verdict("qwen", inc, inc, "qwen") == "incumbent (qwen)"
+
+
+def test_variant_label_separates_an_otherwise_identical_run():
+    """A control run must NOT merge with the row it is being compared against —
+    that is the whole experiment. Identical config + a label = distinct key."""
+    from qc.bakeoff import variant_key
+    t = {"engine": "qwen", "qwen_fast": True}
+    assert variant_key("qwen", t, "en") == "qwen+fast"
+    assert variant_key("qwen", dict(t, variant_label="control"), "en") \
+        == "qwen+fast+control"
+
+
+def test_variant_label_is_not_in_synth_hash():
+    """It changes no synthesis input, so salting the cache key with it would
+    force pointless re-synthesis everywhere else in the pipeline. Fresh takes
+    for the control come from the per-variant seg/ directory instead."""
+    from pipeline.manifest import synth_hash
+    base = {"engine": "qwen", "reference_wav": "r.wav",
+            "cfg_weight": 0.0, "exaggeration": 0.5}
+    assert synth_hash("hi", "en", base) == \
+        synth_hash("hi", "en", dict(base, variant_label="control"))
