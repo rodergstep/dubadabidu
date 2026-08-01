@@ -207,6 +207,9 @@ def synth_hash(text: str, lang: str, tts_cfg: dict) -> str:
         # serve 18 s-reference audio for a 12 s-reference config.
         if tts_cfg.get("reference_max_s"):
             key_data["rmax"] = tts_cfg["reference_max_s"]
+        # sampling params change the output, so they must change the key
+        if tts_cfg.get("qwen_gen_kwargs"):
+            key_data["gk"] = sorted(tts_cfg["qwen_gen_kwargs"].items())
     if engine == "chatterbox":  # only chatterbox applies normalize_for_tts
         nv = NORM_VERSIONS.get(lang, 1)
         if nv > 1:  # v1 adds no key so pre-existing caches stay valid

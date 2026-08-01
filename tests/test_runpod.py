@@ -183,7 +183,11 @@ def test_experiment_commands_reuse_and_keep_alive(tmp_path):
 def test_every_enabled_experiment_isolates_one_axis():
     """An experiment sharing a variant_key with another silently overwrites its
     row AND its audio — the failure that already cost the plain-indextts
-    recordings. Enabled experiments must therefore produce distinct keys."""
+    recordings. Enabled experiments must therefore produce distinct keys.
+
+    Keyed by (lang, variant): results live in results_<lang>.json and audio in
+    seg/<variant>/<lang>/, so the same variant in two languages is NOT a
+    collision — an en control and a ru control coexist correctly."""
     import yaml
     from pathlib import Path
     from qc.bakeoff import variant_key
@@ -197,11 +201,12 @@ def test_every_enabled_experiment_isolates_one_axis():
         t = dict(base, engine="qwen")
         for ov in e.get("overlays") or []:
             t.update((yaml.safe_load((root / ov).read_text()).get("tts") or {}))
-        k = variant_key("qwen", t, "en")
-        assert k not in keys, (
-            f"{e['name']} and {keys[k]} both key to {k!r} — the second would "
-            f"overwrite the first's scorecard row and audio")
-        keys[k] = e["name"]
+        for lang in e["langs"]:
+            k = (lang, variant_key("qwen", t, lang))
+            assert k not in keys, (
+                f"{e['name']} and {keys[k]} both key to {k!r} — the second "
+                f"would overwrite the first's scorecard row and audio")
+            keys[k] = e["name"]
 
 
 def test_gpu_type_priority_defaults_to_custom_so_list_order_matters():

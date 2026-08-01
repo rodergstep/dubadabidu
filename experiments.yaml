@@ -89,6 +89,52 @@ experiments:
       documents it as WEAKER on emotion capture, which is exactly what the ear
       liked about indextts+emo — so listen, do not adopt on s_take alone.
 
+  - name: temp-07
+    enabled: true
+    langs: [en]
+    overlays: [config.exp.temp07.yaml]
+    asks: Does temperature 0.7 shrink take-to-take spread more than it costs?
+    why: >
+      The control run proved variance, not configuration, dominates what the ear
+      hears — two IDENTICAL configs were ranked apart. mos± is 0.24-0.49 and the
+      best_of curve was still climbing at k=6, so we are paying for spread twice
+      over. Temperature is the direct control; Qwen ships 0.9.
+    reads: >
+      mos± on the qwen+fast+temp07 row, NOT mos. A lower mean with a much
+      tighter spread is a win, because best_of exists to paper over spread.
+    decides: >
+      If spread halves, best_of can drop and every run gets cheaper — a bigger
+      lever than the model choice, which measured close to a wash by ear.
+
+  - name: ru-noise-floor
+    enabled: true
+    langs: [ru]
+    overlays: [config.exp.ru-control.yaml]
+    asks: Is the Russian noise band the same as the English one?
+    why: >
+      Every ru conclusion is being read against the ENGLISH floor (sim 0.010 /
+      mos 0.007 / wer 0.005 / f0st 0.438), which assumes the two behave alike.
+      The ru sweep already differed from en in ways that mattered.
+    reads: Diff qwen+fast+control against qwen+fast in results_ru.json.
+    decides: >
+      Whether the ru reference sweep's 0.029 winning margin was a result or a
+      coin flip.
+
+  - name: qwen-06b-ru
+    enabled: true
+    langs: [ru]
+    overlays: [config.exp.06b-ru.yaml]
+    asks: Does 0.6B's English win hold in Russian?
+    why: >
+      In en, 0.6B beat 1.7B on mos (2.692 vs 2.340) and wer (0.002 vs 0.018) —
+      both far outside the noise floor — while losing sim (0.629 vs 0.665). That
+      contradicts upstream, which calls 0.6B the weaker model, so it needs a
+      second language before it drives a config change.
+    reads: sim/mos/wer on qwen+fast+0.6B in results_ru.json, and the ear.
+    decides: >
+      Two languages agreeing would make 0.6B the default: better intelligibility,
+      slightly cheaper, at a real but small cost in voice identity.
+
   # --- blocked, kept visible so they are not forgotten ---
 
   - name: lang-fr-de-es

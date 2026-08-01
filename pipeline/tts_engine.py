@@ -199,9 +199,26 @@ def _synth_qwen(text: str, lang: str, out: Path, t: dict) -> None:
     t1 = time.perf_counter()
     prompt = _qwen_clone_prompt(m, t)
     t2 = time.perf_counter()
-    wavs, sr = m.generate_voice_clone(
-        text=text, language=QWEN_LANGS.get(lang, "Auto"),
-        voice_clone_prompt=prompt)
+    # tts.qwen_gen_kwargs — sampling passthrough, empty by default so the
+    # shipped generation config (temperature 0.9 / top_k 50 / top_p 1.0 /
+    # repetition_penalty 1.05, identical across all five checkpoints) is what
+    # runs unless deliberately overridden. Worth overriding because take-to-take
+    # VARIANCE is the dominant quality factor we have measured (mos± 0.24-0.49,
+    # and best_of was still climbing at k=6): a lower temperature trades peak
+    # quality for consistency, which could buy back the takes it costs.
+    # An unsupported kwarg fails the call outright, so the error names the knob
+    # rather than surfacing as a bare TypeError from inside the library.
+    gen = dict(t.get("qwen_gen_kwargs") or {})
+    try:
+        wavs, sr = m.generate_voice_clone(
+            text=text, language=QWEN_LANGS.get(lang, "Auto"),
+            voice_clone_prompt=prompt, **gen)
+    except TypeError as e:
+        if not gen:
+            raise
+        raise RuntimeError(
+            f"qwen rejected tts.qwen_gen_kwargs={gen} — this build's "
+            f"generate_voice_clone does not accept those names ({e})")
     t3 = time.perf_counter()
     dur = len(wavs[0]) / float(sr)
     # RUNAWAY GUARD. Qwen3-TTS's most common failure is the decoder never
