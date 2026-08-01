@@ -210,6 +210,15 @@ def synth_hash(text: str, lang: str, tts_cfg: dict) -> str:
         # sampling params change the output, so they must change the key
         if tts_cfg.get("qwen_gen_kwargs"):
             key_data["gk"] = sorted(tts_cfg["qwen_gen_kwargs"].items())
+        # WHICH MODEL produced the audio. Missing until 2026-08-02: switching
+        # qwen_model_dir (1.7B <-> 0.6B, or a local checkpoint) left the cache
+        # serving takes from the OTHER model, so an A/B would have compared a
+        # model against itself. The bake-off never hit it because it writes to
+        # per-variant seg/ paths rather than hash-named ones; s4 would have.
+        # Non-default only, so existing caches stay valid.
+        mdl = tts_cfg.get("qwen_model_dir")
+        if mdl and mdl != "Qwen/Qwen3-TTS-12Hz-1.7B-Base":
+            key_data["mdl"] = mdl
     if engine == "chatterbox":  # only chatterbox applies normalize_for_tts
         nv = NORM_VERSIONS.get(lang, 1)
         if nv > 1:  # v1 adds no key so pre-existing caches stay valid

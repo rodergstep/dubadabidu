@@ -251,7 +251,6 @@ def _tune_engine(engine: str, base_t: dict, subset: list[dict], lang: str,
 
     Returns (best_overrides, trial_rows, unavailable_or_None).
     """
-    import time
     from pipeline.tts_engine import synthesize
     from qc import metrics as X
 
@@ -348,7 +347,6 @@ def _mean_stat(rows: list[dict], key: str) -> float:
 
 def run(cfg: dict, video: str, langs: list[str]) -> None:
     import statistics
-    import time
     import torch
     import soundfile as sf
     from pipeline import engine_client
