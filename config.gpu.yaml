@@ -61,12 +61,16 @@ tts:
   # is a separate process holding its OWN model copy (~4 GB for 1.7B plus its
   # own CUDA-graph capture), spawned lazily, so a pool that never sees
   # concurrent demand costs one model rather than three.
-  # SIZE IT TO THE CARD, not to the core count: 3 fits 24 GB comfortably
-  # (3x4 GB + Distill-MOS + faster-whisper) and is tight on a 16 GB A4000, which
-  # is the FIRST entry in gpu_type_ids. Raise only after seeing the GPU actually
-  # obtained in the provisioning log. An OOM mid-run costs the whole experiment;
-  # the saving is a fraction of one.
-  synth_workers: 2
+  # DEFAULT 1 AFTER AN OOM (2026-08-01). Shipping this at 2 alongside
+  # bakeoff.scoring_workers: 3 AND a move to a cheaper, smaller card raised
+  # three variables at once, none measured — the first experiment died in
+  # faster-whisper with "CUDA failed with error out of memory". VRAM is shared
+  # by everything: N synth workers x ~4 GB, plus Distill-MOS and faster-whisper
+  # allocating per concurrent scorer.
+  # Raise ONLY with the card's VRAM in hand (the provisioning log prints $/h,
+  # vCPU and RAM; REST v1 does not expose the GPU model) and ONE axis at a time.
+  # An OOM costs a whole experiment; the saving is a fraction of one.
+  synth_workers: 1
   qwen_max_audio_s: 60                 # reject a take longer than this as a
                                        # runaway generation (engine_client has
                                        # no per-call timeout, so an unbounded

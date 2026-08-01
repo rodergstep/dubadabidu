@@ -403,14 +403,15 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         per_engine: dict[str, dict] = {}
         tuning: dict[str, dict] = {}
         seg_audio: dict[str, dict[str, str]] = {u["id"]: {} for u in subset}
-        # bakeoff.scoring_workers: how many takes may be scored concurrently
-        # while synthesis continues. 1 restores the old strictly-serial
-        # behaviour. Default 3 rather than "number of cores": the scorers share
-        # ONE GPU (Distill-MOS and faster-whisper both run on it) and one
-        # process's memory, so oversubscribing trades a small pipeline win for
-        # VRAM pressure and OOM risk on a card already holding the TTS model.
+        # bakeoff.scoring_workers: how many takes may be scored concurrently.
+        # DEFAULT 1 — which still OVERLAPS scoring with the next take's
+        # synthesis (the measured 40% win) but runs the scorers themselves
+        # serially. Default 3 OOM'd faster-whisper on 2026-08-01: Distill-MOS
+        # and faster-whisper both allocate on the SAME GPU already holding the
+        # TTS model, so each extra scorer is VRAM, not just a thread.
+        # The overlap is free; the parallelism is not.
         pool = ThreadPoolExecutor(
-            max_workers=max(1, int(bcfg.get("scoring_workers", 3))),
+            max_workers=max(1, int(bcfg.get("scoring_workers", 1))),
             thread_name_prefix="score")
         for engine in engines:
             t = _engine_cfg(base_tts, engine)
