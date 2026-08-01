@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shlex
 import subprocess
 import time
 import urllib.error
@@ -821,7 +822,13 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # Pass the (low-privilege) translation key inline — an SSH session may
         # not inherit the pod's container env, and s3 needs it. Not logged.
         secs = max(60, int(deadline - time.time()))
-        cmd = REMOTE_TASK[task].format(video=video, langs=",".join(langs))
+        # shlex.quote: the video path reaches a REMOTE SHELL, so a filename
+        # with spaces ("Organising the colour palette and materials.mp4" —
+        # exactly how a real lesson is named) would be split into several
+        # arguments and the run would fail after provisioning. _rsync_paths is
+        # already safe: it passes a list to subprocess, never a shell.
+        cmd = REMOTE_TASK[task].format(video=shlex.quote(video),
+                                       langs=",".join(langs))
         # extras AFTER the hardcoded config.gpu.yaml so they win, matching the
         # local merge order. The files themselves ship with the project rsync.
         for ov in extra_overlays:
