@@ -29,7 +29,14 @@ max_total_minutes: 45
 experiments:
 
   - name: bestof-curve
-    enabled: true
+    enabled: false
+    answered: >
+      2026-08-01. Measured k=1..6: +0.0343 +0.0191 +0.0123 +0.0088 +0.0077 —
+      still rising at 6, no plateau, so best_of 5 is NOT waste. Caveat kept for
+      whoever revisits: max-of-k partly selects for MEASUREMENT noise, so the
+      measured gain overstates the real one. Also produced the first PHASE
+      breakdown (synth 60% / scoring 40%), which is what motivated overlapping
+      the two.
     langs: [en]
     overlays: [config.exp.bestof.yaml]
     asks: >
@@ -53,7 +60,13 @@ experiments:
       ref_03@12s takes is kept at bakeoff/seg_backup_ref03/.
 
   - name: noise-floor
-    enabled: true
+    enabled: false
+    answered: >
+      2026-08-01. Run-to-run band: sim ±0.010, mos ±0.007, wer ±0.005,
+      f0st ±0.438. mos/sim/wer are far more stable than feared; f0st cannot
+      rank anything at this sample size. Retroactively: the reference sweep's
+      0.018 top-three spread was NOT resolvable, and the f0st weight added to
+      the tune objective that morning was weighting noise.
     langs: [en]
     overlays: [config.exp.repeat.yaml]
     asks: How big is the run-to-run noise band of this whole harness?
@@ -73,7 +86,14 @@ experiments:
       scale-validation instead.
 
   - name: qwen-06b
-    enabled: true
+    enabled: false
+    answered: >
+      2026-08-01. 0.6B beat 1.7B on mos (2.692 vs 2.340) and wer (0.002 vs
+      0.018), lost sim (0.629 vs 0.665) — all outside the noise floor — and was
+      only 7% faster, so the speed floor is the codec decode, not the
+      transformer. Blind ratings then found no MEAN difference (3.38 vs 3.25)
+      but a much tighter spread (sd 0.48 vs 0.83, nothing below 3). Follow-ups:
+      qwen-06b-ru, qwen-06b-variance.
     langs: [en]
     overlays: [config.exp.06b.yaml]
     asks: Is 0.6B now faster than 1.7B, and is it worse?
@@ -134,6 +154,34 @@ experiments:
     decides: >
       Two languages agreeing would make 0.6B the default: better intelligibility,
       slightly cheaper, at a real but small cost in voice identity.
+
+  - name: temp-05
+    enabled: true
+    langs: [en]
+    overlays: [config.exp.temp05.yaml]
+    asks: Where on the temperature curve are we — slope or plateau?
+    why: >
+      Paired with temp-07 so the axis has three points (0.5 / 0.7 / 0.9 shipped)
+      rather than a single A/B that cannot show a direction.
+    reads: mos± and rating spread across the three temperatures, not the mean.
+    decides: >
+      If spread falls monotonically with temperature, best_of drops and every
+      run gets cheaper — the largest remaining cost lever.
+
+  - name: qwen-06b-variance
+    enabled: true
+    langs: [en]
+    overlays: [config.exp.06b-variance.yaml]
+    asks: Is 0.6B's tighter spread real, and how low can its best_of go?
+    why: >
+      The blind pass hinted 0.6B is the CONSISTENT model (sd 0.48 vs 0.83/0.93,
+      no take below 3) but that rested on 3 takes per segment; mos± 0.454 from
+      3 takes is barely an estimate of a standard deviation.
+    reads: mos± on qwen+fast+0.6B+bo6, plus its own best_of curve.
+    decides: >
+      A genuinely tighter spread means a LOWER best_of for that model. The two
+      settings interact and cost is takes x s/take, so this is worth more than
+      either measured alone.
 
   # --- blocked, kept visible so they are not forgotten ---
 

@@ -1,0 +1,22 @@
+# EXPERIMENT: temperature 0.5 — the far end of the consistency trade.
+#
+# Paired with config.exp.temp07.yaml so the axis has three points (0.5 / 0.7 /
+# 0.9 shipped) instead of a single A/B that cannot show a direction. One point
+# either side of a default tells you whether you are on a slope or a plateau;
+# 0.9-vs-0.7 alone cannot.
+#
+# The blind ratings (n=24, 2026-08-01) are why this matters: 0.6B rated the same
+# as 1.7B on the MEAN (3.38 vs 3.25) but never produced a take below 3, while
+# both 1.7B variants produced 1s and 2s. Consistency, not peak, is what the ear
+# rewarded. Temperature is the direct control over exactly that.
+#
+# Read mos± and the rating SPREAD, not the mean.
+tts:
+  variant_label: temp05
+  qwen_gen_kwargs:
+    temperature: 0.5
+
+bakeoff:
+  takes: 6
+  tune:
+    enabled: false

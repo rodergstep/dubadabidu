@@ -232,3 +232,36 @@ def test_config_puts_cheap_gpus_first_and_4090_last():
     assert cfg["runpod"]["gpu_type_priority"] == "custom"
     assert ids[0] == "NVIDIA RTX A4000"
     assert "4090" in ids[-1]
+
+
+def test_ready_probe_checks_cuda_inside_the_ENGINE_venv(monkeypatch):
+    """Skipping setup is only safe if the probe checks what setup guarantees.
+    The base .venv cannot see a CPU-only torch in venvs/<engine> — that exact
+    blind spot cost a week of 126 s/take runs — so the probe must run inside
+    the engine's own venv."""
+    import pipeline.runpod_infra as R
+    seen = {}
+
+    def fake_exec(rp, host, port, cmd, timeout=None):
+        seen["cmd"] = cmd
+        return 0
+
+    monkeypatch.setattr(R, "ssh_exec", fake_exec)
+    assert R._verify_ready({}, "h", 22, "~/d", ["qwen"]) is True
+    cmd = seen["cmd"]
+    assert "venvs/qwen/bin/python" in cmd
+    assert "torch.cuda.is_available()" in cmd
+    assert "import qwen_tts" in cmd
+
+
+def test_ready_probe_is_conservative(monkeypatch):
+    """Any doubt re-runs setup: skipping wrongly costs a whole experiment,
+    running needlessly costs ~50 s."""
+    import pipeline.runpod_infra as R
+    monkeypatch.setattr(R, "ssh_exec", lambda *a, **k: 1)      # probe fails
+    assert R._verify_ready({}, "h", 22, "~/d", ["qwen"]) is False
+    # no engines to prove anything about -> do not skip
+    monkeypatch.setattr(R, "ssh_exec", lambda *a, **k: 0)
+    assert R._verify_ready({}, "h", 22, "~/d", []) is False
+    # an engine with no module mapping (chatterbox lives in the base venv)
+    assert R._verify_ready({}, "h", 22, "~/d", ["edge"]) is False
