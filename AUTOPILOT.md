@@ -72,7 +72,9 @@ monotonically if this loop is real.
 
 ## Milestones
 - M1 `.env` contract + orchestrator loop running LOCALLY against the spec
-     (edge engine, test30/test60 as fixtures) — proves the loop, zero cost.
+     (edge engine) — proves the loop, zero cost. The test30/test60 work
+     dirs used originally were deleted 2026-08-02; regenerate with
+     `dubadabidu run <clip> --engine edge` if the fixture is needed.
 - M2 RunPod lifecycle scripts; same loop remotely on the real engines.
      DONE: `pipeline/runpod_infra.py` + `dubadabidu remote <task>` (provision ->
      rsync (never the source video) -> run -> sync back -> ALWAYS terminate).

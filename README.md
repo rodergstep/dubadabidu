@@ -65,7 +65,7 @@ picks it up automatically — makes local transcription of full lessons
 tolerable. mlx-whisper has no VAD, but s1 already isolates vocals so that gap
 is minor; the rented CUDA box auto-resolves back to faster-whisper + VAD.
 Without `.[mac]`, faster-whisper runs CPU (int8) — OK but slow for 1h videos;
-Chatterbox DOES run on MPS (validated 2026-07-09 on test60, ~16 it/s sampling —
+(Historical: Chatterbox ran on MPS, validated 2026-07-09 on test60, ~16 it/s —
 fine for short clips, slow for full lessons). Recommended split:
 **prototype on the Mac with `--engine edge`** (free MS voices, CPU, validates the
 whole chain incl. translation/fit/mux), then **run the cloned batch on a rented

@@ -6,9 +6,9 @@ requires-python = ">=3.10,<3.13"
 dependencies = [
   "faster-whisper==1.2.1",
   "demucs==4.1.0",
-  # torchcodec is intentionally NOT a base dep: it must match the torch version.
-  # The `clone` extra pins torch 2.6.0 (ta.save is native there — no torchcodec needed).
-  # For an edge-only install on torch>=2.9, add the `hifi` extra below.
+  # torch/torchaudio are pinned 2.6.0 by the pod bootstrap (runpod_infra
+  # REMOTE_SETUP). They used to arrive via the `clone` extra (chatterbox-tts),
+  # which was removed with chatterbox on 2026-08-02 — the pin is ours now.
   "edge-tts==7.2.8",
   "srt==3.5.3",
   "soundfile==0.14.0",
@@ -24,8 +24,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-clone = ["chatterbox-tts==0.1.7"]   # install first / separately: pins torch/torchaudio 2.6.0
-hifi = ["torchcodec==0.14.0"]       # ta.save backend for torch>=2.9; do NOT combine with `clone`
 # RoFormer separation backend (s1, local-only: the remote flow runs s1/s2 on the
 # Mac, so pods install plain .[dev]). [cpu] only picks the onnxruntime flavor —
 # RoFormer ckpts run on torch and auto-use CUDA/MPS either way.

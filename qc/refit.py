@@ -214,9 +214,12 @@ def _load(langs: list[str]) -> tuple[list[dict], dict]:
         except json.JSONDecodeError as e:
             raise SystemExit(f"{p} is not valid JSON ({e}).")
         if not isinstance(data, list):
-            # ratings_test_en.json (2026-07-08) is a {key, ratings:{id:stars}}
-            # dict with no qc metrics attached — it predates the flywheel and
-            # cannot train anything. Say so instead of silently skipping.
+            # A {key, ratings:{id:stars}} dict is the PRE-FLYWHEEL export
+            # format: stars with no qc metrics attached, so nothing to fit
+            # against. The one such file (ratings_test_en.json, 2026-07-08) was
+            # deleted 2026-08-02, but the guard stays — an old export could
+            # reappear, and silently skipping it would understate how much
+            # evidence exists.
             raise SystemExit(
                 f"{p} is the pre-flywheel format ({{key, ratings}}) with no qc "
                 f"metrics per row — nothing to fit against. Re-review that "

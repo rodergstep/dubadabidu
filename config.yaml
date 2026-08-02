@@ -82,7 +82,7 @@ translation:
   n_short_variants: 2         # pre-generate shorter variants for overflow retries
 
 tts:
-  engine: chatterbox          # chatterbox | qwen | edge (no cloning)
+  engine: qwen                # qwen | edge (plumbing only, no cloning)
   engine_by_lang: {}          # per-lang override, e.g. {en: qwen} — set by
                               # the GPU bake-off (IMPROVEMENT_PLAN.md Phase C)
   reference_text: ""          # transcript of reference_wav; `dubadabidu prep`
@@ -99,7 +99,7 @@ tts:
   # monotony re-roll: if every best_of take is flatter than min_f0st (pitch std
   # in semitones), roll up to f0_reroll_max extra takes to find a livelier read.
   # Take variance is the lever that works here — exaggeration is NOT a reliable
-  # liveliness knob (measured). ~2.2-2.4 ≈ lively chatterbox narration. 0 = off.
+  # liveliness knob (measured). ~2.2-2.4 ≈ lively narration. 0 = off.
   #
   # min_f0st is measured in the DELIVERED domain since 2026-07-29: selection
   # scores each take after s6's edge trim, the same audio evaluate's qc_f0st

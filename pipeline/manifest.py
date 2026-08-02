@@ -185,8 +185,13 @@ def synth_hash(text: str, lang: str, tts_cfg: dict) -> str:
     re-synthesis. The engine is resolved per-language; extra keys are added
     ONLY for engines that use them, so pre-existing caches stay valid."""
     engine = resolve_engine(tts_cfg, lang)
+    # cfg_weight / exaggeration were CHATTERBOX knobs and left with it, but they
+    # stay in the key at their old defaults so every previously cached take
+    # keeps its hash. Removing them outright would silently invalidate every
+    # seg/ cache for no benefit.
     key_data = {"t": text, "l": lang, "ref": tts_cfg["reference_wav"],
-                "cfg": tts_cfg["cfg_weight"], "ex": tts_cfg["exaggeration"],
+                "cfg": tts_cfg.get("cfg_weight", 0.0),
+                "ex": tts_cfg.get("exaggeration", 0.55),
                 "engine": engine}
     if engine == "qwen":  # clone mode (+ ref transcript when used) change output
         x_only = bool(tts_cfg.get("qwen_x_vector_only", True)) \
@@ -219,10 +224,9 @@ def synth_hash(text: str, lang: str, tts_cfg: dict) -> str:
         mdl = tts_cfg.get("qwen_model_dir")
         if mdl and mdl != "Qwen/Qwen3-TTS-12Hz-1.7B-Base":
             key_data["mdl"] = mdl
-    if engine == "chatterbox":  # only chatterbox applies normalize_for_tts
-        nv = NORM_VERSIONS.get(lang, 1)
-        if nv > 1:  # v1 adds no key so pre-existing caches stay valid
-            key_data["nv"] = nv
+    # NORM_VERSIONS salted the key for chatterbox's acute RU stress marks. That
+    # normalisation was chatterbox-only and left with it (2026-08-02); no
+    # surviving engine applies it, so nothing salts on it.
     # number localization is applied to EVERY engine, so its version salts all
     # engines' hashes (v1/absent adds no key -> pre-existing caches stay valid)
     numv = NUM_VERSIONS.get(lang, 1)

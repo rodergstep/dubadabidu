@@ -122,8 +122,8 @@ def create_pod(rp: dict) -> dict:
     }
     if rp.get("network_volume_id"):
         # persistent volume mounted at /workspace — keeps .venv across runs so
-        # the ~15min chatterbox/torch install happens once (REMOTE_SETUP skips
-        # reinstall when chatterbox already imports). remote_dir moves onto it.
+        # the ~15min torch install happens once (REMOTE_SETUP skips reinstall
+        # when torch already imports). remote_dir moves onto it.
         payload["networkVolumeId"] = rp["network_volume_id"]
         payload["volumeMountPath"] = "/workspace"
     elif rp.get("volume_gb"):
@@ -327,7 +327,7 @@ def _verify_ready(rp: dict, host: str, port: int, remote: str,
     checks = [f'test -x {remote}/.venv/bin/python']
     for e in engines:
         mod = ENGINE_MODULE.get(e)
-        if not mod:            # chatterbox/edge live in the base venv
+        if not mod:            # edge lives in the base venv
             return False
         py = f"{remote}/venvs/{e}/bin/python"
         checks.append(
@@ -511,7 +511,7 @@ def provision(rp: dict, deadline: float) -> tuple[str, str, int]:
 REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     "set -e; cd {dir}; "
     # Retries/timeout on the BOOTSTRAP too, not just the engine installs
-    # (engine_install_cmd). This pip pulls chatterbox-tts and with it ~2.5 GB of
+    # (engine_install_cmd). This pip pulls ~2.5 GB of
     # CUDA torch — the largest download of the whole run — and on 2026-07-30 it
     # died on a bare `ReadTimeoutError ... files.pythonhosted.org`, leaving no
     # torch and failing the CUDA check 7 min in. It was the one big transfer left
@@ -521,7 +521,7 @@ REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     "python3 -m venv .venv 2>/dev/null || true; . .venv/bin/activate; "
     # UPGRADE PIP FIRST — the single biggest bootstrap win. Ubuntu 22.04's
     # python3.10-venv ships pip 22.0.2, whose resolver backtracks badly on
-    # chatterbox-tts's graph (it hard-pins torch/torchaudio 2.6.0 and numpy<2).
+    # a heavily-pinned dependency graph.
     # Measured on a pod 2026-07-30: 26 min elapsed, 39 s of CPU, 3.3 GB pulled
     # and NOTHING installed — it was downloading 100-700 MB nvidia wheels,
     # reading their metadata, rejecting them and trying other versions. The link
@@ -532,16 +532,14 @@ REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     "pip install -q --upgrade pip; "
     # skip the ~15min reinstall when deps are already present (persistent-volume
     # reuse across runs — see runpod.network_volume_id)
-    # {clone} is chatterbox-tts, installed ONLY when a language actually routes
-    # to chatterbox. It is the `clone` extra and exists to pin torch/torchaudio
-    # 2.6.0 — but it also drags diffusers, s3tokenizer, resemble-perth,
-    # conformer and spacy-pkuseg, plus EXACT pins (transformers==5.2.0,
-    # diffusers==0.29.0) that make pip backtrack. With qwen as the production
-    # engine none of that is used, so the pin moves to us and the package goes.
-    # torch itself still dominates the download; this is not "half the
-    # bootstrap", it is chatterbox's dependency tree and the resolver churn.
+    # torch/torchaudio for the qc stack (speechbrain ECAPA, Distill-MOS,
+    # torchaudio IO). The pin used to arrive via chatterbox-tts; chatterbox was
+    # removed 2026-08-02 and with it diffusers, s3tokenizer, resemble-perth,
+    # conformer, spacy-pkuseg and the exact pins (transformers==5.2.0,
+    # diffusers==0.29.0) that made pip backtrack. 2.6.0 is kept because
+    # torchaudio.save is native there — newer torch needs the torchcodec
+    # backend, which is a separate problem to take on deliberately.
     "if ! python -c 'import torch' 2>/dev/null; then "
-    "{clone}"
     "pip install --progress-bar off torch==2.6.0 torchaudio==2.6.0 && "
     "pip install --progress-bar off -e '.[dev]'; fi; "
     # FAIL if CUDA is missing — otherwise the run would silently synth on CPU,
@@ -621,7 +619,7 @@ def apt_setup(with_ffmpeg: bool = True) -> str:
 
 # faster-whisper short name -> import module, for the engines the bake-off/run
 # may need on the pod. edge is CPU/PyPI (no git-clone) so it's not probed here.
-ENGINE_MODULE = {"chatterbox": "chatterbox", "qwen": "qwen_tts"}
+ENGINE_MODULE = {"qwen": "qwen_tts"}
 
 # installed into every engine venv alongside the snippet: soundfile because
 # the voxcpm/qwen adapters write via sf and not every engine's own requirements
@@ -817,17 +815,8 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
                 log.info("reused pod already provisioned (venv + %s import + "
                          "CUDA all verified) — skipping setup and engine install",
                          "/".join(probe_engines) or "engines")
-        # chatterbox only if something actually routes to it
-        tc = cfg.get("tts", {})
-        routed = {(tc.get("engine_by_lang") or {}).get(lg, tc.get("engine"))
-                  for lg in langs}
-        clone = ("pip install --progress-bar off chatterbox-tts==0.1.7 && "
-                 if "chatterbox" in routed else "")
-        if clone:
-            log.info("a language routes to chatterbox — installing the clone extra")
         if not setup_ok and ssh_exec(
-                rp, host, port,
-                REMOTE_SETUP.format(dir=remote, clone=clone),
+                rp, host, port, REMOTE_SETUP.format(dir=remote),
                 timeout=1800) != 0:
             raise RuntimeError("remote setup failed: dependency install error "
                                "OR CUDA unavailable (check the log's CUDA: line)")
@@ -1033,9 +1022,7 @@ def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
         # code + ref only — no work/ needed for an install check (skip the upload)
         rsync(rp, port, "./", f"{rp['ssh_user']}@{host}:{remote}/",
               extra_excludes=("input", "output", "work"))
-        # setup-check validates ENGINE installs; it never synthesizes with
-        # chatterbox, so it does not need the clone extra either
-        if ssh_exec(rp, host, port, REMOTE_SETUP.format(dir=remote, clone=""),
+        if ssh_exec(rp, host, port, REMOTE_SETUP.format(dir=remote),
                     timeout=1800) != 0:
             raise RuntimeError("remote setup failed: dependency install error OR "
                                "CUDA unavailable (check the log's CUDA: line)")

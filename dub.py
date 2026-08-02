@@ -79,7 +79,6 @@ def doctor(cfg: dict) -> int:
     # venvs/<engine> when that isolated venv exists (engine_client routes
     # through a worker there), otherwise in THIS venv (in-process).
     for eng, mod, hint in [
-        ("chatterbox", "chatterbox", "pip install chatterbox-tts==0.1.7"),
         ("qwen", "qwen_tts",
          "git clone QwenLM/Qwen3-TTS + pip install -e . in its own venv "
          "(THIRD_PARTY.md)"),
@@ -236,7 +235,7 @@ def main() -> None:
                     help="stop after this stage (e.g. --to s7_subtitles to "
                          "produce audio+subs but skip mux — the remote GPU path "
                          "muxes locally so the source video never uploads)")
-    ap.add_argument("--engine", default=None, choices=["chatterbox", "edge"])
+    ap.add_argument("--engine", default=None, choices=["qwen", "edge"])
     ap.add_argument("--spec", default=None,
                     help="acceptance spec for `autopilot` "
                          "(default specs/batch.yaml)")

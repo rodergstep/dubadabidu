@@ -24,12 +24,22 @@ numbers would move for reasons the scorecard cannot show — the protocol rests 
 "the eval harness decides", and an unpinned harness decides against a moving
 target.
 
-## Removed engines — cosyvoice, voxcpm, indextts (cut 2026-07-31)
+## Removed engines — cosyvoice, voxcpm, indextts, chatterbox
 
 Both adapters, install recipes, config blocks and tests were deleted. Git
 history has everything, including CosyVoice's full seven-cause failure log and
 the validated-but-unused install recipe: `git show <this commit>^:THIRD_PARTY.md`.
 
+- **Chatterbox** (removed 2026-08-02) — the original incumbent. Dropped from
+  the bake-off roster on 2026-07-30 for cost, then kept as an unused fallback
+  until it was routed around entirely. CAVEAT, and it is the significant one:
+  chatterbox and qwen were NEVER A/B'd head to head by ear. The bake-off
+  selected qwen among CHALLENGERS while the incumbent sat outside the
+  comparison, so "qwen is better than chatterbox" is not something this project
+  measured. If the shipped audio disappoints, this is the first thing to
+  revisit — `git revert` restores the adapter, and it took the RU acute-stress
+  normalisation (`normalize_for_tts`) with it, which was chatterbox-only and
+  never validated on any other engine.
 - **CosyVoice 2/3** — installed and imported cleanly after six attempts at the
   build recipe, then never produced a single take in seven runs. Removed because
   three working engines existed and it had consumed more pod time than all of

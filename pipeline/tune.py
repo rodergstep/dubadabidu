@@ -114,7 +114,8 @@ def run(cfg: dict, video: str, langs: list[str]) -> dict:
     for r in refs:
         log.info("band %s: floor=%.3f ceiling=%.3f", r, *bands[r])
 
-    base = dict(cfg["tts"], engine="chatterbox")
+    # was hardcoded to chatterbox; tune must sweep whatever we actually ship
+    base = dict(cfg["tts"], engine=cfg["tts"]["engine"])
     results = []  # (round, ref, cfg_weight, exaggeration, take, metrics)
 
     def _tts_for(ref: str, **over) -> dict:

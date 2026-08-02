@@ -39,7 +39,7 @@ def test_grid_points_are_deterministic():
 # --- default grids: parity, and UA-reference safety ---
 
 def test_every_bakeoff_engine_has_a_grid():
-    for engine in ["chatterbox", "qwen", "edge"]:
+    for engine in ["qwen", "edge"]:
         assert engine in B.ENGINE_GRIDS
 
 
@@ -261,7 +261,7 @@ def test_removed_engines_stay_removed():
     qwen+fast on speed and cost) were cut 2026-07-31. A grid reappearing would
     resurrect an engine whose adapter no longer exists — the bake-off would then
     report it unavailable every run instead of failing loudly here."""
-    for gone in ("cosyvoice", "voxcpm", "indextts"):
+    for gone in ("cosyvoice", "voxcpm", "indextts", "chatterbox"):
         assert gone not in B.ENGINE_GRIDS
 
 

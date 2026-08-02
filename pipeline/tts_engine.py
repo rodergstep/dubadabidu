@@ -2,8 +2,6 @@
 go through synthesize() so caching and device handling live in one place.
 
 Engines:
-  chatterbox — chatterbox-tts 0.1.7, Multilingual v3 weights from HF (MIT).
-               cfg_weight=0.0 mandatory for Ukrainian reference -> other targets.
   qwen       — Qwen3-TTS 12Hz Base (Apache-2.0, git-clone `qwen_tts`). 0.6B/1.7B,
                10 languages incl. all 5 targets, 3 s clone, ~4 GB VRAM. UA ref
                -> x_vector_only_mode (speaker embedding only, no ref transcript).
@@ -31,44 +29,13 @@ import asyncio, logging, subprocess, time
 from pathlib import Path
 from .device import torch_device, require_gpu
 from .manifest import resolve_engine
-from .text_norm import normalize_for_tts, localize_numbers
+from .text_norm import localize_numbers
 
 log = logging.getLogger("dubadabidu.tts")
-_chatterbox_model = None
 _qwen_model = None
 _qwen_prompt = None   # (cache_key, prompt_items) — reused across all segments
 QWEN_LANGS = {"en": "English", "fr": "French", "de": "German",
               "es": "Spanish", "ru": "Russian"}
-
-
-def _load_chatterbox():
-    global _chatterbox_model
-    if _chatterbox_model is None:
-        from chatterbox.mtl_tts import ChatterboxMultilingualTTS
-        dev = torch_device()
-        log.info("loading Chatterbox Multilingual v3 on %s ...", dev)
-        try:
-            _chatterbox_model = ChatterboxMultilingualTTS.from_pretrained(device=dev)
-        except Exception as e:  # e.g. an op unsupported on MPS
-            if dev != "cpu":
-                log.warning("load on %s failed (%s); retrying on cpu", dev, e)
-                _chatterbox_model = ChatterboxMultilingualTTS.from_pretrained(device="cpu")
-            else:
-                raise
-    return _chatterbox_model
-
-
-def _synth_chatterbox(text: str, lang: str, out: Path, t: dict) -> None:
-    import torchaudio as ta
-    m = _load_chatterbox()
-    ref = t["reference_wav"]
-    if not Path(ref).exists():
-        raise FileNotFoundError(
-            f"reference_wav not found: {ref} — put a clean 15-20s clip of your "
-            f"voice there (see ref/README.txt) or switch tts.engine to 'edge'.")
-    wav = m.generate(text, language_id=lang, audio_prompt_path=ref,
-                     cfg_weight=t["cfg_weight"], exaggeration=t["exaggeration"])
-    ta.save(str(out), wav, m.sr)
 
 
 def _load_qwen(t: dict):
@@ -247,10 +214,10 @@ def release_models() -> None:
     """Drop every in-process engine singleton and flush the CUDA cache. The
     bake-off switches engines sequentially and pairs this with
     engine_client.shutdown(engine); without both, models accumulate in VRAM
-    (chatterbox ~7 GB + qwen ~4 GB) and a 16 GB card OOMs mid-comparison.
+    (qwen ~4 GB per worker) and a 16 GB card OOMs mid-comparison.
     The next synthesize() through a released engine just reloads it."""
-    global _chatterbox_model, _qwen_model, _qwen_prompt
-    _chatterbox_model = _qwen_model = _qwen_prompt = None
+    global _qwen_model, _qwen_prompt
+    _qwen_model = _qwen_prompt = None
     try:
         import torch
         if torch.cuda.is_available():
@@ -537,8 +504,7 @@ def synthesize(text: str, lang: str, out: Path, tts_cfg: dict,
     with the same input often fixes it — final quality gate is qc/backcheck)."""
     out.parent.mkdir(parents=True, exist_ok=True)
     engine = resolve_engine(tts_cfg, lang)
-    fn = {"chatterbox": _synth_chatterbox, "qwen": _synth_qwen,
-          "edge": _synth_edge}[engine]
+    fn = {"qwen": _synth_qwen, "edge": _synth_edge}[engine]
     # per-engine venv isolation (engine_client): when this engine has its own
     # venv (venvs/<engine> or tts.engine_venvs), synthesize through its worker
     # process instead of importing it here — its deps then cannot collide with
@@ -563,11 +529,10 @@ def synthesize(text: str, lang: str, out: Path, tts_cfg: dict,
     # number/symbol localization is engine-agnostic (digits read wrong-language
     # otherwise) — apply to every engine; manifest/subs/QC keep clean digits.
     text = localize_numbers(text, lang)
-    if engine == "chatterbox":
-        # acute stress marks exist only here — chatterbox training quirk.
-        # NOT applied to cosyvoice yet: whether it honors acute marks needs its
-        # own A/B (IMPROVEMENT_PLAN.md Phase C).
-        text = normalize_for_tts(text, lang)
+    # normalize_for_tts (acute RU stress marks) was CHATTERBOX-ONLY — a quirk of
+    # its training, never validated on any other engine. It left with chatterbox
+    # on 2026-08-02. If qwen turns out to mis-stress Russian, that is an A/B to
+    # run, not a call to re-apply marks it was never trained on.
     # write to a .part file and rename on success: a killed run must never
     # leave a truncated wav that the hash cache would accept as a good take
     tmp = out.with_name(out.stem + ".part.wav")

@@ -46,8 +46,7 @@ def serve(engine: str) -> None:
     os.dup2(2, 1)                # fd-level prints (C extensions) -> stderr
     sys.stdout = sys.stderr      # python-level prints -> stderr
     from pipeline import tts_engine as T
-    fn = {"chatterbox": T._synth_chatterbox, "qwen": T._synth_qwen,
-          "edge": T._synth_edge}[engine]
+    fn = {"qwen": T._synth_qwen, "edge": T._synth_edge}[engine]
     for line in sys.stdin:
         if not line.strip():
             continue

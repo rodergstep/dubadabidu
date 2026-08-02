@@ -308,21 +308,15 @@ def test_remote_stages_reads_the_real_argparse_dests():
     assert _remote_stages(default) == "--to s7_subtitles"
 
 
-def test_bootstrap_skips_chatterbox_unless_a_language_routes_to_it():
-    """chatterbox-tts is the `clone` extra, present to pin torch/torchaudio
-    2.6.0 — but it also drags diffusers, s3tokenizer, resemble-perth, conformer
-    and spacy-pkuseg, plus EXACT pins (transformers==5.2.0, diffusers==0.29.0)
-    that make pip backtrack. With qwen as the production engine none of it is
-    used, so the pin moves to us and the package goes.
+def test_bootstrap_pins_torch_itself_now_that_chatterbox_is_gone():
+    """torch/torchaudio used to arrive via the `clone` extra (chatterbox-tts),
+    which also dragged diffusers, s3tokenizer, resemble-perth, conformer and
+    spacy-pkuseg plus exact pins that made pip backtrack. chatterbox was removed
+    2026-08-02, so the pin has to be ours or the pod gets whatever pip picks.
 
-    NOT a claim that this halves the bootstrap: torch itself still dominates
-    the download. This removes chatterbox's dependency tree and the resolver
-    churn, nothing more."""
+    2.6.0 specifically: torchaudio.save is native there. Newer torch needs the
+    torchcodec backend — a separate change to make deliberately."""
     from pipeline.runpod_infra import REMOTE_SETUP
-    qwen_only = REMOTE_SETUP.format(dir="~/d", clone="")
-    assert "chatterbox-tts" not in qwen_only
-    assert "torch==2.6.0 torchaudio==2.6.0" in qwen_only, \
-        "the torch pin must be explicit once chatterbox no longer supplies it"
-    routed = REMOTE_SETUP.format(
-        dir="~/d", clone="pip install --progress-bar off chatterbox-tts==0.1.7 && ")
-    assert "chatterbox-tts==0.1.7" in routed
+    setup = REMOTE_SETUP.format(dir="~/d")
+    assert "chatterbox" not in setup
+    assert "torch==2.6.0 torchaudio==2.6.0" in setup

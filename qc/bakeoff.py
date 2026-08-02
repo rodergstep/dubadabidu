@@ -30,7 +30,7 @@ incumbent" would have looked like evidence. Grids are config-driven
 is reported as such, so the comparison stays auditable either way.
 
 Decision gate (inherited invariant): a challenger wins a language only if it
-beats the incumbent (chatterbox) on sim-to-real AND MOS, AND does not regress
+beats the incumbent (bakeoff.incumbent, now qwen) on sim-to-real AND MOS, AND does not regress
 wer (an intelligibility VETO) — or ties and wins the ear on the HTML page. pace
 is reported, not gated (s5 retimes within limits). French additionally needs a
 native-speaker listen.
@@ -101,7 +101,7 @@ def log_phase_totals(where: str) -> None:
                      for k, v in PHASE.items() if v > 0)
     log.info("phase totals [%s]: %s | accounted %.1f s", where, parts, total)
 
-INCUMBENT = "chatterbox"     # default; override with bakeoff.incumbent
+INCUMBENT = "qwen"           # default; override with bakeoff.incumbent
 
 
 def incumbent_of(bcfg: dict) -> str:
@@ -185,13 +185,8 @@ def _engine_cfg(base_tts: dict, engine: str) -> dict:
 # Ukrainian ref (see tts_engine), so sweeping it would only produce failures.
 #
 # A single-point grid means "already tuned, nothing to sweep" and costs nothing:
-#   chatterbox — cfg_weight is FIXED at the config value (0.0 is mandatory for a
-#     UA ref -> non-UA target, re-validated by tune R2), and exaggeration does
-#     not reliably move quality (measured 2026-07-14), so the incumbent enters
-#     at its tune-selected point. Widen via bakeoff.grids to re-open it.
 #   qwen — x_vector_only is forced by the UA ref; nothing left to sweep.
 ENGINE_GRIDS: dict[str, dict[str, list]] = {
-    "chatterbox": {},
     "qwen": {},
     "edge": {},
 }
