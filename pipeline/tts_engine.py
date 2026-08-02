@@ -189,9 +189,9 @@ def _synth_qwen(text: str, lang: str, out: Path, t: dict) -> None:
     dur = len(wavs[0]) / float(sr)
     # RUNAWAY GUARD. Qwen3-TTS's most common failure is the decoder never
     # emitting EOS: it fills its token budget with laughing/humming/babble.
-    # engine_client has no per-call timeout by design (a first call may
-    # legitimately spend minutes downloading weights), so a hang is otherwise
-    # bounded only by the pod watchdog — expensive, and a merely-long take is
+    # there is no per-call timeout (a first call may legitimately spend minutes
+    # downloading weights), so a hang is otherwise bounded only by the pod
+    # watchdog — expensive, and a merely-long take is
     # worse: it is silently SHIPPED. Raising makes it a failed take that
     # synth_best_of re-rolls. Not passed as max_new_tokens: that kwarg is
     # undocumented for both implementations and an unknown kwarg would fail
@@ -212,8 +212,8 @@ def _synth_qwen(text: str, lang: str, out: Path, t: dict) -> None:
 
 def release_models() -> None:
     """Drop every in-process engine singleton and flush the CUDA cache. The
-    bake-off switches engines sequentially and pairs this with
-    engine_client.shutdown(engine); without both, models accumulate in VRAM
+    bake-off switches engines sequentially and calls this between them;
+    without it, models accumulate in VRAM
     (qwen ~4 GB per worker) and a 16 GB card OOMs mid-comparison.
     The next synthesize() through a released engine just reloads it."""
     global _qwen_model, _qwen_prompt
@@ -505,27 +505,19 @@ def synthesize(text: str, lang: str, out: Path, tts_cfg: dict,
     out.parent.mkdir(parents=True, exist_ok=True)
     engine = resolve_engine(tts_cfg, lang)
     fn = {"qwen": _synth_qwen, "edge": _synth_edge}[engine]
-    # per-engine venv isolation (engine_client): when this engine has its own
-    # venv (venvs/<engine> or tts.engine_venvs), synthesize through its worker
-    # process instead of importing it here — its deps then cannot collide with
-    # the incumbent's torch pin. A configured-but-missing venv raises the same
-    # FileNotFoundError contract as a missing package (-> engine unavailable).
-    # Everything below (normalization, .part atomicity, retries) is engine-
-    # agnostic and stays in THIS process; only the raw synth call crosses over.
-    from .engine_client import isolated_python, synth as _worker_synth
-    worker_py = isolated_python(engine, tts_cfg)
-    if worker_py is not None:
-        # tts.synth_workers — how many takes may be IN FLIGHT at once. Takes
-        # share no state, so this is safe; the cost is one model copy per worker
-        # (~4 GB VRAM for qwen 1.7B plus its own CUDA-graph capture), which is
-        # why it defaults to 1 and must be raised deliberately against the card
-        # actually in use. Only meaningful on the isolated-venv path: the
-        # in-process path below holds ONE model in module globals and is not
-        # thread-safe, so it stays serial by construction.
-        _nw = max(1, int(tts_cfg.get("synth_workers", 1)))
-
-        def fn(text, lang, out, t, _py=worker_py):  # noqa: F811 — same signature
-            _worker_synth(engine, _py, text, lang, out, t, workers=_nw)
+    # ONE VENV since 2026-08-02. Per-engine venvs existed because four engines
+    # had colliding pins (chatterbox hard-pinned torch 2.6.0 + numpy<2, voxcpm
+    # wanted its own torch, cosyvoice needed setuptools<80 and a .pth hack), so
+    # isolation made the collisions structurally impossible. Three engines are
+    # gone and chatterbox took its pin with it. The constraint sets now agree:
+    # faster-qwen3-tts wants torch>=2.5.1 (base has 2.6.0), qwen-tts pins
+    # transformers==4.57.3 which NOTHING in the qc stack requires, and
+    # huggingface-hub<1.0 satisfies speechbrain>=0.8 and faster-whisper>=0.21.
+    # The cost of isolation was a SECOND ~2.5 GB torch download on every fresh
+    # pod — the single largest item in the bootstrap.
+    # What this gives up: crash isolation (a segfaulting engine now takes the
+    # run with it, not just its worker). Acceptable at one engine; if a second
+    # cloning engine ever returns, revert this commit rather than reinventing it.
     # number/symbol localization is engine-agnostic (digits read wrong-language
     # otherwise) — apply to every engine; manifest/subs/QC keep clean digits.
     text = localize_numbers(text, lang)

@@ -1,13 +1,23 @@
 # Third-party TTS engines (bake-off candidates)
 
-edge installs from PyPI into the main venv. Cloning engines are **git-clone
-installs, GPU-only**, with their own heavy dependencies — and each installs into
-its **own venv: `venvs/<engine>`**. The pipeline routes any engine with a
-`venvs/<engine>` dir through a persistent worker subprocess in that venv
-automatically (`pipeline/engine_client.py` / `engine_worker.py`), so an engine's
-resolver can pick whatever torch it wants and the base venv's pin
-(torch/torchaudio 2.6.0, needed by the qc stack) is untouchable by
-construction. On the pod, `remote bakeoff`/`remote setup-check` create these
+Everything installs into ONE venv (`.venv`). Per-engine venvs existed while
+four engines had colliding pins — chatterbox hard-pinned torch 2.6.0 + numpy<2,
+voxcpm wanted its own torch, cosyvoice needed setuptools<80 and a `.pth` hack —
+and isolation made those collisions structurally impossible. Three engines are
+gone and chatterbox took its pin with it (2026-08-02), and the surviving
+constraint sets agree:
+
+| package | qwen needs | base needs |
+|---|---|---|
+| torch | `>=2.5.1` (faster-qwen3-tts) | 2.6.0 for the qc stack |
+| transformers | `==4.57.3` (qwen-tts) | nothing at runtime |
+| huggingface-hub | `>=0.36,<1.0` | `>=0.8` speechbrain, `>=0.21` faster-whisper |
+
+Isolation was therefore costing a SECOND ~2.5 GB torch download on every fresh
+pod — the largest single item in the bootstrap — to prevent a collision that can
+no longer happen. If a second cloning engine returns, REVERT that commit rather
+than reinventing it: `engine_client.py`, `engine_worker.py` and the worker pool
+are in git. On the pod, `remote bakeoff`/`remote setup-check` create these
 venvs from the `runpod.engine_setup` snippets; locally, create one by hand
 (below) and the routing kicks in the moment the venv exists. The engine venv
 needs NOTHING of the project installed — the worker runs `-m
@@ -76,9 +86,9 @@ pt/it). Ukrainian is not a supported language, so:
   adapter (a full video is hundreds of segments off one ref).
 
 ```bash
-# from the project root — its OWN venv; the pipeline auto-routes through it
-python3 -m venv venvs/qwen && . venvs/qwen/bin/activate
-pip install soundfile
+# from the project root, into the MAIN venv
+. .venv/bin/activate
+pip install -U 'huggingface-hub<1.0'      # faster-qwen3-tts needs <1.0
 git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS
 git -C third_party/Qwen3-TTS checkout 022e286b98fbec7e1e916cb940cdf532cd9f488e
 pip install -e third_party/Qwen3-TTS

@@ -109,14 +109,14 @@ So: check names against their definitions, not against intent.
 
     print("\n=== 5. engines referenced in code vs installable ===")
     import pipeline.runpod_infra as R                          # noqa: E402
-    import pipeline.engine_worker as W                         # noqa: E402
-    # ONLY the dispatch dict — every other dict literal in that file is a protocol
-    # reply ({"ok":..., "kind":...}), which the first version happily reported as
-    # an "engine with no install recipe"
+    # the dispatch dict now lives in tts_engine.synthesize (engine_worker was
+    # deleted with the venv isolation, 2026-08-02). Only that dict maps names to
+    # _synth_* functions; every other literal in the file is something else.
     dispatch = set()
-    for n in ast.walk(ast.parse((ROOT / "pipeline/engine_worker.py").read_text())):
+    for n in ast.walk(ast.parse((ROOT / "pipeline/tts_engine.py").read_text())):
         if isinstance(n, ast.Dict) and n.values and all(
-                isinstance(v, ast.Attribute) for v in n.values):
+                isinstance(v, ast.Name) and v.id.startswith("_synth_")
+                for v in n.values):
             dispatch |= {k.value for k in n.keys if isinstance(k, ast.Constant)}
     setup = set((gpu.get("runpod") or {}).get("engine_setup", {}))
     need_install = dispatch - {"chatterbox", "edge"}

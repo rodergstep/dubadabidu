@@ -344,7 +344,6 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     import statistics
     import torch
     import soundfile as sf
-    from pipeline import engine_client
     from pipeline.tts_engine import release_models, synthesize
     from pipeline.tune import _subset
     from qc import metrics as X
@@ -469,19 +468,15 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                     return w, _d
 
                 futures = []
-                # tts.synth_workers > 1 puts several TAKES in flight at once.
-                # They share no state, and each lands on its own path, so the
-                # only ordering that matters is the takes list — rebuilt from
-                # the submission order below. Serial when workers == 1, which
-                # is also the only safe mode for the in-process engine path.
-                n_workers = max(1, int(base_tts.get("synth_workers", 1)))
+                # SYNTHESIS IS SERIAL. Takes share no state, so they were run
+                # through a pool while each one went to its own worker PROCESS.
+                # With the venvs merged (2026-08-02) synthesis happens in THIS
+                # process against a single model held in module globals, which
+                # is not thread-safe — two concurrent takes would drive one
+                # model. Scoring below is still overlapped, which is where the
+                # measured 40% was anyway.
                 try:
-                    if n_workers > 1:
-                        with ThreadPoolExecutor(max_workers=n_workers,
-                                                thread_name_prefix="synth") as sp:
-                            done = list(sp.map(_synth_one, range(takes)))
-                    else:
-                        done = [_synth_one(k) for k in range(takes)]
+                    done = [_synth_one(k) for k in range(takes)]
                 except (FileNotFoundError, RuntimeError) as e:
                     # see _tune_engine: a dead worker / failed synth must
                     # disqualify THIS engine, not the whole comparison
@@ -516,11 +511,10 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                              # best_of the engine needs). 0 when takes==1.
                              "mos_sd": statistics.stdev(moss) if len(moss) > 1
                                        else 0.0})
-            # free this engine before the next loads: stop its isolated-venv
-            # worker (if any) and drop in-process singletons + CUDA cache —
-            # otherwise engines pile up in VRAM and a 16 GB card OOMs by the
-            # third challenger. qc models (ECAPA/MOS/whisper) stay resident.
-            engine_client.shutdown(engine)
+            # free this engine before the next loads: drop the in-process
+            # singletons + CUDA cache, or engines pile up in VRAM and a 16 GB
+            # card OOMs. qc models (ECAPA/MOS/whisper) stay resident. This was
+            # paired with engine_client.shutdown() until the venvs merged.
             release_models()
             if unavailable:
                 per_engine[vkey] = {"unavailable": unavailable}

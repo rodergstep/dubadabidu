@@ -65,7 +65,7 @@ DEFAULTS = {
     "provision_timeout_s": 420,   # wait this long for the pod to reach RUNNING+SSH
     # per-engine install snippets for the bake-off (git-clone challengers —
     # THIRD_PARTY.md). Each runs on the pod in that engine's OWN venv
-    # (venvs/<engine>, created by engine_install_cmd — the incumbent's .venv is
+    # (installed into .venv by engine_install_cmd — the per-engine venvs were
     # untouchable by construction); empty => that engine is marked unavailable
     # and skipped. Fill with PINNED commands once validated.
     "engine_setup": {},           # e.g. {"qwen": "git clone ... && pip install ..."}
@@ -313,26 +313,24 @@ def _verify_ready(rp: dict, host: str, port: int, remote: str,
                   engines: list[str]) -> bool:
     """Is this pod ALREADY set up for these engines? Proof, not assumption.
 
-    Checks, in the engine's own venv rather than the base one (a CPU-only torch
-    in venvs/<engine> is exactly the failure that once cost a week of 126 s/take
-    runs, and the base venv cannot see it):
-      - the main .venv exists and imports the qc stack
+    Checks, in the venv that now holds everything:
+      - .venv exists
       - each engine's module imports
-      - torch.cuda.is_available() inside that venv
+      - torch.cuda.is_available() — a CPU-only torch is exactly the failure that
+        once cost a week of 126 s/take runs, and it is silent without this
     Any failure, any non-zero rc, any doubt -> False, and setup runs normally.
     Skipping setup wrongly costs a whole experiment; running it needlessly costs
     ~50 s, so the asymmetry says be conservative."""
     if not engines:
         return False
-    checks = [f'test -x {remote}/.venv/bin/python']
+    py = f"{remote}/.venv/bin/python"
+    checks = [f"test -x {py}"]
     for e in engines:
         mod = ENGINE_MODULE.get(e)
-        if not mod:            # edge lives in the base venv
+        if not mod:            # edge needs no install
             return False
-        py = f"{remote}/venvs/{e}/bin/python"
         checks.append(
-            f"test -x {py} && {py} -c "
-            f"'import {mod}, torch; assert torch.cuda.is_available()'")
+            f"{py} -c 'import {mod}, torch; assert torch.cuda.is_available()'")
     rc = ssh_exec(rp, host, port, " && ".join(checks), timeout=180)
     return rc == 0
 
@@ -400,7 +398,7 @@ def free_engine(rp: dict, host: str, port: int, remote: str,
         return
     # Reclaim the BULK — model weights — and keep the venv and clone, which are
     # small and expensive to rebuild. The original order was backwards: it deleted
-    # venvs/ and third_party/ (~5 GB) while keeping checkpoints/ and
+    # third_party/ (~5 GB) while keeping checkpoints/ and
     # pretrained_models/ (~16 GB), so it fired right after a big download and
     # destroyed the environment that download was for. Measured 2026-07-30: a
     # 5.4 GB CosyVoice2 fetch pushed disk to 79%, the sweep deleted the freshly
@@ -622,18 +620,23 @@ def apt_setup(with_ffmpeg: bool = True) -> str:
 ENGINE_MODULE = {"qwen": "qwen_tts"}
 
 # installed into every engine venv alongside the snippet: soundfile because
-# the voxcpm/qwen adapters write via sf and not every engine's own requirements
 # carry it. Deliberately minimal — the venv is the ENGINE's resolver's turf.
-WORKER_PIP = "soundfile"
 
 
 def engine_install_cmd(remote: str, engine: str, snippet: str) -> str:
-    """The pod command that installs `engine` into its OWN venv
-    (venvs/<engine>), created here and active while the snippet runs — the
-    engine's resolver can then pick whatever torch it wants; the incumbent's
-    .venv is untouchable by construction (this isolation replaced the old
-    best-effort torch-pin guards). s4/bakeoff auto-route the engine through a
-    worker in this venv the moment it exists (pipeline/engine_client.py)."""
+    """Install `engine` into the MAIN venv.
+
+    It used to get its own venvs/<engine>, because four engines had colliding
+    pins. Three are gone and chatterbox took its torch pin with it, and the
+    surviving constraint sets agree: faster-qwen3-tts wants torch>=2.5.1 (the
+    base has 2.6.0), qwen-tts pins transformers==4.57.3 which nothing in the qc
+    stack requires, and huggingface-hub<1.0 satisfies speechbrain>=0.8 and
+    faster-whisper>=0.21. Isolation was therefore costing a SECOND ~2.5 GB torch
+    download on every fresh pod — the largest single item in the bootstrap — to
+    prevent a collision that can no longer happen.
+
+    If a second cloning engine returns, revert rather than reinvent: the venv
+    machinery (engine_client, engine_worker, the worker pool) is in git."""
     # PIP_CONSTRAINT pins the setuptools pip uses to BUILD wheels. Measured
     # 2026-07-30: CosyVoice's requirements include a source dist whose setup.py
     # does `import pkg_resources`, which current setuptools no longer ships, so
@@ -646,29 +649,26 @@ def engine_install_cmd(remote: str, engine: str, snippet: str) -> str:
     # PIP_RETRIES/PIP_TIMEOUT: engine wheels are hundreds of MB (nvidia_cusolver
     # alone is 267 MB) and pod downloads were seen truncating mid-transfer.
     return (f"set -e; cd {remote}; "
-            f"python3 -m venv venvs/{engine}; "
-            f". venvs/{engine}/bin/activate; "
-            f"printf 'setuptools<80\\n' > venvs/{engine}/pip-constraint.txt; "
-            f"export PIP_CONSTRAINT=$PWD/venvs/{engine}/pip-constraint.txt; "
+            f". .venv/bin/activate; "
+            f"printf 'setuptools<80\\n' > .venv/pip-constraint.txt; "
+            f"export PIP_CONSTRAINT=$PWD/.venv/pip-constraint.txt; "
             f"export PIP_RETRIES=10 PIP_TIMEOUT=60; "
             f"pip install -q --upgrade pip; "
             f"pip install -q 'setuptools<80' wheel; "
-            f"pip install -q {WORKER_PIP}; "
             f"{snippet}")
 
 
 def _install_engines(rp: dict, host: str, port: int, remote: str,
                      needed: list[str], fail_note: str) -> None:
-    """Run each engine's engine_setup snippet on the pod, each in its own
-    venv (engine_install_cmd). chatterbox/edge have no snippet and are
-    skipped (they live in the main venv). A failure is non-fatal and cannot
-    hurt the other engines — the caller decides what an unavailable engine
-    means (bake-off skips it; a run's s4 raises)."""
+    """Run each engine's engine_setup snippet on the pod, in the main venv.
+    edge has no snippet and is skipped. A failure is non-fatal — the caller
+    decides what an unavailable engine means (bake-off skips it; a run's s4
+    raises)."""
     for eng in needed:
         snip = rp.get("engine_setup", {}).get(eng)
         if not snip:
             continue
-        log.info("installing engine on pod: %s (isolated venv venvs/%s)",
+        log.info("installing engine on pod: %s (main venv) [%s]",
                  eng, eng)
         if ssh_exec(rp, host, port, engine_install_cmd(remote, eng, snip),
                     timeout=2400) != 0:
@@ -990,7 +990,7 @@ def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
     engines actually import — WITHOUT running a comparison. Provisions, installs
     the same base deps + every engine_setup snippet a `remote bakeoff` would
     (each challenger into its OWN venv), probes each engine inside its venv
-    (module + engine_worker + torch/CUDA, one line per engine), and terminates.
+    (engine module + torch/CUDA, one line per engine), and terminates.
     ~$0.30 and ~15 min to surface unpinned-repo drift, a wrong checkpoint id, or
     a broken install BEFORE a full billing bake-off hits them. Returns True iff
     the incumbent (chatterbox, main venv) imports at the end.
@@ -1002,11 +1002,10 @@ def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
     extra_overlays = [o for o in (overlays or [])
                       if Path(o).name != "config.gpu.yaml"]
     engines = list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
-    # challengers are probed INSIDE their own venvs (venvs/<engine>) — each via
-    # its venv python, importing the engine module AND pipeline.engine_worker
-    # (the exact combination a real synth call needs). (engine, module, has_snippet)
+    # engines are probed by importing their module in the venv — the exact
+    # thing a real synth call needs. (engine, module, has_snippet)
     probe_engines = [(e, ENGINE_MODULE[e], bool(rp.get("engine_setup", {}).get(e)))
-                     for e in engines if e != "chatterbox" and e in ENGINE_MODULE]
+                     for e in engines if e in ENGINE_MODULE]
     _require_something_to_validate(engines, probe_engines)
     sweep_orphans()
     remote = ("/workspace/dubadabidu" if rp.get("network_volume_id")
@@ -1029,48 +1028,35 @@ def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
         _install_engines(rp, host, port, remote, engines,
                          "will report FAIL in the probe below")
         # import probe: one line per engine so the scorecard is skimmable.
-        # Runs in the MAIN venv; each challenger is probed by subprocessing
-        # into ITS venv python (import errors there can't hide the others).
-        # The chatterbox check sets the exit code — the challengers can't
-        # poison the main venv anymore, but its own install can still fail.
+        # ONE VENV since 2026-08-02 — engines install into .venv, so this
+        # imports them directly instead of subprocessing into venvs/<engine>.
+        # The chatterbox branch went with chatterbox; the exit code now comes
+        # from CUDA plus every snippet-backed engine importing.
         probe = (
-            "import subprocess, sys\n"
+            "import sys\n"
             "import torch\n"
-            "print('[probe] main venv: torch', torch.__version__, '| cuda', "
+            "print('[probe] venv: torch', torch.__version__, '| cuda', "
             "torch.cuda.is_available())\n"
-            "try:\n"
-            "    import chatterbox; ok = True\n"
-            "    print('[probe] OK   chatterbox (main venv)')\n"
-            "except Exception as e:\n"
-            "    ok = False\n"
-            "    print('[probe] FAIL chatterbox ->', repr(e)[:100])\n"
+            "ok = torch.cuda.is_available()\n"
+            "if not ok:\n"
+            "    print('[probe] FAIL torch has no CUDA — the silent failure "
+            "that cost a week of 126 s/take runs')\n"
             f"for eng, mod, has_snip in {probe_engines!r}:\n"
             "    if not has_snip:\n"
             "        print('[probe] SKIP', eng, '(no engine_setup snippet)')\n"
             "        continue\n"
-            "    code = ('import ' + mod + ', pipeline.engine_worker, torch; '\n"
-            "            'print(torch.__version__, torch.cuda.is_available())')\n"
             "    try:\n"
-            "        r = subprocess.run(['venvs/' + eng + '/bin/python', '-c',\n"
-            "                            code], capture_output=True, text=True)\n"
-            "    except FileNotFoundError:\n"
-            "        print('[probe] FAIL', eng, '-> venvs/' + eng + ' missing "
-            "(install snippet failed?)')\n"
-            "        continue\n"
-            "    if r.returncode == 0:\n"
-            "        v, cuda = r.stdout.split()\n"
-            "        print('[probe] OK  ', eng, '(venv torch', v, '| cuda', "
-            "cuda + ')')\n"
-            "    else:\n"
-            "        tail = (r.stderr or r.stdout).strip().splitlines()\n"
-            "        print('[probe] FAIL', eng, '->', "
-            "(tail[-1] if tail else '?')[:120])\n"
-            "sys.exit(0 if ok else 1)\n")
+            "        __import__(mod)\n"
+            "        print('[probe] OK  ', eng)\n"
+            "    except Exception as e:\n"
+            "        ok = False\n"
+            "        print('[probe] FAIL', eng, '->', repr(e)[:140])\n"
+            "sys.exit(0 if ok else 1)")
         cmd = (f"cd {remote}; . .venv/bin/activate; "
                f"python3 - <<'PYEOF'\n{probe}\nPYEOF")
         rc = ssh_exec(rp, host, port, cmd, timeout=600)
         print(f"[setup-check] probe rc={rc} "
-              f"({'chatterbox baseline OK' if rc == 0 else 'BASELINE BROKEN'})")
+              f"({'all engines import + CUDA OK' if rc == 0 else 'BROKEN'})")
         print("[setup-check] read the [probe] lines above: an engine marked FAIL "
               "would be skipped (unavailable) in a real bake-off.")
         return rc == 0

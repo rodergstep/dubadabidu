@@ -75,9 +75,8 @@ def doctor(cfg: dict) -> int:
                   'pip install "audio-separator[cpu]" (or separation.backend: demucs)')
     engines = {cfg["tts"]["engine"], *cfg["tts"].get("engine_by_lang", {}).values(),
                *cfg.get("bakeoff", {}).get("engines", [])}
-    # each engine is probed where synthesis would actually run it: inside
-    # venvs/<engine> when that isolated venv exists (engine_client routes
-    # through a worker there), otherwise in THIS venv (in-process).
+    # engines are probed in THIS venv — the only one, since the per-engine
+    # venvs merged on 2026-08-02.
     for eng, mod, hint in [
         ("qwen", "qwen_tts",
          "git clone QwenLM/Qwen3-TTS + pip install -e . in its own venv "
@@ -89,7 +88,7 @@ def doctor(cfg: dict) -> int:
         if vpy.exists():
             r = subprocess.run([str(vpy), "-c", f"import {mod}"],
                                capture_output=True)
-            check(f"python: {mod} (venvs/{eng})", r.returncode == 0, hint)
+            check(f"python: {mod} ({eng})", r.returncode == 0, hint)
         else:
             try:
                 __import__(mod); check(f"python: {mod}", True)

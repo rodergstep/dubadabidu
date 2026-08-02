@@ -61,23 +61,7 @@ def test_ssh_target_not_ready():
 
 # --- per-engine venv isolation (the pod-side install command) ---
 
-def test_engine_install_cmd_isolates_per_engine():
-    cmd = engine_install_cmd("~/dubadabidu", "qwen", "pip install -q qwen")
-    # the snippet must run inside the ENGINE's venv, never the main .venv
-    assert "venvs/qwen" in cmd
-    assert ". venvs/qwen/bin/activate" in cmd
-    assert ".venv/bin/activate" not in cmd.replace("venvs/qwen/bin/activate", "")
-    assert cmd.rstrip().endswith("pip install -q qwen")
 
-
-def test_engine_install_cmd_distinct_venvs():
-    a = engine_install_cmd("~/d", "indextts", "true")
-    b = engine_install_cmd("~/d", "qwen", "true")
-    assert "venvs/indextts" in a and "venvs/indextts" not in b
-    assert "venvs/qwen" in b and "venvs/qwen" not in a
-
-
-# --- setup-check refuses a run that would validate nothing ---
 
 def _probe(engines, snippets):
     from pipeline.runpod_infra import ENGINE_MODULE
@@ -244,25 +228,6 @@ def test_config_puts_cheap_gpus_first_and_4090_last():
     assert "4090" in ids[-1]
 
 
-def test_ready_probe_checks_cuda_inside_the_ENGINE_venv(monkeypatch):
-    """Skipping setup is only safe if the probe checks what setup guarantees.
-    The base .venv cannot see a CPU-only torch in venvs/<engine> — that exact
-    blind spot cost a week of 126 s/take runs — so the probe must run inside
-    the engine's own venv."""
-    import pipeline.runpod_infra as R
-    seen = {}
-
-    def fake_exec(rp, host, port, cmd, timeout=None):
-        seen["cmd"] = cmd
-        return 0
-
-    monkeypatch.setattr(R, "ssh_exec", fake_exec)
-    assert R._verify_ready({}, "h", 22, "~/d", ["qwen"]) is True
-    cmd = seen["cmd"]
-    assert "venvs/qwen/bin/python" in cmd
-    assert "torch.cuda.is_available()" in cmd
-    assert "import qwen_tts" in cmd
-
 
 def test_ready_probe_is_conservative(monkeypatch):
     """Any doubt re-runs setup: skipping wrongly costs a whole experiment,
@@ -320,3 +285,33 @@ def test_bootstrap_pins_torch_itself_now_that_chatterbox_is_gone():
     setup = REMOTE_SETUP.format(dir="~/d")
     assert "chatterbox" not in setup
     assert "torch==2.6.0 torchaudio==2.6.0" in setup
+
+
+def test_engine_installs_into_the_main_venv():
+    """Per-engine venvs existed for four engines with colliding pins. Three are
+    gone and chatterbox took its torch pin with it, so isolation was costing a
+    SECOND ~2.5 GB torch download per pod to prevent a collision that can no
+    longer happen. Removed 2026-08-02."""
+    from pipeline.runpod_infra import engine_install_cmd
+    cmd = engine_install_cmd("~/dubadabidu", "qwen", "pip install -q qwen")
+    assert ". .venv/bin/activate" in cmd
+    assert "venvs/" not in cmd, "no per-engine venv should be created"
+    assert cmd.rstrip().endswith("pip install -q qwen")
+
+
+def test_ready_probe_checks_cuda_in_the_main_venv():
+    """Skipping setup is only safe if the probe checks what setup guarantees.
+    A CPU-only torch is silent — it cost a week of 126 s/take runs — so the
+    probe must assert cuda availability, not merely that the module imports."""
+    import pipeline.runpod_infra as R
+    seen = {}
+    R_ssh = R.ssh_exec
+    try:
+        R.ssh_exec = lambda rp, h, p, cmd, timeout=None: (
+            seen.__setitem__("cmd", cmd) or 0)
+        assert R._verify_ready({}, "h", 22, "~/d", ["qwen"]) is True
+    finally:
+        R.ssh_exec = R_ssh
+    assert ".venv/bin/python" in seen["cmd"]
+    assert "torch.cuda.is_available()" in seen["cmd"]
+    assert "import qwen_tts" in seen["cmd"]

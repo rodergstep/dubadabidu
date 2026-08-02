@@ -315,3 +315,16 @@ def test_tune_relaxes_the_floor_when_nothing_clears_it(monkeypatch, tmp_path):
         {"z": [0, 1]}, min_f0st=2.2)
     assert unavail is None and over in ({"z": 0}, {"z": 1})
     assert all(r["under_floor"] for r in trials)
+
+
+def test_bakeoff_synthesises_takes_serially():
+    """Takes were pooled while each went to its own worker PROCESS. With the
+    venvs merged (2026-08-02) synthesis runs in-process against ONE model held
+    in module globals — not thread-safe, so two concurrent takes would drive a
+    single model. Scoring stays overlapped; that is where the measured 40% was."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "qc" / "bakeoff.py").read_text()
+    block = src[src.index("def _synth_one("):src.index("for w, _d in done:")]
+    assert "ThreadPoolExecutor" not in block, \
+        "synthesis must not be pooled while the model is a module global"
+    assert "synth_workers" not in src, "the pool setting should be gone too"
