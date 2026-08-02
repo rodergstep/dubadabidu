@@ -60,7 +60,7 @@ def doctor(cfg: dict) -> int:
                   "(~4-5x on Apple Silicon).")
     if dev != "cuda":
         print("  [i ] no CUDA: use tts.engine=edge for pipeline validation; "
-              "run the Chatterbox batch on a CUDA machine (RunPod/vast.ai).")
+              "run qwen synthesis on a CUDA machine (`dubadabidu remote run`).")
     for mod in ["faster_whisper", "pydub", "soundfile", "srt", "yaml", "openai"]:
         try:
             __import__(mod); check(f"python: {mod}", True)

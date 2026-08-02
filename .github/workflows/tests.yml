@@ -16,20 +16,30 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          # Match the POD, not the Mac. The pod image moved to python3.12 on
+          # 2026-08-02 (runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404); CI on
+          # 3.11 would stop testing the version production actually runs.
+          # pyproject allows >=3.10,<3.13, so 3.12 is the top of the range.
+          python-version: "3.12"
 
       # The heavy ML stack (torch, speechbrain, distillmos, audio-separator) is
       # NOT installed: it is hundreds of MB and none of it is needed by the
       # checks that matter here. The audit and config/wiring tests parse source
       # and YAML; tests that need audio are already skipped without fixtures.
+      # pydub and srt ARE required despite being "not the ML stack": the audit
+      # imports every module in dub.py's STAGES to check each exposes run(), and
+      # s6_mix imports pydub. Without them this workflow failed on collection
+      # from the day it was added — it was never green. Tests that genuinely
+      # need torch skip themselves (pytest.importorskip).
       - name: install
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pyyaml soundfile numpy
+          pip install pytest pyyaml soundfile numpy pydub srt
 
       - name: audit (config wiring, stage graph, cache keys, shadowed imports)
         run: pytest -q tests/test_audit.py -s
 
+      # No `|| retry` here any more. It re-ran the WHOLE suite on any failure,
+      # which could not turn a real failure green and only hid which run failed.
       - name: unit tests
-        run: pytest -q -p no:cacheprovider --deselect tests/test_audit.py || \
-             pytest -q -p no:cacheprovider
+        run: pytest -q -p no:cacheprovider --deselect tests/test_audit.py
