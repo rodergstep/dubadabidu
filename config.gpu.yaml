@@ -293,7 +293,24 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
                                # buys a longer run than the budget really allows.
                                # deadline = min(budget/this, max_runtime_hours).
                                # Cheaper cards simply finish under budget.
-  max_runtime_hours: 3.0       # absolute ceiling regardless of budget
+  # Absolute ceiling regardless of budget — the pod-side watchdog self-destructs
+  # here even if the client dies, so it is the last line of defence against a
+  # runaway bill. It is NOT a target: a run that finishes in 40 min is billed
+  # for 40 min.
+  #
+  # RAISED 3.0 -> 6.0 on 2026-08-02, from measurement rather than caution.
+  # MEASURED on the first production lesson: 8.13 min of video, 5 languages,
+  # 38.8 min of pod wall (30.9 min synthesis + 7.8 min bootstrap, the bootstrap
+  # being fixed cost). Scaling the synthesis to a 1-HOUR lesson gives
+  # 3.81 h + 0.13 h = ~3.94 h — which would have hit the old 3.0 h watchdog and
+  # killed the pod at roughly 76% done, after paying for all of it.
+  # 6.0 h covers a 1-hour lesson at 5 languages with ~50% headroom for a slower
+  # host or a higher best_of. Raise it further only against a fresh measurement.
+  # Note the budget still binds independently: the deadline is
+  # min(budget/assumed_price_per_hr, max_runtime_hours), so at the default
+  # $10 budget and $0.25/h assumed price the budget allows 40 h and THIS is the
+  # binding cap. Lower --budget for a tighter leash on a single run.
+  max_runtime_hours: 6.0
   ssh_key: ~/.ssh/id_ed25519_runpod
   # OPTIONAL and NOT recommended by default: a RunPod network-volume id to
   # persist .venv/venvs across runs, so the per-venv torch install happens once.

@@ -421,3 +421,27 @@ def test_ready_probe_checks_cuda_in_the_main_venv():
     assert ".venv/bin/python" in seen["cmd"]
     assert "torch.cuda.is_available()" in seen["cmd"]
     assert "import qwen_tts" in seen["cmd"]
+
+
+def test_runtime_cap_fits_a_full_hour_lesson():
+    """max_runtime_hours is the pod-side watchdog's self-destruct, so a value
+    below the real workload kills a run mid-flight AFTER paying for it.
+
+    MEASURED 2026-08-02 on the first production lesson: 8.13 min of video x 5
+    languages took 38.8 min of pod wall — 30.9 min synthesis (scales with
+    content) + 7.8 min bootstrap (fixed). A 1-hour lesson therefore needs
+    ~3.94 h, which the old 3.0 h cap would have cut off at ~76% done."""
+    import yaml
+    from pipeline.logic import deep_merge
+    from pipeline.runpod_infra import DEFAULTS
+    cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
+                     yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
+    rp = {**DEFAULTS, **cfg.get("runpod", {})}
+    SYNTH_MIN_PER_LANG_PER_VIDEO_MIN = 30.9 / 5 / 8.13   # measured
+    BOOTSTRAP_H = 7.8 / 60
+    langs = len(cfg["languages"])
+    need = 60.0 * SYNTH_MIN_PER_LANG_PER_VIDEO_MIN * langs / 60.0 + BOOTSTRAP_H
+    assert rp["max_runtime_hours"] >= need, (
+        f"max_runtime_hours={rp['max_runtime_hours']} but a 1-hour lesson in "
+        f"{langs} languages needs ~{need:.2f} h — the watchdog would kill the "
+        f"pod mid-run, after billing for the whole thing")
