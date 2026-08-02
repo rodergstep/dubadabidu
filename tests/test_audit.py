@@ -190,6 +190,39 @@ So: check names against their definitions, not against intent.
     if not any("synth_hash ignores" in f for f in FAIL):
         ok(f"all {len(OUTPUT_CHANGING)} output-changing knobs salt the cache key")
 
+    print("\n=== 9. functions reading names that are defined nowhere ===")
+    # `setup_check` read an `overlays` global copy-pasted from remote_run, which
+    # takes it as a PARAMETER. Python resolves unknown names at call time, so it
+    # imported, passed every other check, and raised NameError only once the
+    # command was actually invoked. Checks 1-8 all compare a name to its
+    # definition; this one asks whether a definition exists at all.
+    import builtins
+    import symtable
+    for py in (sorted(ROOT.glob("pipeline/*.py")) + sorted(ROOT.glob("qc/*.py"))
+               + [ROOT / "dub.py"]):
+        top = symtable.symtable(py.read_text(), str(py), "exec")
+        # module scope + builtins; a name assigned anywhere at module level
+        # (including inside `try:`/`if`) counts as defined.
+        known = {s.get_name() for s in top.get_symbols()} | set(dir(builtins))
+
+        def scan(tbl):
+            for ch in tbl.get_children():
+                if ch.get_type() == "function":
+                    for s in ch.get_symbols():
+                        # is_global + never assigned in this scope == a free
+                        # name that must resolve at module level or in builtins
+                        if (s.is_global() and not s.is_assigned()
+                                and s.get_name() not in known):
+                            bad(f"{py.name}:{ch.get_lineno()} {ch.get_name()}() "
+                                f"reads {s.get_name()!r}, which is not defined at "
+                                f"module scope, not a parameter, and not a "
+                                f"builtin -> NameError at call time "
+                                f"(this is the setup_check/overlays bug)")
+                scan(ch)
+        scan(top)
+    if not any("NameError at call time" in f for f in FAIL):
+        ok("every free name in every function resolves to a definition")
+
     print(f"\n{'='*60}\n{len(FAIL)} problem(s)" if FAIL else
           f"\n{'='*60}\nclean")
     assert not FAIL, "\n".join(FAIL)

@@ -986,21 +986,19 @@ def _require_something_to_validate(engines: list, probe_engines: list) -> None:
 
 
 def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
-    """Dry-run the bake-off's install path on ONE cheap pod, then report which
-    engines actually import — WITHOUT running a comparison. Provisions, installs
-    the same base deps + every engine_setup snippet a `remote bakeoff` would
-    (each challenger into its OWN venv), probes each engine inside its venv
-    (engine module + torch/CUDA, one line per engine), and terminates.
-    ~$0.30 and ~15 min to surface unpinned-repo drift, a wrong checkpoint id, or
-    a broken install BEFORE a full billing bake-off hits them. Returns True iff
-    the incumbent (chatterbox, main venv) imports at the end.
+    """Dry-run the install path on ONE cheap pod, then report which engines
+    actually import — WITHOUT running a comparison. Provisions, installs the
+    same base deps + every engine_setup snippet a real run would (into the ONE
+    shared .venv since 2026-08-02), probes torch/CUDA and each engine module,
+    and terminates. ~$0.30 and ~15 min to surface unpinned-repo drift, a wrong
+    checkpoint id, or a dependency conflict BEFORE a full billing run hits them.
+    Returns True iff CUDA is available AND every snippet-backed engine imports.
     Terminates on every path (state-file driven)."""
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
     budget = float(budget_usd if budget_usd is not None else rp["budget_usd"])
-    # config.gpu.yaml is already in REMOTE_TASK; forward only the extras, in
-    # the caller's order, so "later overlay wins" holds on the pod as locally.
-    extra_overlays = [o for o in (overlays or [])
-                      if Path(o).name != "config.gpu.yaml"]
+    # No overlay forwarding here (remote_run has it): setup-check builds no
+    # pod-side dub command — it runs REMOTE_SETUP + an import probe, both driven
+    # by the LOCAL merged cfg. It read an undefined `overlays` until 2026-08-02.
     engines = list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
     # engines are probed by importing their module in the venv — the exact
     # thing a real synth call needs. (engine, module, has_snippet)
