@@ -45,9 +45,20 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             "-metadata:s:a:0", f"language={tags[src]}",
             "-disposition:a:0", "default"]
     for i, lang in enumerate(langs, start=1):
-        cmd += [f"-metadata:s:a:{i}", f"language={tags[lang]}"]
+        # `-disposition:a:i 0` is NOT redundant with setting a:0 default above.
+        # ffmpeg COPIES each input's disposition, and every dub_<lang>.m4a has
+        # default set on its only audio stream — so all six tracks arrived
+        # flagged default (verified with ffprobe on the first production mux,
+        # 2026-08-02). A file with several "default" audio tracks lets the
+        # player choose, which is exactly what explicit language tagging is
+        # meant to prevent.
+        cmd += [f"-metadata:s:a:{i}", f"language={tags[lang]}",
+                f"-disposition:a:{i}", "0"]
     for i, lang in enumerate(sub_langs):
-        cmd += [f"-metadata:s:s:{i}", f"language={tags[lang]}"]
+        # Same for subtitles: only the source-language track should be default,
+        # otherwise players can burn in a translation nobody asked for.
+        cmd += [f"-metadata:s:s:{i}", f"language={tags[lang]}",
+                f"-disposition:s:{i}", "default" if i == 0 else "0"]
 
     cmd += [str(out)]
     subprocess.run(cmd, check=True)
