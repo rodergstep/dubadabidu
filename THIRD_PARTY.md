@@ -1,12 +1,12 @@
 # Third-party TTS engines (bake-off candidates)
 
-Chatterbox (the incumbent) and edge install from PyPI into the main venv. The
-bake-off challengers are **git-clone installs, GPU-only**, with their own heavy
-dependencies — and each installs into its **own venv: `venvs/<engine>`**. The
-pipeline routes any engine with a `venvs/<engine>` dir through a persistent
-worker subprocess in that venv automatically (`pipeline/engine_client.py` /
-`engine_worker.py`), so a challenger's resolver can pick whatever torch it
-wants and the chatterbox pin (torch/torchaudio 2.6.0) is untouchable by
+edge installs from PyPI into the main venv. Cloning engines are **git-clone
+installs, GPU-only**, with their own heavy dependencies — and each installs into
+its **own venv: `venvs/<engine>`**. The pipeline routes any engine with a
+`venvs/<engine>` dir through a persistent worker subprocess in that venv
+automatically (`pipeline/engine_client.py` / `engine_worker.py`), so an engine's
+resolver can pick whatever torch it wants and the base venv's pin
+(torch/torchaudio 2.6.0, needed by the qc stack) is untouchable by
 construction. On the pod, `remote bakeoff`/`remote setup-check` create these
 venvs from the `runpod.engine_setup` snippets; locally, create one by hand
 (below) and the routing kicks in the moment the venv exists. The engine venv
