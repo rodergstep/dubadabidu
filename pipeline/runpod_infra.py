@@ -541,11 +541,20 @@ REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     # driver on your system is too old (found version 12040)" and CUDA: False.
     # RunPod's host driver is CUDA 12.4; torch 2.11's OLDEST build is cu126
     # (there is no 2.11+cu124 wheel), while 2.6.0 ships cu124 — the +cu124 we
-    # actually resolve. The driver belongs to the host, so no image change and
-    # no index-url fixes it, and the REST API cannot request a driver version.
+    # actually resolve. The driver belongs to the host, so neither the image tag
+    # nor an --index-url reaches it.
     #
-    # Retry the bump only after confirming a newer host driver (nvidia-smi on a
-    # fresh pod). Nothing in OUR code pins us any more: qc/metrics.py reads via
+    # CORRECTION (same day): "the REST API cannot request a driver version" was
+    # WRONG when first written here. POST /pods takes `allowedCudaVersions`
+    # (enum 11.8 .. 13.0, confirmed in RunPod's own OpenAPI schema) which filters
+    # to hosts whose driver supports those versions. So the bump IS reachable:
+    # set runpod.allowed_cuda_versions to ["12.6","12.7","12.8","12.9","13.0"]
+    # and raise the torch pin together. UNMEASURED and the reason it is not done
+    # here: narrowing CUDA shrinks the host pool, and this project has already
+    # been bitten by capacity (COMMUNITY had none for these GPU types). Verify
+    # price and availability on a setup-check before trusting it in production.
+    #
+    # Nothing in OUR code pins us any more: qc/metrics.py reads via
     # soundfile instead of torchaudio.load (which needs the separate torchcodec
     # package from 2.9 on), faster-qwen3-tts wants >=2.5.1 and speechbrain
     # >=2.1.0. torchaudio's own latest is 2.11.0 — it did not follow torch to
