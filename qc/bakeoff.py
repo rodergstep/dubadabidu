@@ -726,7 +726,7 @@ def _write_reports(bo, video, lang, subset, per_engine, seg_audio, wd,
             lines.append(f"| {e} | {s['sim']} | {s['mos']} | {s['f0']} "
                          f"| {s['wer']} | {s['pace']} | {s['mos_sd']} "
                          f"| {s['s_take']} | {_verdict(e, s, inc, incumbent)} |")
-    lines += ["", "Adoption gate: a challenger must beat chatterbox on sim→real "
+    lines += ["", f"Adoption gate: a challenger must beat {incumbent} on sim→real "
               "AND mos, AND not regress wer beyond tolerance (intelligibility "
               "veto), or tie and win the ear on the .html page. pace, mos± and "
               "s/take are informational (timing feel / reliability / cost) — they "

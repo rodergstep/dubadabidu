@@ -28,7 +28,7 @@ s4 — hash mismatch re-synthesizes automatically), and re-run from s4.
 from __future__ import annotations
 import json, hashlib
 from pathlib import Path
-from .text_norm import NORM_VERSIONS, NUM_VERSIONS
+from .text_norm import NUM_VERSIONS
 
 
 def video_workdir(cfg: dict, video: str | Path) -> Path:

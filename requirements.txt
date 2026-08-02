@@ -32,7 +32,6 @@ anthropic==0.116.0       # optional alternative translator
 jiwer                    # WER for qc/backcheck
 num2words                # digit->word expansion in backcheck WER normalization
 speechbrain==1.1.0       # ECAPA-TDNN speaker similarity (qc), Apache-2.0
-ruaccent==1.5.8.3        # Russian stress marking pre-TTS (Apache-2.0)
 distillmos==0.9.1        # neural MOS naturalness proxy (qc), MIT (Microsoft)
 pyyaml
 # optional, tighter word-level subtitle timing:
