@@ -298,7 +298,7 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   # PYTHONPATH — pip install -e the clone, or drop a .pth into site-packages.
   # An empty/failing snippet => that engine is marked unavailable and skipped,
   # so a partial bake-off still runs. It must NOT install torch: REMOTE_SETUP
-  # already pinned 2.6.0+cu121 and a second resolve is exactly what was cut.
+  # already pinned it and a second resolve is exactly what was cut.
   #
   # STATUS: VALIDATED and PINNED 2026-07-31. qwen runs at 2.36 s/take on a 4090
   # with tts.qwen_fast. Clones are guarded with `[ -d ... ] ||` so a re-run does
@@ -314,9 +314,11 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
     # one, else fall back to the minimum the adapter needs (torch/torchaudio/
     # transformers). flash-attn stays opt-in (tts.qwen_flash_attn).
     # ONE VENV since 2026-08-02: this installs into .venv, not venvs/qwen.
-    # NO torch line here any more — REMOTE_SETUP already installed 2.6.0+cu121
-    # and re-installing from the cu121 index is what pulled a SECOND ~2.5 GB
-    # copy on every fresh pod. faster-qwen3-tts needs >=2.5.1, so 2.6.0 serves.
+    # NO torch line here any more — REMOTE_SETUP already installed torch (2.11.0;
+    # the pod resolves the bundled CUDA variant, measured +cu124 on 2026-08-02,
+    # NOT the cu121 an earlier comment here claimed) and re-installing from an
+    # explicit CUDA index is what pulled a SECOND ~2.5 GB copy on every fresh
+    # pod. faster-qwen3-tts needs >=2.5.1, so the bootstrap's pin serves.
     # huggingface-hub is pinned <1.0 FIRST because faster-qwen3-tts requires it
     # and the base may carry a 1.x left by an older resolve; speechbrain (>=0.8)
     # and faster-whisper (>=0.21) are happy either side of 1.0.

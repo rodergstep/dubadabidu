@@ -279,12 +279,35 @@ def test_bootstrap_pins_torch_itself_now_that_chatterbox_is_gone():
     spacy-pkuseg plus exact pins that made pip backtrack. chatterbox was removed
     2026-08-02, so the pin has to be ours or the pod gets whatever pip picks.
 
-    2.6.0 specifically: torchaudio.save is native there. Newer torch needs the
-    torchcodec backend — a separate change to make deliberately."""
+    2.11.0 since 2026-08-02, and the version is the CEILING, not a preference:
+    torchaudio's latest is 2.11.0 (it did not follow torch to 2.12/2.13) and the
+    two ship as version-locked pairs. The earlier 2.6.0 pin was justified in a
+    comment as "torchaudio.save is native there" — this repo never called save;
+    it calls load, which delegates to the separate torchcodec package from 2.9
+    on. qc/metrics.py reads via soundfile now, so nothing pins us back."""
     from pipeline.runpod_infra import REMOTE_SETUP
     setup = REMOTE_SETUP.format(dir="~/d")
     assert "chatterbox" not in setup
-    assert "torch==2.6.0 torchaudio==2.6.0" in setup
+    assert "torch==2.11.0 torchaudio==2.11.0" in setup
+
+
+def test_qc_does_not_call_torchaudio_load():
+    """torchaudio.load needs torchcodec from 2.9 on — and `hasattr(torchaudio,
+    "load")` is still True, so the break shows up only when a scoring run
+    actually reads a file, on a pod, mid-billing. Cheap to assert statically."""
+    import ast
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    # AST, not a substring: the first cut of this test flagged the comment in
+    # metrics.py that EXPLAINS the migration.
+    for py in sorted(root.glob("qc/*.py")) + sorted(root.glob("pipeline/*.py")):
+        for n in ast.walk(ast.parse(py.read_text())):
+            called = n.func if isinstance(n, ast.Call) else None
+            assert not (isinstance(called, ast.Attribute)
+                        and called.attr == "load"
+                        and getattr(called.value, "id", "") == "torchaudio"), (
+                f"{py.name}:{n.lineno} calls torchaudio.load, which requires the "
+                f"torchcodec package on torch>=2.9 — read with soundfile instead")
 
 
 def test_engine_installs_into_the_main_venv():

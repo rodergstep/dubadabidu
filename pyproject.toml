@@ -6,9 +6,10 @@ requires-python = ">=3.10,<3.13"
 dependencies = [
   "faster-whisper==1.2.1",
   "demucs==4.1.0",
-  # torch/torchaudio are pinned 2.6.0 by the pod bootstrap (runpod_infra
+  # torch/torchaudio are pinned 2.11.0 by the pod bootstrap (runpod_infra
   # REMOTE_SETUP). They used to arrive via the `clone` extra (chatterbox-tts),
   # which was removed with chatterbox on 2026-08-02 — the pin is ours now.
+  # 2.11 is torchaudio's ceiling (it did not follow torch to 2.12/2.13).
   "edge-tts==7.2.8",
   "srt==3.5.3",
   "soundfile==0.14.0",

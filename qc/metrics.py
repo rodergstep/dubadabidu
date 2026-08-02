@@ -25,8 +25,16 @@ _sqa = None
 
 
 def _load_audio_16k(path: str | Path):
+    # soundfile, not torchaudio.load: from torchaudio 2.9 `load` delegates to
+    # torchcodec, a separate package (hasattr says True, calling raises
+    # ImportError). evaluate.py already reads via soundfile, and this was the
+    # last thing holding torch at 2.6.0. `functional.resample` is pure torch and
+    # keeps working.
+    import soundfile as sf
+    import torch
     import torchaudio
-    wav, sr = torchaudio.load(str(path))
+    data, sr = sf.read(str(path), dtype="float32", always_2d=True)
+    wav = torch.from_numpy(data.T).contiguous()   # (samples, ch) -> (ch, samples)
     wav = wav.mean(0, keepdim=True)
     if sr != SAMPLE_RATE:
         wav = torchaudio.functional.resample(wav, sr, SAMPLE_RATE)

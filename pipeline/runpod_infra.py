@@ -531,14 +531,20 @@ REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     # skip the ~15min reinstall when deps are already present (persistent-volume
     # reuse across runs — see runpod.network_volume_id)
     # torch/torchaudio for the qc stack (speechbrain ECAPA, Distill-MOS,
-    # torchaudio IO). The pin used to arrive via chatterbox-tts; chatterbox was
+    # resampling). The old 2.6.0 pin arrived via chatterbox-tts; chatterbox was
     # removed 2026-08-02 and with it diffusers, s3tokenizer, resemble-perth,
     # conformer, spacy-pkuseg and the exact pins (transformers==5.2.0,
-    # diffusers==0.29.0) that made pip backtrack. 2.6.0 is kept because
-    # torchaudio.save is native there — newer torch needs the torchcodec
-    # backend, which is a separate problem to take on deliberately.
+    # diffusers==0.29.0) that made pip backtrack.
+    #
+    # 2.11.0 (2026-08-02): torchaudio's LATEST is 2.11.0 — it did not follow
+    # torch to 2.12/2.13, and the two ship as version-locked pairs, so 2.11 is
+    # the ceiling while we use torchaudio at all. The one thing that kept us on
+    # 2.6.0 was torchaudio.load, which delegates to the separate torchcodec
+    # package from 2.9 on; qc/metrics.py now reads via soundfile instead, and
+    # functional.resample (all that is left) is pure torch.
+    # faster-qwen3-tts wants >=2.5.1 and speechbrain >=2.1.0, so both are happy.
     "if ! python -c 'import torch' 2>/dev/null; then "
-    "pip install --progress-bar off torch==2.6.0 torchaudio==2.6.0 && "
+    "pip install --progress-bar off torch==2.11.0 torchaudio==2.11.0 && "
     "pip install --progress-bar off -e '.[dev]'; fi; "
     # FAIL if CUDA is missing — otherwise the run would silently synth on CPU,
     # which is uselessly slow and defeats the point of renting a GPU

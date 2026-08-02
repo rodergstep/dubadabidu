@@ -9,9 +9,24 @@ constraint sets agree:
 
 | package | qwen needs | base needs |
 |---|---|---|
-| torch | `>=2.5.1` (faster-qwen3-tts) | 2.6.0 for the qc stack |
+| torch | `>=2.5.1` (faster-qwen3-tts) | 2.11.0 for the qc stack |
 | transformers | `==4.57.3` (qwen-tts) | nothing at runtime |
 | huggingface-hub | `>=0.36,<1.0` | `>=0.8` speechbrain, `>=0.21` faster-whisper |
+
+**VALIDATED on a pod 2026-08-02** (`remote setup-check`, 3m20s / ~$0.015):
+`[probe] venv: torch +cu124 | cuda True`, `[probe] OK qwen`. The three
+constraint sets resolve together for real, not just on paper.
+
+**torch 2.11.0, not 2.13.0.** torch's latest is 2.13.0 (2026-07-08) but
+torchaudio's is **2.11.0** (2026-03-23) — it did not follow, and the two ship as
+version-locked pairs, so 2.11 is the ceiling while torchaudio is a dependency at
+all. We held at 2.6.0 long after chatterbox (whose hard pin it was) was deleted,
+on a comment claiming `torchaudio.save` was native there; this repo never called
+`save`. It called `load`, which from 2.9 delegates to the separate `torchcodec`
+package — `hasattr` still returns True, so it fails only when a scoring run
+reads a file. `qc/metrics.py` reads via soundfile now (as `qc/evaluate.py`
+already did), leaving `functional.resample` as the only torchaudio use, which is
+pure torch. Dropping torchaudio entirely would open 2.12/2.13.
 
 Isolation was therefore costing a SECOND ~2.5 GB torch download on every fresh
 pod — the largest single item in the bootstrap — to prevent a collision that can
