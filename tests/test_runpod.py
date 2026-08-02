@@ -279,20 +279,64 @@ def test_bootstrap_pins_torch_itself_now_that_chatterbox_is_gone():
     spacy-pkuseg plus exact pins that made pip backtrack. chatterbox was removed
     2026-08-02, so the pin has to be ours or the pod gets whatever pip picks.
 
-    2.6.0 is a HOST limit, not a preference — do not "modernise" this pin
-    without a pod check. Measured 2026-08-02: torch 2.11.0 installs fine and
-    then reports CUDA: False, "The NVIDIA driver on your system is too old
-    (found version 12040)". RunPod's host driver is CUDA 12.4 and torch 2.11's
-    oldest build is cu126; 2.6.0 ships cu124. The driver is the host's, so no
-    image or index-url change reaches it.
-
-    Nothing in OUR code pins us any more (qc/metrics.py reads via soundfile, not
-    torchaudio.load) — so when a host driver >=12.6 shows up, this is a one-line
-    bump plus a ~$0.015 setup-check."""
+    2.11.0 is only safe because allowed_cuda_versions guarantees a driver that
+    supports it — see test_torch_pin_and_cuda_filter_move_together."""
     from pipeline.runpod_infra import REMOTE_SETUP
     setup = REMOTE_SETUP.format(dir="~/d")
     assert "chatterbox" not in setup
-    assert "torch==2.6.0 torchaudio==2.6.0" in setup
+    assert "torch==2.11.0 torchaudio==2.11.0" in setup
+
+
+def test_torch_pin_and_cuda_filter_move_together():
+    """THE coupling that a first attempt at this bump got wrong, on a pod:
+    torch 2.11's oldest build is cu126 (no 2.11+cu124 wheel exists), so on a
+    default-scheduled host with a CUDA 12.4 driver it installs fine and then
+    reports CUDA: False -- "The NVIDIA driver on your system is too old (found
+    version 12040)". A silent CPU fallback at full GPU price is this project's
+    most expensive recurring failure.
+
+    So the pin and the host filter are ONE decision. Emptying
+    allowed_cuda_versions without dropping torch back to 2.6.0 re-creates the
+    exact failure, and nothing else in the repo would catch it before a pod."""
+    import yaml
+    from pipeline.logic import deep_merge
+    from pipeline.runpod_infra import DEFAULTS, REMOTE_SETUP
+    cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
+                     yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
+    rp = {**DEFAULTS, **cfg.get("runpod", {})}
+    setup = REMOTE_SETUP.format(dir="~/d")
+    import re
+    m = re.search(r"torch==(\d+)\.(\d+)\.\d+", setup)
+    assert m, "no torch pin found in REMOTE_SETUP"
+    major, minor = int(m.group(1)), int(m.group(2))
+    allowed = [float(v) for v in rp.get("allowed_cuda_versions") or []]
+    if (major, minor) > (2, 6):
+        assert allowed, (
+            f"torch {major}.{minor} needs a CUDA>=12.6 driver, but "
+            f"allowed_cuda_versions is empty -> the scheduler may hand over a "
+            f"12.4 host and CUDA silently goes False. Pin torch 2.6.0 or set "
+            f"the filter.")
+        assert min(allowed) >= 12.6, (
+            f"allowed_cuda_versions {allowed} admits a driver older than 12.6, "
+            f"which cannot run torch {major}.{minor} (oldest build is cu126)")
+
+
+def test_pod_payload_sends_the_cuda_filter():
+    """It is only a guarantee if it reaches the API."""
+    from pipeline.runpod_infra import DEFAULTS
+    import pipeline.runpod_infra as R
+    sent = {}
+    orig = R._req
+    R._req = lambda method, path, body=None: sent.update(body or {}) or {}
+    try:
+        R.create_pod({**DEFAULTS, "allowed_cuda_versions": ["12.9"]})
+        assert sent.get("allowedCudaVersions") == ["12.9"]
+        sent.clear()
+        R.create_pod({**DEFAULTS, "allowed_cuda_versions": []})
+        assert "allowedCudaVersions" not in sent, (
+            "an empty list must be omitted, not sent — it would filter to no hosts")
+    finally:
+        R._req = orig
 
 
 def test_qc_does_not_call_torchaudio_load():

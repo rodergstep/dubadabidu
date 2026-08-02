@@ -228,7 +228,26 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
                  "NVIDIA GeForce RTX 3090 Ti",
                  "NVIDIA GeForce RTX 4080", "NVIDIA GeForce RTX 4080 SUPER",
                  "NVIDIA GeForce RTX 4090"]
-  image: runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04
+  # UPGRADED 2026-08-02 from runpod/pytorch:2.2.0-py3.10-cuda12.1.1-ubuntu22.04,
+  # which was ~2 years old and the root of two separate ceilings:
+  #   py3.10  -> numpy capped at 2.2.6 (3.12 reaches 2.5.1)
+  #   cu12.1  -> hosts with a CUDA 12.4 driver, which caps torch at 2.6.0
+  # ubuntu2404 = python3.12; cu1290 = CUDA 12.9. Stable tag (NOT an -rc), verified
+  # on Docker Hub 2026-08-02.
+  # VERIFY THE CONTENTS, NEVER THE TAG: runpod/containers#114 shipped a
+  # "torch280" image that actually contained torch 2.4.1, because pip silently
+  # fell back when cu128 wheels were missing — and users were billed for GPUs
+  # that torch could not drive. `remote setup-check` prints the resolved torch
+  # and CUDA for ~$0.015; run it after ANY image change.
+  image: runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404
+  # Filters to hosts whose DRIVER supports one of these (REST `allowedCudaVersions`,
+  # enum 11.8..13.0). Without it the scheduler gave us a 12.4 driver and torch
+  # 2.11 reported "NVIDIA driver ... too old (found version 12040)", CUDA: False.
+  # MUST move together with the torch pin in runpod_infra.REMOTE_SETUP: empty
+  # this list and torch has to go back to 2.6.0.
+  # Widen it (add "12.7", "12.6") if provisioning starts failing on capacity —
+  # every entry removed shrinks the host pool.
+  allowed_cuda_versions: ["12.8", "12.9", "13.0"]
   # 150 GB, up from the 30 GB default. THIS was the real cause of the bootstrap
   # failures on 2026-07-30: per-engine venv isolation multiplies torch by the
   # number of challengers, and nobody sized the disk for it. Measured/estimated:

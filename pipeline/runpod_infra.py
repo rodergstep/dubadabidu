@@ -50,7 +50,17 @@ DEFAULTS = {
     "gpu_type_ids": ["NVIDIA RTX A5000", "NVIDIA GeForce RTX 3090",
                      "NVIDIA RTX A4500", "NVIDIA RTX A4000"],
     "gpu_count": 1,
-    "image": "runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04",
+    # Ubuntu 24.04 => python3.12 (the old py3.10 image capped numpy at 2.2.6);
+    # cu129 => a host driver new enough for torch 2.11's cu126/cu128 builds.
+    # Verified present on Docker Hub 2026-08-02 (stable, not an -rc tag).
+    "image": "runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404",
+    # Filters to hosts whose DRIVER supports these CUDA versions. Without it the
+    # scheduler handed us a CUDA 12.4 driver, which caps torch at 2.6.0. Enum is
+    # 11.8..13.0 (RunPod OpenAPI). Empty/absent => no filter, old behaviour.
+    # TRADE-OFF: every entry removed here shrinks the host pool, and this project
+    # has lost runs to capacity before. Widen this list first if provisioning
+    # starts failing with "no instances currently available".
+    "allowed_cuda_versions": ["12.8", "12.9", "13.0"],
     "container_disk_gb": 30,
     "volume_gb": 0,               # ephemeral; all state rsync'd back
     "cloud_type": "COMMUNITY",
@@ -120,6 +130,9 @@ def create_pod(rp: dict) -> dict:
         "ports": rp["ports"],
         "supportPublicIp": True,
     }
+    # Only send it when set — an empty list would filter to nothing.
+    if rp.get("allowed_cuda_versions"):
+        payload["allowedCudaVersions"] = list(rp["allowed_cuda_versions"])
     if rp.get("network_volume_id"):
         # persistent volume mounted at /workspace — keeps .venv across runs so
         # the ~15min torch install happens once (REMOTE_SETUP skips reinstall
@@ -516,7 +529,16 @@ REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     # without retry protection, because the engine path was hardened first simply
     # for having failed first.
     "export PIP_RETRIES=10 PIP_TIMEOUT=60; "
-    "python3 -m venv .venv 2>/dev/null || true; . .venv/bin/activate; "
+    # The old form was `python3 -m venv .venv 2>/dev/null || true`, which hid the
+    # one failure that matters: an image whose python ships no venv module (the
+    # ubuntu2404/py3.12 images need python3-venv). `set -e` then aborted one line
+    # later on `activate`, with the actual cause discarded. Self-heal instead.
+    # NOTE the doubled braces: REMOTE_SETUP is a .format() template, so a literal
+    # shell `{ ...; }` group must be written {{ ...; }} or format() reads it as a
+    # placeholder and raises KeyError. Caught by the tests, before a pod.
+    "python3 -m venv .venv || {{ echo '[setup] no venv module — installing'; "
+    "apt-get install -y -q python3-venv && python3 -m venv .venv; }}; "
+    ". .venv/bin/activate; "
     # UPGRADE PIP FIRST — the single biggest bootstrap win. Ubuntu 22.04's
     # python3.10-venv ships pip 22.0.2, whose resolver backtracks badly on
     # a heavily-pinned dependency graph.
@@ -536,23 +558,20 @@ REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     # conformer, spacy-pkuseg and the exact pins (transformers==5.2.0,
     # diffusers==0.29.0) that made pip backtrack.
     #
-    # 2.6.0 IS THE CEILING, and the limit is the HOST, not this repo. Measured
-    # on a pod 2026-08-02: `remote setup-check` with torch 2.11.0 -> "The NVIDIA
-    # driver on your system is too old (found version 12040)" and CUDA: False.
-    # RunPod's host driver is CUDA 12.4; torch 2.11's OLDEST build is cu126
-    # (there is no 2.11+cu124 wheel), while 2.6.0 ships cu124 — the +cu124 we
-    # actually resolve. The driver belongs to the host, so neither the image tag
-    # nor an --index-url reaches it.
+    # 2.11.0, reached by fixing the HOST rather than the pin. A first attempt at
+    # this bump failed on a pod: "The NVIDIA driver on your system is too old
+    # (found version 12040)", CUDA: False — torch 2.11's oldest build is cu126
+    # (no 2.11+cu124 wheel exists) and the scheduler had handed us a CUDA 12.4
+    # driver. The fix is runpod.allowed_cuda_versions (POST /pods
+    # `allowedCudaVersions`, enum 11.8..13.0) plus the cu129 image, so the driver
+    # is new enough by construction. If that filter is ever emptied, this pin
+    # MUST drop back to 2.6.0 — they change together.
     #
-    # CORRECTION (same day): "the REST API cannot request a driver version" was
-    # WRONG when first written here. POST /pods takes `allowedCudaVersions`
-    # (enum 11.8 .. 13.0, confirmed in RunPod's own OpenAPI schema) which filters
-    # to hosts whose driver supports those versions. So the bump IS reachable:
-    # set runpod.allowed_cuda_versions to ["12.6","12.7","12.8","12.9","13.0"]
-    # and raise the torch pin together. UNMEASURED and the reason it is not done
-    # here: narrowing CUDA shrinks the host pool, and this project has already
-    # been bitten by capacity (COMMUNITY had none for these GPU types). Verify
-    # price and availability on a setup-check before trusting it in production.
+    # 2.11.0 is the ceiling above this: torchaudio stopped there (it did not
+    # follow torch to 2.12/2.13) and the two ship as version-locked pairs. The
+    # single remaining torchaudio call is functional.resample; dropping it would
+    # open 2.13, at the cost of re-validating every metric against a different
+    # resampler.
     #
     # Nothing in OUR code pins us any more: qc/metrics.py reads via
     # soundfile instead of torchaudio.load (which needs the separate torchcodec
@@ -562,7 +581,7 @@ REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     # this one. qc metrics are bit-identical across 2.6/2.11 (verified), so a
     # later bump will not move any historical scorecard.
     "if ! python -c 'import torch' 2>/dev/null; then "
-    "pip install --progress-bar off torch==2.6.0 torchaudio==2.6.0 && "
+    "pip install --progress-bar off torch==2.11.0 torchaudio==2.11.0 && "
     "pip install --progress-bar off -e '.[dev]'; fi; "
     # FAIL if CUDA is missing — otherwise the run would silently synth on CPU,
     # which is uselessly slow and defeats the point of renting a GPU
