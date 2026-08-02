@@ -581,7 +581,18 @@ REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     # this one. qc metrics are bit-identical across 2.6/2.11 (verified), so a
     # later bump will not move any historical scorecard.
     "if ! python -c 'import torch' 2>/dev/null; then "
-    "pip install --progress-bar off torch==2.11.0 torchaudio==2.11.0 && "
+    # --index-url cu128 is LOAD-BEARING, not cargo-culting. Plain PyPI serves
+    # torch 2.11.0+cu130 (it pulls cuda-toolkit 13.0.2 / nvidia-*-cu13), which
+    # needs a 13.0 DRIVER — while allowed_cuda_versions also admits 12.8 and
+    # 12.9 hosts. Measured 2026-08-02: the default wheel came up `cuda True`
+    # only because that pod happened to draw a 13.0 driver. A cu128 build runs
+    # on 12.8, 12.9 AND 13.0 (drivers are backward compatible with older CUDA
+    # runtimes), so pinning the LOWEST admitted version makes every host in the
+    # filter valid instead of one in three.
+    # Keep this in sync with min(allowed_cuda_versions) — asserted by
+    # test_torch_wheel_matches_the_oldest_allowed_driver.
+    "pip install --progress-bar off torch==2.11.0 torchaudio==2.11.0 "
+    "--index-url https://download.pytorch.org/whl/cu128 && "
     "pip install --progress-bar off -e '.[dev]'; fi; "
     # FAIL if CUDA is missing — otherwise the run would silently synth on CPU,
     # which is uselessly slow and defeats the point of renting a GPU

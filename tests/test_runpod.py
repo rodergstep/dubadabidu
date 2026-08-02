@@ -321,6 +321,41 @@ def test_torch_pin_and_cuda_filter_move_together():
             f"which cannot run torch {major}.{minor} (oldest build is cu126)")
 
 
+def test_torch_wheel_matches_the_oldest_allowed_driver():
+    """The wheel's CUDA build must be <= the OLDEST driver the filter admits.
+
+    Drivers are backward compatible with older CUDA runtimes but not forward:
+    a cu130 wheel needs a 13.0 driver. Plain PyPI serves torch 2.11 as +cu130,
+    so with allowed_cuda_versions ["12.8","12.9","13.0"] two thirds of the
+    permitted hosts could not run it — and the failure is the silent one
+    (installs fine, CUDA: False, synthesis crawls on CPU at full GPU price).
+    A pod on 2026-08-02 passed only because it drew a 13.0 driver.
+
+    Hence the explicit --index-url. This test is the thing that notices when
+    someone widens the filter to 12.6 and forgets the wheel."""
+    import re
+    import yaml
+    from pipeline.logic import deep_merge
+    from pipeline.runpod_infra import DEFAULTS, REMOTE_SETUP
+    cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
+                     yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
+    rp = {**DEFAULTS, **cfg.get("runpod", {})}
+    allowed = [float(v) for v in rp.get("allowed_cuda_versions") or []]
+    setup = REMOTE_SETUP.format(dir="~/d")
+    m = re.search(r"download\.pytorch\.org/whl/cu(\d)(\d+)", setup)
+    if not allowed:
+        return                      # no filter -> torch must be 2.6.0 anyway
+    assert m, (
+        f"allowed_cuda_versions is {allowed} but the torch install has no "
+        f"explicit cuXYZ --index-url, so pip picks the default wheel (cu130 for "
+        f"torch 2.11) which the oldest allowed driver may not support")
+    wheel_cuda = float(f"{m.group(1)}.{m.group(2)}")
+    assert wheel_cuda <= min(allowed), (
+        f"torch wheel is cu{m.group(1)}{m.group(2)} ({wheel_cuda}) but the filter "
+        f"admits drivers as old as {min(allowed)} — those hosts would install it "
+        f"and report CUDA: False")
+
+
 def test_pod_payload_sends_the_cuda_filter():
     """It is only a guarantee if it reaches the API."""
     from pipeline.runpod_infra import DEFAULTS
