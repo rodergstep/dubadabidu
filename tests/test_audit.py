@@ -226,3 +226,65 @@ So: check names against their definitions, not against intent.
     print(f"\n{'='*60}\n{len(FAIL)} problem(s)" if FAIL else
           f"\n{'='*60}\nclean")
     assert not FAIL, "\n".join(FAIL)
+
+
+def test_asr_defends_against_repetition_loops():
+    """The first production lesson shipped with its tail replaced by
+    "Він практично не має запаху." seven times, over audio measuring 30-77%
+    voiced. Two real sentences and the outro were lost, translated into five
+    languages and synthesized before a human caught it.
+
+    Two settings had to be wrong at once, so both are asserted:
+      - condition_on_previous_text fed each wrong segment back as context
+      - temperature=0.0 with no ladder disabled Whisper's OWN rescue, which
+        detects a bad decode via compression_ratio_threshold and retries hotter
+    """
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "pipeline" / "asr.py").read_text()
+    assert 'condition_on_previous_text", False' in src, (
+        "condition_on_previous_text must DEFAULT to False — True propagates a "
+        "hallucination into a repetition loop across a long file")
+    assert "compression_ratio_threshold" in src, (
+        "without it Whisper cannot detect a repetitive decode")
+    assert "temperature_fallback" in src, (
+        "a single temperature disables the fallback ladder that rescues a "
+        "failed decode; healthy segments still decode greedily at 0.0")
+    for backend in ("_transcribe_faster", "_transcribe_mlx"):
+        i = src.index(f"def {backend}")
+        # slice to the NEXT top-level def, not a fixed window — the mlx branch
+        # carries a long comment and a 2000-char window cut the call in half
+        nxt = src.find("\ndef ", i + 1)
+        body = src[i:nxt if nxt != -1 else len(src)]
+        assert "temperature_fallback" in body and "condition_on_previous_text" in body, (
+            f"{backend} must carry the same guards — the bug shipped on the mlx "
+            f"path and the faster path had the identical settings")
+
+
+def test_s2_detects_repetition_in_the_transcript():
+    """The fix above prevents THIS loop. The detector catches the next one:
+    a silently wrong transcript is the worst failure here, because every later
+    stage is faithful to it and reports success."""
+    from pipeline.s2_transcribe import _warn_on_repetition
+    import logging
+    recs = []
+
+    class H(logging.Handler):
+        def emit(self, r): recs.append(r.getMessage())
+
+    log = logging.getLogger("dubadabidu.s2")
+    h = H(); log.addHandler(h)
+    try:
+        bad = [{"start": 1.0, "text": "Він практично не має запаху. "
+                                      "Він практично не має запаху."}]
+        _warn_on_repetition(bad)
+        assert any("REPETITION" in m for m in recs), "internal repeat not caught"
+        recs.clear()
+        _warn_on_repetition([{"start": i, "text": "одна і та сама фраза"}
+                             for i in range(3)])
+        assert any("REPETITION" in m for m in recs), "duplicated lines not caught"
+        recs.clear()
+        _warn_on_repetition([{"start": 0.0, "text": "перша фраза"},
+                             {"start": 1.0, "text": "друга зовсім інша фраза"}])
+        assert not recs, f"false positive on a clean transcript: {recs}"
+    finally:
+        log.removeHandler(h)

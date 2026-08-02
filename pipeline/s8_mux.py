@@ -63,3 +63,40 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     cmd += [str(out)]
     subprocess.run(cmd, check=True)
     print(f"[s8] {out}")
+
+    if cfg["mux"].get("per_language"):
+        _mux_per_language(cfg, video, langs, man, wd, tags, src, edge)
+
+
+def _mux_per_language(cfg: dict, video: str, langs: list[str], man: dict,
+                      wd: Path, tags: dict, src: str, edge: list) -> None:
+    """One MP4 per language: video + THAT dub only + its subtitles.
+
+    The multi-track file is the better artifact — one upload, YouTube's
+    multi-language audio, no duplicated video. But that feature is per-channel
+    and its ingest is fussier than an ordinary upload, so this emits the
+    conventional thing too: five self-contained files anyone can upload
+    anywhere. Video is stream-copied in both, so the only cost is disk.
+
+    Deliberately NOT the original UA audio: a viewer picking the Spanish file
+    wants Spanish, and a second track invites the same ambiguous-default
+    problem the multi file just had."""
+    out_dir = Path(cfg["output_dir"])
+    stem = Path(video).stem
+    for lang in langs:
+        suffix = ("_EDGE-PLUMBING-ONLY" if lang in edge else "")
+        out = out_dir / f"{stem}_{lang}{suffix}.mp4"
+        cmd = ["ffmpeg", "-y", "-i", video,
+               "-i", str(wd / f"dub_{lang}.m4a"),
+               "-i", str(wd / f"subs_{lang}.srt"),
+               # 0:v only — drop the source UA audio, take the dub as track 0
+               "-map", "0:v", "-map", "1:a", "-map", "2:s",
+               "-c:v", "copy", "-c:a", "copy",
+               "-c:s", cfg["mux"]["subtitle_codec"],
+               "-metadata:s:a:0", f"language={tags[lang]}",
+               "-disposition:a:0", "default",
+               "-metadata:s:s:0", f"language={tags[lang]}",
+               "-disposition:s:0", "0",   # subs available, not burned on by default
+               str(out)]
+        subprocess.run(cmd, check=True)
+        print(f"[s8] {out}")

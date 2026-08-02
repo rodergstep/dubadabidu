@@ -199,6 +199,12 @@ mix:
 mux:
   subtitle_codec: mov_text
   lang_tags: {uk: ukr, en: eng, fr: fra, de: deu, es: spa, ru: rus, pl: pol}
+  # true => ALSO write <stem>_<lang>.mp4 per language (video + that dub + its
+  # subs) alongside the multi-track file. The multi file is the better artifact
+  # — one upload, no duplicated video — but YouTube's multi-language audio is a
+  # per-channel feature with a fussier ingest, so these are the safe fallback.
+  # Video is stream-copied, so the cost is disk, not time or quality.
+  per_language: true
 
 qc:
   wer_flag_threshold: 0.15

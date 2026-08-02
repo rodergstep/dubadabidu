@@ -69,6 +69,7 @@ def run(cfg: dict, video: str) -> None:
         else:
             raw.append({"start": s["start"], "end": s["end"], "text": s["text"]})
     merged = merge_segments(raw, a["max_chars"], a["max_seconds"])
+    _warn_on_repetition(merged)
 
     dur = float(subprocess.check_output(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -81,3 +82,51 @@ def run(cfg: dict, video: str) -> None:
     M.save(cfg, video, man)
     log.info("%d utterances -> %s", len(merged), M.manifest_path(cfg, video))
     log.info(">>> Review text_uk in the manifest before translating. <<<")
+
+
+def _warn_on_repetition(segs: list[dict]) -> None:
+    """Shout when the transcript looks like a Whisper repetition loop.
+
+    This shipped once (2026-08-02): the tail of the first production lesson came
+    back as "Він практично не має запаху." seven times over audio that measured
+    30-77% voiced. Two real sentences and the outro were replaced by a repeated
+    line, translated into five languages, synthesized on a GPU pod, mixed, muxed
+    — and found by the USER watching the result. Nothing in the pipeline looked
+    at the text it was carrying.
+
+    asr.py now defaults condition_on_previous_text=False with a temperature
+    fallback ladder, which is the fix. This is the detector, because the next
+    hallucination will not look like this one and a silent wrong transcript is
+    the most expensive failure mode here: everything downstream is faithful to
+    it, so every later stage reports success."""
+    import collections
+    import re
+
+    def norm(t: str) -> str:
+        return re.sub(r"\s+", " ", t.strip().lower())
+
+    # (a) one segment repeating a phrase inside itself
+    internal = []
+    for s in segs:
+        words = norm(s["text"]).split()
+        for size in (3, 4, 5, 6):
+            if len(words) >= size * 2:
+                phrase = " ".join(words[:size])
+                if norm(s["text"]).count(phrase) >= 2:
+                    internal.append(s)
+                    break
+    # (b) the same whole line emitted by several segments
+    counts = collections.Counter(norm(s["text"]) for s in segs if s["text"].strip())
+    dupes = [(t, n) for t, n in counts.items() if n >= 3 and len(t.split()) >= 3]
+
+    if internal:
+        log.warning("ASR REPETITION: %d segment(s) repeat a phrase internally "
+                    "— likely a decoder loop, NOT what was said. First: %.1fs %r",
+                    len(internal), internal[0]["start"], internal[0]["text"][:80])
+    for text, n in dupes:
+        log.warning("ASR REPETITION: %d segments are all %r — check the audio "
+                    "there before translating", n, text[:80])
+    if internal or dupes:
+        log.warning("Review the transcript BEFORE s3: translation and synthesis "
+                    "are faithful to whatever this says, so a wrong transcript "
+                    "costs a full re-run of every language.")

@@ -97,7 +97,14 @@ def _transcribe_faster(a: dict, audio: Path, language: str,
         str(audio), language=language, vad_filter=a["vad_filter"],
         word_timestamps=True, initial_prompt=prompt,
         no_speech_threshold=a.get("no_speech_threshold", 0.6),
-        temperature=0.0)  # no fallback sampling: segmentation must be reproducible
+        # See _transcribe_mlx for the full account. temperature=0.0 alone
+        # DISABLES Whisper's own repetition rescue; the fallback ladder only
+        # engages when a decode fails compression_ratio_threshold, so ordinary
+        # segments stay at 0.0 and reproducible.
+        compression_ratio_threshold=a.get("compression_ratio_threshold", 2.4),
+        condition_on_previous_text=a.get("condition_on_previous_text", False),
+        temperature=tuple(a.get("temperature_fallback",
+                                (0.0, 0.2, 0.4, 0.6, 0.8, 1.0))))
     out = []
     for s in segments:
         out.append({"start": s.start, "end": s.end, "text": s.text,
@@ -113,17 +120,37 @@ def _transcribe_mlx(a: dict, audio: Path, language: str,
     if a.get("vad_filter"):
         log.info("mlx-whisper has no VAD; relying on s1 vocal separation "
                  "(non-speech already removed)")
-    # no VAD here, so lean on Whisper's own no-speech gate to suppress phantom
-    # text in the residual the separator left behind (a known VAD-less failure
-    # mode). condition_on_previous_text is exposed too: True keeps context but can
-    # propagate a hallucination into a repetition loop — flip it off per-config if
-    # a transcript shows runaway repeats.
+    # THE REPETITION LOOP THIS DEFENDS AGAINST — it happened, on the first
+    # production lesson (2026-08-02). The tail of an 8-minute video came back as
+    # "Він практично не має запаху." SEVEN times, over audio that measured
+    # 30-77% voiced: two real sentences of technique and the outro were replaced
+    # by a repeated line, then translated into five languages and synthesized.
+    #
+    # Two causes, and BOTH had to be wrong for it to happen:
+    #  1. condition_on_previous_text=True fed each (wrong) segment back as
+    #     context, so once it repeated it kept repeating. The old comment here
+    #     predicted exactly this and still defaulted it on.
+    #  2. temperature=0.0 with no fallback ladder DISABLED Whisper's own rescue.
+    #     Whisper detects a failed decode via compression_ratio_threshold —
+    #     repetitive text compresses unusually well — and retries hotter. With a
+    #     single temperature that safety net can never fire.
+    #
+    # Reproducibility (the reason 0.0 was pinned) survives: the ladder is only
+    # consulted when a decode FAILS the thresholds, so healthy segments still
+    # decode greedily at 0.0. Determinism where it works, recovery where it does
+    # not, is the better trade — the old setting was deterministic AND wrong.
+    #
+    # NOTE it cannot be reproduced on a short clip: transcribing just the bad
+    # region in isolation gives correct text under BOTH settings, because the
+    # poisoned context never accumulates. Validate on the whole file.
     res = mlx_whisper.transcribe(
         str(audio), path_or_hf_repo=repo, language=language,
         word_timestamps=True, initial_prompt=prompt,
-        temperature=0.0,   # disable fallback sampling -> reproducible segmentation
         no_speech_threshold=a.get("no_speech_threshold", 0.6),
-        condition_on_previous_text=a.get("condition_on_previous_text", True))
+        compression_ratio_threshold=a.get("compression_ratio_threshold", 2.4),
+        condition_on_previous_text=a.get("condition_on_previous_text", False),
+        temperature=tuple(a.get("temperature_fallback",
+                                (0.0, 0.2, 0.4, 0.6, 0.8, 1.0))))
     out = []
     for s in res.get("segments", []):
         out.append({"start": s["start"], "end": s["end"],
