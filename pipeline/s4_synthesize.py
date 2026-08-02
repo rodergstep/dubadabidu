@@ -19,6 +19,13 @@ from .tts_engine import synth_best_of
 
 log = logging.getLogger("dubadabidu.s4")
 
+# How far BELOW s5's soft_tempo threshold to start pre-making variants. s5
+# measures the primary against its retimed slot, which can be tighter than the
+# source slot s4 sees, so 0.85 buys ~15% of headroom. Lower = more spare takes
+# synthesized (costs GPU); higher = more chances s5 needs an engine it has not
+# got. Cheap insurance either way: a missed variant strands a whole run.
+VARIANT_MARGIN = 0.85
+
 
 def run(cfg: dict, video: str, langs: list[str]) -> None:
     man = M.load(cfg, video)
@@ -30,6 +37,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         seg_dir = wd / "seg" / lang
         seg_dir.mkdir(parents=True, exist_ok=True)
         n_new = 0
+        n_var = 0
         total = len(man["utterances"])
         for k, u in enumerate(man["utterances"], 1):
             tr = u["tr"].get(lang)
@@ -55,10 +63,41 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             info = sf.info(str(out))
             tr["synth"] = str(out.relative_to(wd))
             tr["synth_dur"] = round(info.frames / info.samplerate, 3)
+
+            # Pre-synthesize the VARIANTS s5 would otherwise generate itself.
+            #
+            # s5_fit calls seg_wav() for candidates[1:] whenever the primary
+            # needs a hard stretch, i.e. it can SYNTHESIZE. That silently
+            # assumed an engine reachable wherever s5 runs, which held only
+            # while the engine was edge (a network service). With qwen the
+            # split is s4-on-a-GPU-pod / s5-on-the-laptop, and s5 died on
+            # `No module named 'faster_qwen3_tts'` after four languages of pod
+            # synthesis had already been paid for (2026-08-02). course.py's
+            # whole design — phase C is local and free — depends on s5 never
+            # needing a GPU.
+            #
+            # Gate it on the same condition s5 uses so this does not triple
+            # s4's cost: only segments whose primary already overruns its slot
+            # can need a shorter variant. s5 measures against the RETIMED slot,
+            # which this cannot know, so allow a margin and pre-make a few
+            # extra rather than miss one and strand the run.
+            soft = float(cfg.get("fit", {}).get("soft_tempo", 1.06))
+            slot = u["end"] - u["start"]
+            ratio = (tr["synth_dur"] / slot) if slot > 0 else float("inf")
+            if ratio > soft * VARIANT_MARGIN:
+                for c in (tr.get("variants") or []):
+                    vh = M.synth_hash(c, lang, tu)
+                    vout = seg_dir / f"{u['id']}_{vh}.wav"
+                    if vout.exists():
+                        continue
+                    synth_best_of(c, lang, vout, tu, target_dur=slot or None)
+                    n_var += 1
+                    M.save(cfg, video, man)
             if fresh:  # checkpoint each new synth: long best-of units are minutes each
                 M.save(cfg, video, man)
                 if n_new % 25 == 0:
                     log.info("%s: %d/%d ...", lang, k, total)
         man["stages"][f"s4_{lang}"] = "done"
         M.save(cfg, video, man)
-        log.info("%s: %d synthesized, %d cached", lang, n_new, total - n_new)
+        log.info("%s: %d synthesized, %d cached, %d fit-variant(s) pre-made",
+                 lang, n_new, total - n_new, n_var)

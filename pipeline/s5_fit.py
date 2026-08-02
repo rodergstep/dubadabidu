@@ -83,6 +83,29 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 h = M.synth_hash(text, lang, tu)
                 wav = wd / "seg" / lang / f"{u['id']}_{h}.wav"
                 if not wav.exists():
+                    # s4 pre-makes the variants this normally needs (see
+                    # s4_synthesize.VARIANT_MARGIN), so reaching here means
+                    # either a fresh llm_shorten rewrite or a slot that
+                    # retimed tighter than s4 could predict. On a GPU-only
+                    # engine that is fatal on a laptop, and it used to surface
+                    # as a bare `No module named 'faster_qwen3_tts'` AFTER a
+                    # paid pod run had produced every primary take.
+                    try:
+                        from .tts_engine import engine_available
+                        ok = engine_available(M.resolve_engine(tu, lang), tu)
+                    except Exception:
+                        ok = True          # never block on the check itself
+                    if not ok:
+                        raise SystemExit(
+                            f"{u['id']} ({lang}): s5 needs to synthesize a "
+                            f"fit variant, but engine "
+                            f"'{M.resolve_engine(tu, lang)}' is not installed "
+                            f"here. Run this stage where the engine is:\n"
+                            f"  dubadabidu remote run <video> --langs {lang} "
+                            f"--from s5_fit --to s5_fit --overlay "
+                            f"config.gpu.yaml\n"
+                            f"Takes already synthesized are reused, so this "
+                            f"costs one short pod, not a re-synthesis.")
                     # same gate/ranking as s4: a variant that replaces the
                     # primary in the mix must not be an ungated single take.
                     # target = this segment's actual slot: a variant exists

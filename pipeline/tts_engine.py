@@ -210,6 +210,26 @@ def _synth_qwen(text: str, lang: str, out: Path, t: dict) -> None:
              (t3 - t2) / dur if dur else float("nan"), len(text))
 
 
+def engine_available(engine: str, t: dict | None = None) -> bool:
+    """Can `engine` synthesize HERE? Import check only — no weights, no CUDA.
+
+    Exists so s5 can say "run this on a pod" instead of dying on a bare
+    ModuleNotFoundError. Kept cheap and side-effect free: importlib.util
+    .find_spec does not execute the module, so calling this on a laptop with no
+    engine costs nothing and cannot half-initialise anything."""
+    import importlib.util
+    if engine == "edge":
+        return True                      # network service, runs anywhere
+    if engine == "qwen":
+        if importlib.util.find_spec("qwen_tts") is None:
+            return False
+        # qwen_fast is a different package and the one that actually runs
+        if (t or {}).get("qwen_fast", True):
+            return importlib.util.find_spec("faster_qwen3_tts") is not None
+        return True
+    return False                         # unknown engine: assume unavailable
+
+
 def release_models() -> None:
     """Drop every in-process engine singleton and flush the CUDA cache. The
     bake-off switches engines sequentially and calls this between them;
