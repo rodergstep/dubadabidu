@@ -122,8 +122,15 @@ def _loudnorm_two_pass(premix: Path, out: Path, lufs: int) -> None:
                                     probe.stderr.rindex("}") + 1])
 
     def _encode(af: str) -> None:
+        # -ar 44100 is NOT redundant. loudnorm resamples to 192 kHz internally,
+        # and with no explicit output rate ffmpeg keeps the filter's rate —
+        # which AAC then clamps to its 96 kHz maximum. The premix is already
+        # aresample=44100, so without this every dubbed track shipped at 96 kHz:
+        # double the data for no audible gain, on a file destined for YouTube.
+        # Caught by the edge plumbing run 2026-08-02, not by any test.
         subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(premix),
-                        "-af", af, "-c:a", "aac", "-b:a", "192k", str(out)],
+                        "-af", af, "-c:a", "aac", "-b:a", "192k",
+                        "-ar", "44100", str(out)],
                        check=True)
 
     # loudnorm reports input_i = -inf (or a floor around -70) for (near-)silent

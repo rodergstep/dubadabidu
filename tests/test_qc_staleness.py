@@ -103,3 +103,18 @@ def test_langs_are_independent(tmp_path):
     man = {"utterances": [{"id": "u0001", "tr": {"en": en, "ru": ru}}]}
     assert M.stale_qc(tmp_path, man, "en")["score"] == []
     assert M.stale_qc(tmp_path, man, "ru")["score"] == ["u0001"]
+
+
+def test_mix_encode_pins_the_output_sample_rate():
+    """loudnorm resamples to 192 kHz internally. With no explicit output rate
+    ffmpeg keeps the filter's rate and AAC clamps it to 96 kHz, so every dubbed
+    track shipped at double the intended 44.1 kHz — more data, no audible gain,
+    on files destined for YouTube. The premix is already aresample=44100; this
+    keeps the encoder there too.
+
+    Found by an edge plumbing run, not by a test — hence this test."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "pipeline" / "s6_mix.py").read_text()
+    enc = src[src.index("def _encode("):]
+    enc = enc[:enc.index("check=True)")]
+    assert '"-ar", "44100"' in enc, "s6 must pin the encoder sample rate"
