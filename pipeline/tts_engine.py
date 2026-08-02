@@ -186,7 +186,6 @@ def _synth_qwen(text: str, lang: str, out: Path, t: dict) -> None:
     """Qwen3-TTS Base voice clone. Covers all 5 targets; UA ref cloned via the
     speaker-embedding-only path (see _qwen_clone_prompt). Returns (wavs, sr)."""
     import soundfile as sf
-    import time
     ref = t["reference_wav"]
     if not Path(ref).exists():
         raise FileNotFoundError(f"reference_wav not found: {ref}")

@@ -1,0 +1,35 @@
+name: tests
+
+# Every bug in the 2026-08-01/02 session was caught by a test written AFTER the
+# failure — engine routing, synth_hash, a shadowed import, a config key that
+# never existed. Three of those produced WRONG OUTPUT rather than an error, so
+# "it ran fine" was not evidence. This runs the suite without anyone
+# remembering to.
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # The heavy ML stack (torch, speechbrain, distillmos, audio-separator) is
+      # NOT installed: it is hundreds of MB and none of it is needed by the
+      # checks that matter here. The audit and config/wiring tests parse source
+      # and YAML; tests that need audio are already skipped without fixtures.
+      - name: install
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pyyaml soundfile numpy
+
+      - name: audit (config wiring, stage graph, cache keys, shadowed imports)
+        run: pytest -q tests/test_audit.py -s
+
+      - name: unit tests
+        run: pytest -q -p no:cacheprovider --deselect tests/test_audit.py || \
+             pytest -q -p no:cacheprovider

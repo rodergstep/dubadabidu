@@ -275,3 +275,54 @@ def test_ready_probe_is_conservative(monkeypatch):
     assert R._verify_ready({}, "h", 22, "~/d", []) is False
     # an engine with no module mapping (chatterbox lives in the base venv)
     assert R._verify_ready({}, "h", 22, "~/d", ["edge"]) is False
+
+
+def test_remote_run_has_no_function_local_shlex_import():
+    """A local `import shlex` deep inside remote_run made the name
+    function-local for the WHOLE function, so shlex.quote(video) near the top
+    raised UnboundLocalError — after provisioning a pod. Python scoping, not a
+    typo: the failure is invisible to reading the call site."""
+    import ast
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1]
+           / "pipeline" / "runpod_infra.py").read_text()
+    fn = next(n for n in ast.walk(ast.parse(src))
+              if isinstance(n, ast.FunctionDef) and n.name == "remote_run")
+    shadowed = [a.name for n in ast.walk(fn) if isinstance(n, ast.Import)
+                for a in n.names if a.name == "shlex"]
+    assert not shadowed, f"local import shadows module-level shlex: {shadowed}"
+
+
+def test_remote_stages_reads_the_real_argparse_dests():
+    """argparse stores --from/--to as from_stage/to_stage. Reading "from"/"to"
+    returned None for both, so the pod fell back to the whole pipeline, ran
+    s1/s2 and died on the input video that is deliberately never uploaded."""
+    import argparse
+    from dub import _remote_stages
+    narrowed = argparse.Namespace(from_stage="s4_synthesize",
+                                  to_stage="s4_synthesize")
+    assert _remote_stages(narrowed) == "--from s4_synthesize --to s4_synthesize"
+    # untouched flags keep the long-standing pod default: stop at s7, because
+    # the mux needs the source video and that stays local
+    default = argparse.Namespace(from_stage="s1_extract", to_stage="s8_mux")
+    assert _remote_stages(default) == "--to s7_subtitles"
+
+
+def test_bootstrap_skips_chatterbox_unless_a_language_routes_to_it():
+    """chatterbox-tts is the `clone` extra, present to pin torch/torchaudio
+    2.6.0 — but it also drags diffusers, s3tokenizer, resemble-perth, conformer
+    and spacy-pkuseg, plus EXACT pins (transformers==5.2.0, diffusers==0.29.0)
+    that make pip backtrack. With qwen as the production engine none of it is
+    used, so the pin moves to us and the package goes.
+
+    NOT a claim that this halves the bootstrap: torch itself still dominates
+    the download. This removes chatterbox's dependency tree and the resolver
+    churn, nothing more."""
+    from pipeline.runpod_infra import REMOTE_SETUP
+    qwen_only = REMOTE_SETUP.format(dir="~/d", clone="")
+    assert "chatterbox-tts" not in qwen_only
+    assert "torch==2.6.0 torchaudio==2.6.0" in qwen_only, \
+        "the torch pin must be explicit once chatterbox no longer supplies it"
+    routed = REMOTE_SETUP.format(
+        dir="~/d", clone="pip install --progress-bar off chatterbox-tts==0.1.7 && ")
+    assert "chatterbox-tts==0.1.7" in routed

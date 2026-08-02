@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shlex
 import subprocess
 import time
 import urllib.error
@@ -531,8 +532,17 @@ REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     "pip install -q --upgrade pip; "
     # skip the ~15min reinstall when deps are already present (persistent-volume
     # reuse across runs — see runpod.network_volume_id)
-    "if ! python -c 'import chatterbox' 2>/dev/null; then "
-    "pip install --progress-bar off chatterbox-tts==0.1.7 && "
+    # {clone} is chatterbox-tts, installed ONLY when a language actually routes
+    # to chatterbox. It is the `clone` extra and exists to pin torch/torchaudio
+    # 2.6.0 — but it also drags diffusers, s3tokenizer, resemble-perth,
+    # conformer and spacy-pkuseg, plus EXACT pins (transformers==5.2.0,
+    # diffusers==0.29.0) that make pip backtrack. With qwen as the production
+    # engine none of that is used, so the pin moves to us and the package goes.
+    # torch itself still dominates the download; this is not "half the
+    # bootstrap", it is chatterbox's dependency tree and the resolver churn.
+    "if ! python -c 'import torch' 2>/dev/null; then "
+    "{clone}"
+    "pip install --progress-bar off torch==2.6.0 torchaudio==2.6.0 && "
     "pip install --progress-bar off -e '.[dev]'; fi; "
     # FAIL if CUDA is missing — otherwise the run would silently synth on CPU,
     # which is uselessly slow and defeats the point of renting a GPU
@@ -548,7 +558,12 @@ REMOTE_TASK = {
     # stops at s7: the pod produces dubbed audio + subs; the final mux (a video
     # stream-copy needing the 4K source) runs LOCALLY after sync-back, so the
     # source video never uploads.
-    "run": "dubadabidu run {video} --langs {langs} --to s7_subtitles "
+    # {stages} lets the caller narrow what the POD does. Only s4 needs a GPU:
+    # separation, ASR, translation, fit, mix and subtitles all run fine on the
+    # laptop for free, and translation in particular should NEVER run here —
+    # it is API-latency-bound, so the pod would bill while waiting on DeepSeek.
+    # Default keeps the old whole-pipeline behaviour.
+    "run": "dubadabidu run {video} --langs {langs} {stages} "
            "--overlay config.gpu.yaml --overlay config.deepseek.yaml",
 }
 
@@ -665,7 +680,8 @@ def _install_engines(rp: dict, host: str, port: int, remote: str,
 def remote_run(cfg: dict, video: str, langs: list[str], task: str,
                budget_usd: float | None = None,
                keep_alive: bool = False, reuse: bool = False,
-               overlays: list[str] | None = None) -> bool:
+               overlays: list[str] | None = None,
+               stages: str | None = None) -> bool:
     """Full lifecycle: sweep -> provision -> sync up -> run -> sync back ->
     ALWAYS terminate. Returns True on remote task success.
 
@@ -744,7 +760,16 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # (rsync-over-ssh needs rsync on the pod). A bake-off never invokes the
         # ffmpeg binary, so it skips ffmpeg and dodges the runtime-upgrade that
         # kills sshd; run/autopilot need s5/s6 and still take it. See apt_setup.
-        if not alive and ssh_exec(rp, host, port, apt_setup(task != "bakeoff"),
+        # ffmpeg is needed only by stages that actually shell out to it — s5's
+        # atempo/rubberband, s6's loudnorm, _synth_edge. If the pod is running a
+        # NARROWED range that excludes them (e.g. s4 only, with fit/mix done
+        # locally), skip it: the apt tree behind ffmpeg upgrades the C runtime
+        # and has killed sshd mid-run before. Do not "work around" that by
+        # retrying — just do not install what is not used.
+        needs_ffmpeg = task != "bakeoff" and not (
+            stages and "s4_synthesize" in stages and "s5" not in stages
+            and "s6" not in stages and "s7" not in stages)
+        if not alive and ssh_exec(rp, host, port, apt_setup(needs_ffmpeg),
                                   timeout=600) != 0:
             raise RuntimeError("could not install rsync/ffmpeg on the pod after "
                                "retries (see log for the apt error)")
@@ -792,8 +817,18 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
                 log.info("reused pod already provisioned (venv + %s import + "
                          "CUDA all verified) — skipping setup and engine install",
                          "/".join(probe_engines) or "engines")
-        if not setup_ok and ssh_exec(rp, host, port, REMOTE_SETUP.format(dir=remote),
-                    timeout=1800) != 0:
+        # chatterbox only if something actually routes to it
+        tc = cfg.get("tts", {})
+        routed = {(tc.get("engine_by_lang") or {}).get(lg, tc.get("engine"))
+                  for lg in langs}
+        clone = ("pip install --progress-bar off chatterbox-tts==0.1.7 && "
+                 if "chatterbox" in routed else "")
+        if clone:
+            log.info("a language routes to chatterbox — installing the clone extra")
+        if not setup_ok and ssh_exec(
+                rp, host, port,
+                REMOTE_SETUP.format(dir=remote, clone=clone),
+                timeout=1800) != 0:
             raise RuntimeError("remote setup failed: dependency install error "
                                "OR CUDA unavailable (check the log's CUDA: line)")
         # 2.5 the git-clone engine (qwen) must be installed on the pod before
@@ -821,7 +856,14 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # Pass the (low-privilege) translation key inline — an SSH session may
         # not inherit the pod's container env, and s3 needs it. Not logged.
         secs = max(60, int(deadline - time.time()))
-        cmd = REMOTE_TASK[task].format(video=video, langs=",".join(langs))
+        # shlex.quote: the video path reaches a REMOTE SHELL, so a filename
+        # with spaces ("Organising the colour palette and materials.mp4" —
+        # exactly how a real lesson is named) would be split into several
+        # arguments and the run would fail after provisioning. _rsync_paths is
+        # already safe: it passes a list to subprocess, never a shell.
+        cmd = REMOTE_TASK[task].format(
+            video=shlex.quote(video), langs=",".join(langs),
+            stages=stages or "--to s7_subtitles")
         # extras AFTER the hardcoded config.gpu.yaml so they win, matching the
         # local merge order. The files themselves ship with the project rsync.
         for ov in extra_overlays:
@@ -829,7 +871,9 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         if extra_overlays:
             log.info("forwarding overlays to the pod: %s",
                      " ".join(extra_overlays))
-        import shlex
+        # (shlex is imported at module scope — a local `import shlex` HERE made
+        # the name function-local for the whole of remote_run, so the earlier
+        # shlex.quote(video) raised UnboundLocalError before this line ever ran.)
         tk = shlex.quote(os.environ.get("TRANSLATE_API_KEY", ""))
         full = (f"cd {remote}; . .venv/bin/activate; "
                 f"export TRANSLATE_API_KEY={tk}; "
@@ -989,7 +1033,9 @@ def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
         # code + ref only — no work/ needed for an install check (skip the upload)
         rsync(rp, port, "./", f"{rp['ssh_user']}@{host}:{remote}/",
               extra_excludes=("input", "output", "work"))
-        if ssh_exec(rp, host, port, REMOTE_SETUP.format(dir=remote),
+        # setup-check validates ENGINE installs; it never synthesizes with
+        # chatterbox, so it does not need the clone extra either
+        if ssh_exec(rp, host, port, REMOTE_SETUP.format(dir=remote, clone=""),
                     timeout=1800) != 0:
             raise RuntimeError("remote setup failed: dependency install error OR "
                                "CUDA unavailable (check the log's CUDA: line)")

@@ -201,6 +201,27 @@ def report(cfg: dict, video: str) -> None:
               f"\n     Re-score:  dubadabidu qc {video}")
 
 
+def _remote_stages(a) -> str | None:
+    """--from/--to forwarded to the POD-side command. Without this the pod ran
+    the whole pipeline every time, including stages that need no GPU — and
+    translation, which is API-latency-bound, so the pod billed while waiting on
+    DeepSeek. Returns None to keep the previous whole-pipeline default."""
+    # dest names are from_stage / to_stage — NOT "from"/"to". Reading the wrong
+    # attribute returned None for both, so the pod silently fell back to the
+    # whole pipeline, ran s1/s2, and died on the input video that is
+    # deliberately never uploaded. It cost a provisioned pod to find out.
+    # Defaults are real values ("s1_extract" / "s8_mux"), not None, so "did the
+    # user narrow this?" means comparing against them.
+    parts = []
+    if getattr(a, "from_stage", "s1_extract") != "s1_extract":
+        parts.append(f"--from {a.from_stage}")
+    to = getattr(a, "to_stage", "s8_mux")
+    # the pod always stops at s7: the mux needs the source video, which stays
+    # local. An explicit --to wins; otherwise keep that long-standing default.
+    parts.append(f"--to {to if to != 's8_mux' else 's7_subtitles'}")
+    return " ".join(parts)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(prog="dubadabidu")
     ap.add_argument("cmd", choices=["run", "stage", "qc", "doctor", "report",
@@ -379,7 +400,8 @@ def main() -> None:
         ok = all(rpi.remote_run(cfg, v, langs, task, a.budget,
                                 keep_alive=a.keep_alive,
                                 reuse=a.reuse,
-                                overlays=a.overlay or []) for v in vids)
+                                overlays=a.overlay or [],
+                                stages=_remote_stages(a)) for v in vids)
         sys.exit(0 if ok else 1)
     if a.cmd == "prep":
         for v in a.rest:

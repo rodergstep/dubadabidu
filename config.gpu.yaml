@@ -5,8 +5,22 @@
 # (--overlay config.gpu.yaml alone leaves translation at config.yaml's default.)
 
 tts:
-  best_of: 5                  # takes are cheap on GPU; the composite ranking
-                              # (windowed MOS + f0 + ECAPA sim) picks the best
+  # 5 -> 2 on 2026-08-01, at the user's call, on measured evidence that RANKING
+  # does not perceptibly pick the better take. Blind head-to-head of take 1
+  # against the composite's choice, on the 7 segments where they differed:
+  # ranking won 2, lost 1, tied 4, and the two sets scored an IDENTICAL
+  # [3,3,4,4,4,4,5] (mean 3.86 each). refit agrees at n=62: the composite
+  # correlates +0.186 with the ear, and its best-fit proposal cross-validates
+  # NEGATIVE. Separately, best_of 3 and best_of 5 selected the same take on all
+  # four en segments — takes 4 and 5 never won.
+  # 2 rather than 1 on purpose: best_of has a SECOND job the evidence above does
+  # not test — rejecting a disaster rather than picking a winner. Earlier blind
+  # passes produced 1s and 2s, and the WER veto plus the runaway-generation
+  # guard both need a pool to choose from. One roll has no fallback.
+  # Cost: $6.10 -> $2.44 per 1M characters.
+  # RE-TEST ON THE SCALE RUN. Seven pairs cannot measure how often the worst
+  # take ships when only two are rolled, and that is the risk this setting takes.
+  best_of: 2
 
   # --- engine bake-off candidates (GPU-only git-clone installs; THIRD_PARTY.md) ---
   # ROSTER CUT 2026-07-31 (git history has both):
@@ -78,6 +92,19 @@ tts:
   # vCPU and RAM; REST v1 does not expose the GPU model) and ONE axis at a time.
   # An OOM costs a whole experiment; the saving is a fraction of one.
   synth_workers: 1
+  # EARLY-ACCEPT BAR, engine-relative. config.yaml sets 3.6, which was
+  # calibrated when chatterbox was the engine. Distill-MOS scores qwen lower:
+  # measured 2026-08-01 over 60 takes, qwen's worst-3s-window MOS spans
+  # 1.67-3.65, so the 3.6 bar fired on 1 of 16 segment-runs (6%) and the whole
+  # adaptive-best_of mechanism was dead weight. That is the third setting to
+  # silently stop working when the engine changed, after the adoption gate and
+  # the take-ranking weights — thresholds here must be engine-relative.
+  # 2.8 is the highest bar that is provably FREE on the takes we have: it fires
+  # on 3 of 16 (8% fewer takes) and picks the IDENTICAL take every time, zero
+  # rank loss. 2.6 saves 10% for a 0.0021 rank loss; 2.4 saves 15% but changes
+  # the pick on 31% of segments. Re-measure on real-lesson takes before going
+  # lower — 16 segment-runs cannot resolve a small quality cost.
+  early_accept_mos: 2.8
   qwen_max_audio_s: 60                 # reject a take longer than this as a
                                        # runaway generation (engine_client has
                                        # no per-call timeout, so an unbounded
@@ -100,7 +127,16 @@ tts:
   qwen_fast: true
   # qwen_warmup_len: 100               # prefill length for CUDA graph capture
 
-  # qwen serves every language; engine_by_lang is left empty on purpose.
+  # THE PRODUCTION ENGINE. This was missing until 2026-08-02 and the omission
+  # was invisible: bakeoff.engines: [qwen] drives only the BAKE-OFF's own loop,
+  # while a real `run` resolves through tts.engine — which was still inheriting
+  # chatterbox from config.yaml. So every engine decision this week (the roster
+  # cut, the pin, three reference sweeps, best_of) applied to a code path that
+  # production never took, and the first production run was minutes from
+  # synthesizing 62 segments x 5 languages with the wrong engine — successfully,
+  # since chatterbox installs in the base venv, i.e. silently wrong rather than
+  # a crash. engine_by_lang stays empty on purpose: qwen serves all five.
+  engine: qwen
 
 bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
   # chatterbox REMOVED 2026-07-30 at the user's call — its quality is already
