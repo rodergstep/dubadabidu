@@ -9,7 +9,7 @@ constraint sets agree:
 
 | package | qwen needs | base needs |
 |---|---|---|
-| torch | `>=2.5.1` (faster-qwen3-tts) | 2.11.0 for the qc stack |
+| torch | `>=2.5.1` (faster-qwen3-tts) | 2.6.0 for the qc stack |
 | transformers | `==4.57.3` (qwen-tts) | nothing at runtime |
 | huggingface-hub | `>=0.36,<1.0` | `>=0.8` speechbrain, `>=0.21` faster-whisper |
 
@@ -17,16 +17,42 @@ constraint sets agree:
 `[probe] venv: torch +cu124 | cuda True`, `[probe] OK qwen`. The three
 constraint sets resolve together for real, not just on paper.
 
-**torch 2.11.0, not 2.13.0.** torch's latest is 2.13.0 (2026-07-08) but
-torchaudio's is **2.11.0** (2026-03-23) — it did not follow, and the two ship as
-version-locked pairs, so 2.11 is the ceiling while torchaudio is a dependency at
-all. We held at 2.6.0 long after chatterbox (whose hard pin it was) was deleted,
-on a comment claiming `torchaudio.save` was native there; this repo never called
-`save`. It called `load`, which from 2.9 delegates to the separate `torchcodec`
-package — `hasattr` still returns True, so it fails only when a scoring run
-reads a file. `qc/metrics.py` reads via soundfile now (as `qc/evaluate.py`
-already did), leaving `functional.resample` as the only torchaudio use, which is
-pure torch. Dropping torchaudio entirely would open 2.12/2.13.
+### torch stays at 2.6.0 — RunPod's HOST DRIVER is the ceiling
+
+A bump to 2.11.0 was attempted and **reverted the same day, on measurement**:
+`remote setup-check` installed it cleanly and then reported
+
+```
+UserWarning: CUDA initialization: The NVIDIA driver on your system is too old
+(found version 12040)
+CUDA: False
+```
+
+RunPod's host driver is **CUDA 12.4**. torch 2.11's oldest build is `cu126`
+(there is no `2.11+cu124` wheel); 2.6.0 ships `cu124`, which is the `+cu124` we
+actually resolve. The driver belongs to the host machine, so **no container
+image and no `--index-url` reaches it**, and the REST API has no field to
+request one. Retry only after `nvidia-smi` on a fresh pod shows >=12.6.
+
+Two things were fixed on the way and KEPT, so the retry is one line + a
+~$0.015 setup-check:
+
+- **`torchaudio.load` -> soundfile** in `qc/metrics.py` (as `qc/evaluate.py`
+  already did). From 2.9 `load` delegates to the separate `torchcodec` package;
+  `hasattr` still returns True, so it breaks only when a scoring run reads a
+  file, on a pod, mid-billing. A static AST test now forbids the call.
+  `functional.resample` is all that remains of torchaudio and is pure torch.
+- The old justification for the pin was a comment claiming `torchaudio.save` is
+  native in 2.6 — **this repo has never called `torchaudio.save`.** The concern
+  was real, the API named was wrong, and the test repeated it back as fact.
+
+Above 2.6 the NEXT ceiling is torchaudio, not torch: torch is at 2.13.0
+(2026-07-08) but torchaudio stopped at **2.11.0** (2026-03-23) and the two ship
+as version-locked pairs. Dropping that one `resample` call would open 2.12/2.13.
+
+Verified harmless for the eval harness: soundfile vs `torchaudio.load` is
+bit-identical (`max|diff| = 0.0`), and ECAPA + Distill-MOS agree to every digit
+across 2.6 and 2.11 — so a future bump will not move any historical scorecard.
 
 Isolation was therefore costing a SECOND ~2.5 GB torch download on every fresh
 pod — the largest single item in the bootstrap — to prevent a collision that can

@@ -536,15 +536,24 @@ REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     # conformer, spacy-pkuseg and the exact pins (transformers==5.2.0,
     # diffusers==0.29.0) that made pip backtrack.
     #
-    # 2.11.0 (2026-08-02): torchaudio's LATEST is 2.11.0 — it did not follow
-    # torch to 2.12/2.13, and the two ship as version-locked pairs, so 2.11 is
-    # the ceiling while we use torchaudio at all. The one thing that kept us on
-    # 2.6.0 was torchaudio.load, which delegates to the separate torchcodec
-    # package from 2.9 on; qc/metrics.py now reads via soundfile instead, and
-    # functional.resample (all that is left) is pure torch.
-    # faster-qwen3-tts wants >=2.5.1 and speechbrain >=2.1.0, so both are happy.
+    # 2.6.0 IS THE CEILING, and the limit is the HOST, not this repo. Measured
+    # on a pod 2026-08-02: `remote setup-check` with torch 2.11.0 -> "The NVIDIA
+    # driver on your system is too old (found version 12040)" and CUDA: False.
+    # RunPod's host driver is CUDA 12.4; torch 2.11's OLDEST build is cu126
+    # (there is no 2.11+cu124 wheel), while 2.6.0 ships cu124 — the +cu124 we
+    # actually resolve. The driver belongs to the host, so no image change and
+    # no index-url fixes it, and the REST API cannot request a driver version.
+    #
+    # Retry the bump only after confirming a newer host driver (nvidia-smi on a
+    # fresh pod). Nothing in OUR code pins us any more: qc/metrics.py reads via
+    # soundfile instead of torchaudio.load (which needs the separate torchcodec
+    # package from 2.9 on), faster-qwen3-tts wants >=2.5.1 and speechbrain
+    # >=2.1.0. torchaudio's own latest is 2.11.0 — it did not follow torch to
+    # 2.12/2.13 and the two are version-locked — so 2.11 is the ceiling above
+    # this one. qc metrics are bit-identical across 2.6/2.11 (verified), so a
+    # later bump will not move any historical scorecard.
     "if ! python -c 'import torch' 2>/dev/null; then "
-    "pip install --progress-bar off torch==2.11.0 torchaudio==2.11.0 && "
+    "pip install --progress-bar off torch==2.6.0 torchaudio==2.6.0 && "
     "pip install --progress-bar off -e '.[dev]'; fi; "
     # FAIL if CUDA is missing — otherwise the run would silently synth on CPU,
     # which is uselessly slow and defeats the point of renting a GPU

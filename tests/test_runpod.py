@@ -279,16 +279,20 @@ def test_bootstrap_pins_torch_itself_now_that_chatterbox_is_gone():
     spacy-pkuseg plus exact pins that made pip backtrack. chatterbox was removed
     2026-08-02, so the pin has to be ours or the pod gets whatever pip picks.
 
-    2.11.0 since 2026-08-02, and the version is the CEILING, not a preference:
-    torchaudio's latest is 2.11.0 (it did not follow torch to 2.12/2.13) and the
-    two ship as version-locked pairs. The earlier 2.6.0 pin was justified in a
-    comment as "torchaudio.save is native there" — this repo never called save;
-    it calls load, which delegates to the separate torchcodec package from 2.9
-    on. qc/metrics.py reads via soundfile now, so nothing pins us back."""
+    2.6.0 is a HOST limit, not a preference — do not "modernise" this pin
+    without a pod check. Measured 2026-08-02: torch 2.11.0 installs fine and
+    then reports CUDA: False, "The NVIDIA driver on your system is too old
+    (found version 12040)". RunPod's host driver is CUDA 12.4 and torch 2.11's
+    oldest build is cu126; 2.6.0 ships cu124. The driver is the host's, so no
+    image or index-url change reaches it.
+
+    Nothing in OUR code pins us any more (qc/metrics.py reads via soundfile, not
+    torchaudio.load) — so when a host driver >=12.6 shows up, this is a one-line
+    bump plus a ~$0.015 setup-check."""
     from pipeline.runpod_infra import REMOTE_SETUP
     setup = REMOTE_SETUP.format(dir="~/d")
     assert "chatterbox" not in setup
-    assert "torch==2.11.0 torchaudio==2.11.0" in setup
+    assert "torch==2.6.0 torchaudio==2.6.0" in setup
 
 
 def test_qc_does_not_call_torchaudio_load():
