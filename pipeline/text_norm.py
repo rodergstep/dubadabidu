@@ -89,5 +89,48 @@ def localize_numbers(text: str, lang: str) -> str:
             text = text.replace(sym, " " + words[lang])
     return text
 
+# --- layer 2: Russian lexical stress (RESTORED 2026-08-03) -------------------
+# Removed with chatterbox on 2026-08-02 because the call site was gated on
+# engine == "chatterbox". That commit recorded the risk verbatim: "Whether qwen
+# mis-stresses Russian is UNTESTED - and a ru track is about to ship. If it
+# sounds wrong, that is an A/B to run and git history has the RUAccent
+# implementation." It shipped, and the listener reported wrong stress on the
+# Russian track. So: back, pointed at whichever engine is configured.
+#
+# Chatterbox was TRAINED on combining acutes; qwen was not, so this is a
+# hypothesis, not a restoration of known-good behaviour — gate it on
+# tts.ru_stress and let an A/B decide. The 2026-07-08 finding that plus notation
+# BREAKS generation still stands: convert to acutes, never pass "дер+евья".
+NORM_VERSIONS = {"ru": 1}
+_ruaccent = None
+_PLUS = re.compile(r"\+(.)")
+ACUTE = "\u0301"
 
 
+def plus_to_acute(text: str) -> str:
+    """RUAccent plus notation -> combining acute after the stressed vowel."""
+    return _PLUS.sub("\\1" + ACUTE, text)
+
+
+def accent_ru(text: str) -> str:
+    """Mark Russian lexical stress. Never raises: an unaccented synthesis is a
+    quality regression, a crashed one is a lost pod."""
+    global _ruaccent
+    try:
+        if _ruaccent is None:
+            from ruaccent import RUAccent
+            log.info("loading RUAccent (turbo3.1) ...")
+            _ruaccent = RUAccent()
+            _ruaccent.load(omograph_model_size="turbo3.1", use_dictionary=True)
+        return plus_to_acute(_ruaccent.process_all(text))
+    except Exception as e:
+        log.warning("RUAccent unavailable (%s); synthesizing unaccented", e)
+        return text
+
+
+def normalize_for_tts(text: str, lang: str, tts_cfg: dict | None = None) -> str:
+    """Stress-mark Russian when tts.ru_stress is on. Engine-agnostic now: the
+    old version hardcoded chatterbox, which is why it became unreachable."""
+    if lang == "ru" and (tts_cfg or {}).get("ru_stress"):
+        return accent_ru(text)
+    return text

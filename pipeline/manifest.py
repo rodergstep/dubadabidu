@@ -28,7 +28,7 @@ s4 — hash mismatch re-synthesizes automatically), and re-run from s4.
 from __future__ import annotations
 import json, hashlib
 from pathlib import Path
-from .text_norm import NUM_VERSIONS
+from .text_norm import NORM_VERSIONS, NUM_VERSIONS
 
 
 def video_workdir(cfg: dict, video: str | Path) -> Path:
@@ -229,6 +229,10 @@ def synth_hash(text: str, lang: str, tts_cfg: dict) -> str:
     # surviving engine applies it, so nothing salts on it.
     # number localization is applied to EVERY engine, so its version salts all
     # engines' hashes (v1/absent adds no key -> pre-existing caches stay valid)
+    # ru_stress changes the TEXT the engine sees, so it must salt the key or
+    # accented audio would be served from the unaccented cache (and vice versa).
+    if lang == "ru" and tts_cfg.get("ru_stress"):
+        key_data["rustress"] = NORM_VERSIONS.get("ru", 1)
     numv = NUM_VERSIONS.get(lang, 1)
     if numv > 1:
         key_data["numv"] = numv

@@ -21,6 +21,10 @@ dependencies = [
   "openai==2.52.0",
   "jiwer",
   "num2words",            # digit->word expansion in backcheck WER normalization
+  # Russian lexical stress (RUAccent, Apache-2.0, context-aware homographs).
+  # Needed wherever SYNTHESIS runs, i.e. the pod, so core rather than an extra.
+  # Gated at runtime by tts.ru_stress.
+  "ruaccent==1.5.8.3",
   "speechbrain==1.1.0",   # ECAPA-TDNN speaker similarity (qc), Apache-2.0
   "distillmos==0.9.1",    # neural MOS naturalness proxy (qc), MIT
   "pyyaml",

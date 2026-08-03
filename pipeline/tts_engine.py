@@ -29,7 +29,7 @@ import asyncio, logging, subprocess, time
 from pathlib import Path
 from .device import torch_device, require_gpu
 from .manifest import resolve_engine
-from .text_norm import localize_numbers
+from .text_norm import localize_numbers, normalize_for_tts
 
 log = logging.getLogger("dubadabidu.tts")
 _qwen_model = None
@@ -541,10 +541,14 @@ def synthesize(text: str, lang: str, out: Path, tts_cfg: dict,
     # number/symbol localization is engine-agnostic (digits read wrong-language
     # otherwise) — apply to every engine; manifest/subs/QC keep clean digits.
     text = localize_numbers(text, lang)
-    # normalize_for_tts (acute RU stress marks) was CHATTERBOX-ONLY — a quirk of
-    # its training, never validated on any other engine. It left with chatterbox
-    # on 2026-08-02. If qwen turns out to mis-stress Russian, that is an A/B to
-    # run, not a call to re-apply marks it was never trained on.
+    # RU lexical stress, RESTORED 2026-08-03 and no longer engine-gated. It was
+    # deleted with chatterbox because its call site read `engine == "chatterbox"`,
+    # and that commit wrote down the risk: "Whether qwen mis-stresses Russian is
+    # UNTESTED — and a ru track is about to ship." It shipped; the listener
+    # reported wrong stress. Off by default (tts.ru_stress) because chatterbox
+    # was TRAINED on combining acutes and qwen was not — so this is a hypothesis
+    # to A/B, not known-good behaviour being reinstated.
+    text = normalize_for_tts(text, lang, tts_cfg)
     # write to a .part file and rename on success: a killed run must never
     # leave a truncated wav that the hash cache would accept as a good take
     tmp = out.with_name(out.stem + ".part.wav")

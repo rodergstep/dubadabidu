@@ -288,3 +288,45 @@ def test_s2_detects_repetition_in_the_transcript():
         assert not recs, f"false positive on a clean transcript: {recs}"
     finally:
         log.removeHandler(h)
+
+
+def test_ru_stress_layer_is_wired_and_salted():
+    """RUAccent stress marking was deleted with chatterbox on 2026-08-02 because
+    its call site read `engine == "chatterbox"`. That commit recorded the risk —
+    "Whether qwen mis-stresses Russian is UNTESTED - and a ru track is about to
+    ship" — the track shipped, and the listener reported wrong stress.
+
+    Restored 2026-08-03, engine-agnostic and behind tts.ru_stress. Three things
+    have to hold together or it is worse than absent."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+
+    # 1. it must actually run at the synthesis boundary
+    tts = (root / "pipeline" / "tts_engine.py").read_text()
+    assert "normalize_for_tts(text, lang, tts_cfg)" in tts, (
+        "the stress layer is defined but never called — exactly how it became "
+        "dead code the first time")
+    # strip comments first: the restoration comment QUOTES the old gate, and a
+    # substring check on prose flagged the very note explaining the fix
+    code_only = "\n".join(ln.split("#", 1)[0] for ln in tts.splitlines())
+    assert 'engine == "chatterbox"' not in code_only, (
+        "the stress layer is gated on an engine again — that is what made it "
+        "unreachable when the engine was removed")
+
+    # 2. it must salt the cache, or accented text serves unaccented audio
+    from pipeline.manifest import synth_hash
+    base = {"engine": "qwen", "reference_wav": "r.wav", "cfg_weight": 0.0,
+            "exaggeration": 0.5}
+    assert synth_hash("привет", "ru", base) != \
+        synth_hash("привет", "ru", {**base, "ru_stress": True}), \
+        "ru_stress does not move synth_hash — cached unaccented takes would be " \
+        "served for an accented config"
+    assert synth_hash("hi", "en", base) == \
+        synth_hash("hi", "en", {**base, "ru_stress": True}), \
+        "ru_stress must not invalidate non-Russian caches"
+
+    # 3. plus notation must never reach the engine (measured 2026-07-08: it
+    #    BREAKS generation; only combining acutes work)
+    from pipeline.text_norm import plus_to_acute
+    out = plus_to_acute("дер+евья")
+    assert "+" not in out and "́" in out, f"plus notation survived: {out!r}"

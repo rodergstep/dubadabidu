@@ -85,7 +85,21 @@ tts:
   engine: qwen                # qwen | edge (plumbing only, no cloning)
   engine_by_lang: {}          # per-lang override, e.g. {en: qwen} — set by
                               # the GPU bake-off (IMPROVEMENT_PLAN.md Phase C)
-  reference_text: ""          # transcript of reference_wav; `dubadabidu prep`
+  reference_text: ""
+  # Russian lexical stress via RUAccent: marks the stressed vowel with a
+  # combining acute ("дере́вья") so the engine does not have to guess. Russian
+  # stress is lexical and unmarked in writing, and homographs only resolve from
+  # context — за́мок (castle) vs замо́к (lock) — so a TTS WILL get some wrong.
+  #
+  # OFF by default, and that is a real question rather than caution: chatterbox
+  # was TRAINED on combining acutes (A/B-verified 2026-07-08 that marks fix its
+  # stress), qwen was not, so marks may help, do nothing, or be read as noise.
+  # The listener reported wrong RU stress on 2026-08-03, which is what put this
+  # back — see FINDINGS.md before flipping it on trust.
+  # Salted into synth_hash, so turning it on re-synthesizes ru rather than
+  # serving unaccented cache.
+  ru_stress: false
+          # transcript of reference_wav; `dubadabidu prep`
                               # fills refs.json. Unused by the UA-ref paths.
   # NOTE: the take-SELECTION params in this block (best_of, rank_takes, min_f0st,
   # f0_reroll_max, retake_mos_below, best_of_early_accept, early_accept_*) are NOT

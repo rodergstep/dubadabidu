@@ -156,6 +156,12 @@ def variant_key(engine: str, t: dict, lang: str) -> str:
     # must survive for the ear to arbitrate.
     if eng == "qwen" and t.get("qwen_x_vector_only") is False:
         suffix += "+icl"
+    # RU lexical stress (RUAccent combining acutes) changes the TEXT the engine
+    # is given, so it is a different variant in every sense that matters. Without
+    # this suffix a stress run would overwrite the unaccented row AND its audio —
+    # destroying the control it is being compared against, in the same run.
+    if lang == "ru" and t.get("ru_stress"):
+        suffix += "+stress"
     # tts.variant_label — an arbitrary tag for a row that must NOT merge with an
     # identically-configured one. The use is a CONTROL run: synthesize the same
     # config twice and diff the scorecard, which is the only way to measure the
