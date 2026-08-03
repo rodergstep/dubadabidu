@@ -134,7 +134,14 @@ def preamble(cfg: dict, video: str, langs: list[str]) -> None:
         return
     lang = langs[0]
     s3_translate.run(cfg, video, [lang])
-    tcfg = deep_merge(cfg, {"tune": {"refs_glob": f"ref/{stem}_ref_*.wav",
+    # R1 must be able to see the CURATED references, not just this lesson's own
+    # cuts. Measured 2026-08-03: scoping the pool to `ref/{stem}_ref_*.wav` made
+    # R1 pick this lesson's ref_04 (mos 4.26, the flattest f0st of all 11) while
+    # never comparing it against sketch60_ref_03 (mos 4.59) — and the listener
+    # rated audio from ref_04 12-of-18 unusable against ~3.5/5 for sketch60.
+    # Source quality varies per lesson; the reference is a curated asset, so the
+    # pool is this video's cuts PLUS whatever tune.refs_glob already names.
+    tcfg = deep_merge(cfg, {"tune": {"refs_glob": "ref/*.wav",
                                      "subset_size": 5, "rounds": ["R1"]}})
     win = tune_mod.run(tcfg, video, [lang])
     man = M.load(cfg, video)

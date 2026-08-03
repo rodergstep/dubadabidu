@@ -162,6 +162,54 @@ replaces it (en → f0, ru → mos), which at n≈34 each is likely noise.
 **CONSEQUENCE** Every "improvement" judged by the current composite is suspect,
 including the tune R1 reference winner, which was scored by it.
 
+### 2.2 The reference is a CURATED asset, not a per-video by-product
+
+**CLAIM** Cutting the clone reference from each lesson's own audio beats reusing
+a good one from another video.
+**EVIDENCE** 2026-08-03. `prep` + `tune` R1 cut four references from this lesson
+and picked `ref_04`. Measured on the reference clips themselves:
+
+| reference | mos | f0st |
+|---|---|---|
+| sketch60_ref_03 / sketch_ref_07 | **4.59** | 2.13 |
+| this lesson's four | 4.23–4.33 | — |
+| ref_04 (R1's winner) | 4.26 | **1.76 — flattest of all 11** |
+
+And the listener's verdict lines up exactly: audio built on **sketch60_ref_03**
+rated ~3.5/5, while the bake-off clips built on **ref_04** were marked **12 of
+18 unusable**.
+**VERDICT** **REFUTED.** Source recording quality varies per lesson, and a
+lesson with worse audio yields a worse reference. The reference is a curated
+asset — pick the best recording of the speaker that exists, from ANY video.
+**ROOT CAUSE OF THE BAD PICK** `preamble` scopes `tune.refs_glob` to
+`ref/{stem}_ref_*.wav`, so R1 compared this lesson's clips against each other
+and **never saw the sketch60 references at all**. A sweep that cannot see the
+incumbent cannot rank against it — the same shape as the bake-off's "ADVISORY —
+incumbent not in this run" guard, which exists for exactly this reason.
+**ENCODED** manifest `tts_overrides` removed; production is back on
+`ref/sketch60_ref_03.wav`.
+
+### 2.3 The accent is identity, not a defect
+
+**CLAIM** The Slavic accent in the English dub should be removed.
+**EVIDENCE** 2026-08-03. The listener called it "a rude Slavic accent" and then,
+shown alternatives, ranked them: qwen clone (accented) **good**, OpenVoice
+tone-color conversion **bad**, native-English source **disaster**. His
+correction: *"The accent shouldn't be gone at all, we can leave it just a
+little bit, it's his voice identity."*
+**VERDICT** The complaint was about DEGREE, not presence. Removing the accent
+removes him. Measured on the OpenVoice path: identity transfer was real but
+partial (sim to his reference −0.006 → 0.239, against qwen's 0.610) — and the
+ear rejected it even though mos (4.65 vs 4.56) and f0st (2.53 vs 1.90) both
+favoured it.
+**NOT ADOPTED** OpenVoice v2 (MIT, 131 MB, CPU-fast, language-agnostic
+converter) is a dead end for this project. Kept here so it is not re-proposed:
+its checkpoint S3 bucket is dead (use HuggingFace), it watermarks by default and
+its `enable_watermark` kwarg is broken upstream, and it needs its own py3.10
+venv because `faster-whisper==0.9.0` drags `av==10`.
+**LESSON** Two metrics favoured a version the listener called bad. This is the
+third time in one day that metrics and the ear disagreed and the ear was right.
+
 **OPEN, and now the top priority** Overall quality is rated **~2.1/5** by the
 ear — *for both variants*, on a scale where 3 = acceptable. The ICL question was
 a distraction from this: the shipped dubs are below acceptable to their owner,
