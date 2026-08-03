@@ -117,7 +117,26 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             # synth the primary; only synth variants if it needs a hard stretch
             wavs = [seg_wav(candidates[0])]
             if slot <= 0 or _dur(wavs[0]) / slot > soft:
-                wavs += [seg_wav(c) for c in candidates[1:]]
+                # LAZY, and it must stay lazy: s4 pre-makes variants only up to
+                # the FIRST that clears slot*soft*VARIANT_MARGIN, on the grounds
+                # that later ones are unreachable. This loop is what makes that
+                # true. As an eager list comprehension it asked for every
+                # variant, so a variant s4 skipped was a cache miss here — and
+                # on the laptop, where the GPU engine is not installed, that is
+                # a hard stop in the middle of phase C.
+                #
+                # Placement is UNCHANGED by stopping early. choose_placement's
+                # ladder returns the first variant with tempo <= 1.0 (rule 2)
+                # and only falls back to the global least-stretch pick (rule 3)
+                # when NO variant fits as-is — in which case this loop never
+                # breaks and it still sees the full set. Breaking at the first
+                # variant that fits therefore removes only candidates rule 2
+                # would have skipped anyway. s4's bar is stricter than this one
+                # (margin < 1.0), so its kept variant always trips this break.
+                for c in candidates[1:]:
+                    wavs.append(seg_wav(c))
+                    if slot > 0 and _dur(wavs[-1]) <= slot:
+                        break
             durs = [_dur(w) for w in wavs]
             ci, verdict, tempo = choose_placement(durs, slot, f["max_tempo"], soft)
             if verdict == "no":
