@@ -31,6 +31,7 @@ openai==2.52.0           # universal client: OpenAI / DeepSeek / Ollama via base
 jiwer                    # WER for qc/backcheck
 num2words                # digit->word expansion in backcheck WER normalization
 ruaccent==1.5.8.3        # RU lexical stress marking (tts.ru_stress)
+transformers==4.57.3     # what qwen needs; ruaccent would pull 5.x
 speechbrain==1.1.0       # ECAPA-TDNN speaker similarity (qc), Apache-2.0
 distillmos==0.9.1        # neural MOS naturalness proxy (qc), MIT (Microsoft)
 pyyaml

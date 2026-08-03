@@ -25,6 +25,15 @@ dependencies = [
   # Needed wherever SYNTHESIS runs, i.e. the pod, so core rather than an extra.
   # Gated at runtime by tts.ru_stress.
   "ruaccent==1.5.8.3",
+  # PINNED, and it is load-bearing. qwen-tts pins transformers==4.57.3 and
+  # faster-qwen3-tts requires <5,>=4.57, but neither is a dependency of THIS
+  # project — they install later, from runpod.engine_setup. ruaccent declares
+  # `transformers` UNPINNED, so adding it (2026-08-03) let pip resolve 5.14.1
+  # into .[dev] and the qwen install could no longer be satisfied:
+  #     qwen unavailable: faster-qwen3-tts (tts.qwen_fast is on)
+  # A whole ru-stress A/B measured nothing and cost a pod. Declaring the version
+  # the engine needs makes the constraint explicit instead of emergent.
+  "transformers==4.57.3",
   "speechbrain==1.1.0",   # ECAPA-TDNN speaker similarity (qc), Apache-2.0
   "distillmos==0.9.1",    # neural MOS naturalness proxy (qc), MIT
   "pyyaml",

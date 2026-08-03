@@ -162,3 +162,30 @@ def test_ledger_cost_helper_ignores_runs_with_no_audio():
     out = cost_per_video_hour(rows)
     assert out["runs"] == 1, "setup-check must not count as a dubbing run"
     assert abs(out["total_cost_usd"] - 0.192) < 0.002
+
+
+def test_declared_pins_satisfy_the_engine_that_installs_later():
+    """qwen installs from runpod.engine_setup, AFTER `pip install -e '.[dev]'`,
+    so anything this project declares must already satisfy it or the engine
+    install cannot be resolved.
+
+    This is not hypothetical: ruaccent declares `transformers` unpinned, and
+    adding it on 2026-08-03 let pip pull 5.14.1 into .[dev]. faster-qwen3-tts
+    needs <5, so the pod came up with `qwen unavailable` and a whole ru-stress
+    A/B measured nothing."""
+    proj = _pyproject_core()
+    tf = proj.get("transformers")
+    assert tf, ("transformers must be pinned here — ruaccent pulls it unpinned "
+                "and will resolve past the engine's <5 ceiling")
+    major, minor = (int(x) for x in tf.split(".")[:2])
+    assert (major, minor) >= (4, 57), f"faster-qwen3-tts needs >=4.57, got {tf}"
+    assert major < 5, f"faster-qwen3-tts needs <5, got {tf}"
+
+
+def test_ruaccent_is_declared_where_synthesis_runs():
+    """It is used at the synthesis boundary, and synthesis runs on the pod,
+    which installs `.[dev]` only — an extra would never be present there."""
+    proj = _pyproject_core()
+    assert "ruaccent" in proj, (
+        "ruaccent moved out of core: tts.ru_stress would silently no-op on the "
+        "pod, because normalize_for_tts swallows the ImportError by design")
