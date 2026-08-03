@@ -642,6 +642,14 @@ REMOTE_TASK = {
     # Default keeps the old whole-pipeline behaviour.
     "run": "dubadabidu run {video} --langs {langs} {stages} "
            "--overlay config.gpu.yaml --overlay config.deepseek.yaml",
+    # preamble = prep's other half: tune R1 scores every ref candidate by real
+    # ECAPA similarity on synthesized output and writes the winner (plus its
+    # transcript, for ICL) into the manifest's tts_overrides. It SYNTHESIZES, so
+    # it cannot run on the laptop with a GPU-only engine — and without this
+    # entry `remote preamble` KeyError'd on REMOTE_TASK[task] AFTER provisioning
+    # a pod. {stages} is unused here but kept so the format() call is uniform.
+    "preamble": "dubadabidu preamble {video} --langs {langs} "
+                "--overlay config.gpu.yaml --overlay config.deepseek.yaml",
 }
 
 # The base image (runpod/pytorch, Ubuntu) lacks rsync/ffmpeg — install them

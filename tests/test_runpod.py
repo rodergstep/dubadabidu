@@ -522,3 +522,31 @@ def test_reuse_path_rearms_the_watchdog():
                 and n.func.id == "arm_pod_watchdog")
     assert n_arm == 2, ("arm on BOTH paths: the fresh provision and the reuse "
                         f"attach (found {n_arm})")
+
+
+def test_unknown_remote_task_is_refused_before_provisioning():
+    """remote_run already refuses an unknown task before provisioning (a check
+    added with the sweep/reuse ordering). This pins that it stays BEFORE the
+    spend: REMOTE_TASK[task] is read deep inside the try block, so without it a
+    typo would KeyError only after a pod was provisioned, bootstrapped and had
+    qwen installed."""
+    import pytest
+    import yaml
+    from pipeline.logic import deep_merge
+    from pipeline.runpod_infra import REMOTE_TASK, remote_run
+    cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
+                     yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
+    with pytest.raises(SystemExit, match="unknown remote task"):
+        remote_run(cfg, "v.mp4", ["en"], "typoed-task")
+    # and the tasks that DO exist must stay reachable
+    assert {"run", "bakeoff", "autopilot", "preamble"} <= set(REMOTE_TASK)
+
+
+def test_preamble_has_a_pod_command_because_tune_synthesizes():
+    """preamble runs tune R1, which SYNTHESIZES to score each reference by real
+    ECAPA similarity — so it cannot run on the laptop with a GPU-only engine."""
+    from pipeline.runpod_infra import REMOTE_TASK
+    cmd = REMOTE_TASK["preamble"].format(video="v.mp4", langs="en", stages="")
+    assert cmd.startswith("dubadabidu preamble ")
+    assert "--overlay config.gpu.yaml" in cmd        # engine + pod settings
+    assert "--overlay config.deepseek.yaml" in cmd   # preamble runs s3 first

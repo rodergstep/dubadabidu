@@ -243,9 +243,13 @@ qc:
     adopt_margin: 0.02  # ...and it must still beat the incumbent out of fold
 
 prep:                               # `dubadabidu prep` reference-clip extraction
-  min_s: 12.0                       # candidate span length band (seconds)
+  # 10.0, not 12.0: upstream measures clone quality rising to ~15 s and then
+  # plateauing/degrading, so the 10-15 s window has to be REACHABLE. prep now
+  # stratifies across this band instead of keeping the longest n, so tune R1
+  # scores short vs long instead of only ever seeing the top of the range.
+  min_s: 10.0                       # candidate span length band (seconds)
   max_s: 20.0
-  n_refs: 3                         # keep the pool WIDE — tune R1 makes the call
+  n_refs: 4                         # keep the pool WIDE — tune R1 makes the call
   max_candidates: 12                # cap gated spans (each = a cut + MOS/f0 pass)
   # quality GATE — rejects only genuinely broken spans, does NOT rank clone
   # quality (a focused tune R1 showed acoustic scores don't predict clone sim;
