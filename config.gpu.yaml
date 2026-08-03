@@ -65,7 +65,26 @@ tts:
   # whole set, so the widely-repeated "use an expressive reference" advice is
   # false for this voice; ref_03's edge is more likely its clean, continuous
   # phonation (voiced 0.629, ref mos 4.59 — both the best we have).
-  reference_wav: ref/sketch60_ref_03.wav
+  # CHANGED 2026-08-04 by BLIND EAR TEST, which overruled everything above.
+  # Same 3 sentences, 3 references, unlabelled: sketch_ref_08.trim12s won 2 of 3
+  # and was never marked unusable; sketch_ref_07 won 1 (1 unusable); and
+  # sketch60_ref_03 — the previous default, chosen by the sweeps described above
+  # — won ZERO and was marked unusable TWICE.
+  #
+  # It also settles a disagreement between the metrics and the listener that ran
+  # all day. R1 over all 11 references ranked identity sketch_ref_07 0.678 >
+  # sketch60_ref_03 0.630 > sketch_ref_08.trim12s 0.586, and I argued for
+  # ref_07 on that basis. The ear picked the LOWEST-sim of the three. That is
+  # the fourth time in a day that sim→real failed to predict his rating, and it
+  # matches qc/refit measuring the shipped objective at Spearman +0.022 against
+  # 112 of his ratings, with sim weighted 0.0 in the best fit for BOTH languages.
+  #
+  # n=3 sentences, so treat the ORDER as provisional — but "the incumbent was
+  # never once preferred" is the part that does not need a big sample.
+  # The reference is a CURATED asset, not a per-video by-product (FINDINGS 2.2):
+  # this default applies to every lesson, and a lesson's own audio only enters
+  # the pool via `prep`, to be judged against these.
+  reference_wav: ref/sketch_ref_08.trim12s.wav
   # reference_max_s: DELIBERATELY UNSET. It was 12 on upstream's claim that
   # cloning quality "plateaus and degrades" past ~15 s. Our own data does not
   # reproduce that: 18 s beat 12 s on average in all THREE sweeps (en 0.5003 vs

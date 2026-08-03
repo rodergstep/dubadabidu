@@ -186,8 +186,22 @@ asset — pick the best recording of the speaker that exists, from ANY video.
 and **never saw the sketch60 references at all**. A sweep that cannot see the
 incumbent cannot rank against it — the same shape as the bake-off's "ADVISORY —
 incumbent not in this run" guard, which exists for exactly this reason.
-**ENCODED** manifest `tts_overrides` removed; production is back on
-`ref/sketch60_ref_03.wav`.
+**ENCODED** the reference is now a config default, not a per-video override.
+
+**SETTLED BY EAR 2026-08-04.** R1 over all 11 references, then a blind
+3-sentence comparison of the top three:
+
+| reference | R1 sim | best | unusable |
+|---|---|---|---|
+| **sketch_ref_08.trim12s** | 0.586 | **2 of 3** | 0 |
+| sketch_ref_07 | **0.678** | 1 | 1 |
+| sketch60_ref_03 *(previous default)* | 0.630 | **0** | **2** |
+
+The ear picked the **lowest-sim** candidate, and the previous default — chosen by
+three metric sweeps — was never once preferred. I had argued for sketch_ref_07
+on its 0.092 identity lead (9x the noise band) and was wrong. `tts.reference_wav`
+is now `ref/sketch_ref_08.trim12s.wav`. n=3 sentences, so the ORDER is
+provisional; "the incumbent was never preferred" is not.
 
 ### 2.3 The accent is identity, not a defect
 
