@@ -18,7 +18,7 @@ dependencies = [
   "soundfile==0.14.0",
   "librosa==0.11.0",
   "pydub==0.25.1",
-  "openai==2.45.0",
+  "openai==2.52.0",
   "jiwer",
   "num2words",            # digit->word expansion in backcheck WER normalization
   "speechbrain==1.1.0",   # ECAPA-TDNN speaker similarity (qc), Apache-2.0

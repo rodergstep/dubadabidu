@@ -27,7 +27,7 @@ srt==3.5.3
 soundfile==0.14.0
 librosa==0.11.0
 pydub==0.25.1
-openai==2.45.0           # universal client: OpenAI / DeepSeek / Ollama via base_url
+openai==2.52.0           # universal client: OpenAI / DeepSeek / Ollama via base_url
 jiwer                    # WER for qc/backcheck
 num2words                # digit->word expansion in backcheck WER normalization
 speechbrain==1.1.0       # ECAPA-TDNN speaker similarity (qc), Apache-2.0

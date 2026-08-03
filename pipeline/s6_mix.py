@@ -89,13 +89,29 @@ def _assemble(placements: list[tuple[int, AudioSegment]], total_ms: int,
     (s5's soft-anchor placement makes overlap impossible, but the mix must not
     depend on that invariant holding); int32 headroom plus the clip reproduces
     audioop.add's saturation.
+
+    One INTENDED behavioural difference from the loop it replaced — the output
+    is pinned to `rate` rather than promoted to the widest segment. See the
+    note at the set_frame_rate call below.
     """
     import numpy as np
     need_ms = max([total_ms] + [pos + len(seg) for pos, seg in placements])
     n = int(need_ms * rate / 1000)
     acc = np.zeros(n, dtype=np.int32)
     for pos, seg in placements:
-        # what pydub's _sync would have done to match the silent base track
+        # NOT what overlay() did, and the difference is deliberate. pydub's
+        # _sync takes the MAX of (channels, frame_rate, sample_width) across
+        # both operands, so a segment above the base rate used to drag the whole
+        # TIMELINE up to it — the output rate was decided by whichever segment
+        # happened to be widest. This pins the output to tts.sample_rate and
+        # brings segments to it instead.
+        #
+        # Identical in practice today: s4 writes every take at
+        # tts.sample_rate (verified 2026-08-03 — 24000 Hz segments against a
+        # 24000 Hz base, byte-identical output on 60 real production segments).
+        # It diverges only if an engine ever emits a higher rate, and then this
+        # behaviour is the one you want: a deterministic output rate is exactly
+        # what the 96 kHz encode bug (s6, 2026-08-02) cost a re-run to learn.
         seg = seg.set_frame_rate(rate).set_channels(1).set_sample_width(2)
         data = np.frombuffer(seg._data, dtype="<i2")
         start = int(pos * rate / 1000)
