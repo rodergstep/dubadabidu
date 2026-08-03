@@ -96,7 +96,14 @@ def _mux_per_language(cfg: dict, video: str, langs: list[str], man: dict,
                "-metadata:s:a:0", f"language={tags[lang]}",
                "-disposition:a:0", "default",
                "-metadata:s:s:0", f"language={tags[lang]}",
-               "-disposition:s:0", "0",   # subs available, not burned on by default
+               # NO -disposition on the subtitle track: with a SINGLE subtitle
+               # stream the mp4/mov muxer marks it default regardless, and both
+               # `-disposition:s:0 0` and `... none` were verified to leave
+               # default:1 (2026-08-03). The multi-track file can select one
+               # because it has six streams to choose between; here there is
+               # nothing to choose. So a player may auto-show same-language
+               # subtitles over the dub — harmless, and not worth burning the
+               # subtitle track to prevent.
                str(out)]
         subprocess.run(cmd, check=True)
         print(f"[s8] {out}")
