@@ -65,7 +65,7 @@ def doctor(cfg: dict) -> int:
         try:
             __import__(mod); check(f"python: {mod}", True)
         except ImportError:
-            check(f"python: {mod}", False, "pip install -r requirements.txt")
+            check(f"python: {mod}", False, "pip install -e '.[dev]'")
     sep = cfg.get("separation", {})
     if sep.get("enabled") and sep.get("backend", "roformer") == "roformer":
         try:
@@ -76,24 +76,19 @@ def doctor(cfg: dict) -> int:
     engines = {cfg["tts"]["engine"], *cfg["tts"].get("engine_by_lang", {}).values(),
                *cfg.get("bakeoff", {}).get("engines", [])}
     # engines are probed in THIS venv — the only one, since the per-engine
-    # venvs merged on 2026-08-02.
+    # venvs merged on 2026-08-02. (The venvs/<engine>/bin/python fallback that
+    # used to live here went with them; it could only ever find a tree this
+    # repo no longer creates.)
     for eng, mod, hint in [
         ("qwen", "qwen_tts",
-         "git clone QwenLM/Qwen3-TTS + pip install -e . in its own venv "
-         "(THIRD_PARTY.md)"),
+         "git clone QwenLM/Qwen3-TTS + pip install -e . (THIRD_PARTY.md)"),
     ]:
         if eng not in engines:
             continue
-        vpy = ROOT / "venvs" / eng / "bin" / "python"
-        if vpy.exists():
-            r = subprocess.run([str(vpy), "-c", f"import {mod}"],
-                               capture_output=True)
-            check(f"python: {mod} ({eng})", r.returncode == 0, hint)
-        else:
-            try:
-                __import__(mod); check(f"python: {mod}", True)
-            except ImportError:
-                check(f"python: {mod}", False, hint)
+        try:
+            __import__(mod); check(f"python: {mod}", True)
+        except ImportError:
+            check(f"python: {mod}", False, hint)
     if engines - {"edge"}:
         check("reference_wav", Path(cfg["tts"]["reference_wav"]).exists(),
               f"put a 15-20s clean voice clip at {cfg['tts']['reference_wav']} "
@@ -308,6 +303,12 @@ def main() -> None:
     if a.engine:
         cfg["tts"]["engine"] = a.engine
     langs = a.langs.split(",") if a.langs else cfg["languages"]
+
+    # where ECAPA / Distill-MOS run. Default 'cpu' keeps every stored score
+    # comparable with the ones already in the manifests; 'cuda'/'auto' is the
+    # pod-cost lever (see qc.metrics.set_device for how to validate the switch).
+    from qc import metrics as _metrics
+    _metrics.set_device(cfg.get("qc", {}).get("metrics_device", "cpu"))
 
     if a.cmd == "doctor":
         sys.exit(doctor(cfg))

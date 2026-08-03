@@ -22,6 +22,44 @@ SAMPLE_RATE = 16000
 
 _ecapa = None
 _sqa = None
+_device = "cpu"
+
+
+def set_device(want: str) -> str:
+    """Where the model-backed metrics run. 'cpu' (default) | 'cuda' | 'auto'.
+
+    WHY THIS IS OPT-IN, given it is free money on a pod. On the GPU box the card
+    sits at ~7% utilisation (batch size 1 cannot fill it) while ECAPA, Distill-MOS
+    and pyin run on a rented vCPU — and per-take scoring is roughly HALF of s4's
+    billed wall clock, because every one of best_of takes is measured, not just
+    the winner. Moving the two torch models to CUDA is the largest remaining
+    lever on the pod bill that does not touch quality.
+
+    "Does not touch quality" is the part that has to be PROVEN, not assumed:
+    every stored qc_score, every ratings row the weight re-fit trains on, and
+    every bake-off scorecard was produced on CPU. cuDNN picks different kernels
+    and fp32 reductions reassociate, so scores can move in the last decimal —
+    small, but this repo compares scorecards ACROSS runs, so a silent shift
+    would quietly decalibrate `refit` and the bake-off's incumbent margin.
+
+    Validate once, cheaply, before flipping it in config:
+        dubadabidu evaluate <video> --langs en          # cpu, current numbers
+        # set qc.metrics_device: cuda, then re-run and diff qc_score
+    Adopt if the deltas are in the noise; keep cpu if they are not.
+
+    Returns the device actually selected."""
+    global _device, _ecapa, _sqa
+    if want == "auto":
+        try:
+            import torch
+            want = "cuda" if torch.cuda.is_available() else "cpu"
+        except Exception:
+            want = "cpu"
+    if want != _device:
+        _ecapa = _sqa = None      # singletons are bound to the old device
+        _device = want
+        log.info("qc metrics device: %s", _device)
+    return _device
 
 
 def _load_audio_16k(path: str | Path):
@@ -38,7 +76,7 @@ def _load_audio_16k(path: str | Path):
     wav = wav.mean(0, keepdim=True)
     if sr != SAMPLE_RATE:
         wav = torchaudio.functional.resample(wav, sr, SAMPLE_RATE)
-    return wav
+    return wav.to(_device)
 
 
 def ecapa_embed(path_or_wave) -> "torch.Tensor":  # noqa: F821
@@ -49,9 +87,10 @@ def ecapa_embed(path_or_wave) -> "torch.Tensor":  # noqa: F821
         log.info("loading ECAPA-TDNN (speechbrain/spkrec-ecapa-voxceleb) ...")
         _ecapa = EncoderClassifier.from_hparams(
             "speechbrain/spkrec-ecapa-voxceleb",
-            savedir="work/.models/ecapa", run_opts={"device": "cpu"})
+            savedir="work/.models/ecapa", run_opts={"device": _device})
     wav = path_or_wave if hasattr(path_or_wave, "dim") else _load_audio_16k(path_or_wave)
-    return _ecapa.encode_batch(wav).squeeze()
+    # callers may hand us a tensor built elsewhere (evaluate._ua_slices)
+    return _ecapa.encode_batch(wav.to(_device)).squeeze()
 
 
 def cosine(a, b) -> float:
@@ -68,6 +107,7 @@ def mos(path: str | Path) -> float:
         log.info("loading Distill-MOS ...")
         _sqa = distillmos.ConvTransformerSQAModel()
         _sqa.eval()
+        _sqa.to(_device)
     with torch.no_grad():
         return float(_sqa(_load_audio_16k(path)))
 

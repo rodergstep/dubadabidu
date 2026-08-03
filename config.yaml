@@ -208,6 +208,14 @@ mux:
 
 qc:
   wer_flag_threshold: 0.15
+  # Where the model-backed metrics (ECAPA, Distill-MOS) run: cpu | cuda | auto.
+  # cpu by default so scores stay bit-comparable with every manifest, ratings
+  # row and bake-off scorecard already on disk. On a rented pod this is the
+  # largest remaining cost lever that does not touch synthesis: roughly half of
+  # s4's billed wall clock is per-take scoring on a vCPU while the GPU idles at
+  # ~7%. Flip it in config.gpu.yaml only after diffing qc_score on one video —
+  # see qc/metrics.py set_device() for the two-command validation.
+  metrics_device: cpu
   eval:                             # `dubadabidu evaluate` + tune objective
     # calibrated vs human ratings 2026-07-08 (spearman: mos +.63 f0 +.48 sim -.30)
     weights: {sim: 0.25, mos: 0.40, f0: 0.20, tempo: 0.15}

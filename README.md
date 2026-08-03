@@ -15,7 +15,8 @@ s1_extract     ffmpeg audio extraction + BS-RoFormer vocal/background separation
                stays as the fallback backend, separation.backend: demucs)
 s2_transcribe  faster-whisper large-v3 (uk) → utterance manifest (EDIT THIS BY HAND!)
 s3_translate   LLM translation, ±10% isometric constraint, glossary, per-segment
-s4_synthesize  Chatterbox Multilingual v3, cloned from your reference clip, cfg=0
+s4_synthesize  Qwen3-TTS 12Hz Base (tts.qwen_fast), cloned from your reference
+               clip via the speaker-embedding-only path (UA ref, no transcript)
 s5_fit         place segments on timeline; atempo ≤ 1.12; else request shorter variant
 s6_mix         dubbed vocals + original background stem, loudnorm -16 LUFS
 s7_subtitles   per-language SRT from fitted segments
@@ -28,22 +29,20 @@ The central data structure is `work/<video>/manifest.json` — one editable JSON
 (idea borrowed from Softcatala/open-dubbing's utterance_metadata). Fix a mistranslation
 there, re-run from s4, and only the changed segments are re-synthesized (content-hash cache).
 
-## Verified versions (checked on PyPI/GitHub 2026-07-13)
+## Verified versions (checked 2026-08-03; pyproject.toml is the source of truth)
 
 | Component | Version | Notes |
 |---|---|---|
 | Python | 3.11.x | recommended |
-| torch / torchaudio | **2.6.0 / 2.6.0** | the CEILING, not stale: chatterbox-tts 0.1.7 (latest) hard-pins 2.6.0 on py<3.14; torch>=2.9 needs a py3.14 venv (untested migration — see requirements.txt) |
+| torch / torchaudio | **2.11.0 / 2.11.0** | installed by the pod bootstrap from the cu128 index, NOT pinned in pyproject. 2.11 is the ceiling: torchaudio stopped there and the two ship version-locked. Moves together with `runpod.allowed_cuda_versions` |
 | faster-whisper | 1.2.1 | model `large-v3` |
-| chatterbox-tts | 0.1.7 | MIT; Multilingual **v3** weights auto-download from HF `ResembleAI/chatterbox` |
 | whisperx | 3.8.6 | optional, word-level alignment for tighter subs |
-| audio-separator | 0.30.2 | BS-RoFormer separation; numpy<2 ceiling (chatterbox), install WITH pins (requirements.txt) |
-| demucs | 4.1.0 | fallback backend, model `htdemucs` |
+| audio-separator | 0.44.5 | BS-RoFormer separation, `.[sep]` extra (s1, LOCAL only). Install WITH the torch pins on one command line — it declares torch>=2.3 with no upper bound |
+| demucs | 4.1.0 | fallback separation backend (`htdemucs`), `.[sep]` extra — never installed on a pod |
 | faster-qwen3-tts | 0.3.2 | CUDA-graph decode for qwen (GPU); 5.9x measured (THIRD_PARTY.md) |
 | qwen_tts | git-clone | Qwen3-TTS bake-off engine (GPU); Apache-2.0, ~4 GB VRAM (THIRD_PARTY.md) |
 | edge-tts | 7.2.8 | free fallback voices (no cloning) |
 | openai SDK | 2.45.0 | universal client → DeepSeek / OpenAI / LM Studio / Ollama via `base_url` |
-| anthropic SDK | 0.116.0 | optional alternative translator |
 | jiwer | latest | WER for QC |
 | ffmpeg | 7.x system binary | required in PATH |
 
@@ -52,8 +51,9 @@ there, re-run from s4, and only the changed segments are re-synthesized (content
 ```bash
 cd /Users/diadumenoss/Documents/projects/dubadabidu
 python3.11 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"              # tool + deps, console command `dubadabidu`
-pip install chatterbox-tts==0.1.7    # only on the CUDA machine (it pins torch)
+pip install -e ".[dev,sep]"          # tool + deps, console command `dubadabidu`
+                                     # add ,mac on Apple Silicon (mlx-whisper)
+                                     # drop ,sep on a GPU box — s1 is local-only
 brew install ffmpeg                  # macOS; apt install ffmpeg on Linux
 dubadabidu doctor                    # validates everything before you start
 ```
@@ -75,11 +75,16 @@ CUDA GPU** (RunPod/vast.ai, ~$0.3–0.5/h) — rsync the project folder, run, rs
 ## Running on CUDA (real cloned voice)
 
 The Mac path above uses `--engine edge` (no cloning). For your actual cloned voice
-you need an NVIDIA GPU: Chatterbox only clones on CUDA, and Whisper runs ~10× faster
-there. Device selection is **automatic** — `pipeline/device.py` picks `cuda`+`float16`
-whenever `torch.cuda.is_available()`, so `config.yaml` needs no edits (`asr.device: auto`,
-`tts.engine: chatterbox` are already correct). Requirements: NVIDIA 8–12 GB VRAM,
-CUDA 12.x driver. Stages run sequentially, so ASR and TTS never share VRAM.
+you need an NVIDIA GPU: qwen is a CUDA-only install (`require_gpu` refuses a
+CPU-only torch rather than degrading to 126 s/take silently), and Whisper runs
+~10× faster there. Device selection is **automatic** — `pipeline/device.py`
+picks `cuda`+`float16` whenever `torch.cuda.is_available()`, so `config.yaml`
+needs no edits (`asr.device: auto`, `tts.engine: qwen` are already correct).
+Requirements: NVIDIA 16 GB VRAM (measured peak ~12 GB), CUDA 12.8+ driver.
+Stages run sequentially, so ASR and TTS never share VRAM.
+
+Prefer `dubadabidu remote run` / `python -m pipeline.course` over the manual
+recipe below — they provision, bootstrap, cap the spend and *always* terminate.
 
 Rent a box (RunPod / vast.ai, ~$0.3–0.5/h; pick a "CUDA 12.x / PyTorch" template).
 
@@ -93,14 +98,22 @@ rsync -avz --exclude .venv --exclude __pycache__ --exclude .env \
   ./ user@GPU_HOST:~/dubadabidu/
 ```
 
-**2. Install on the GPU box** (`chatterbox-tts` first — it pins torch; on Linux PyPI
-ships CUDA-enabled torch by default):
+**2. Install on the GPU box.** torch comes from the cu128 index, not plain PyPI:
+PyPI serves a `+cu130` build that needs a 13.0 driver, and the CUDA filter also
+admits 12.8/12.9 hosts. Pinning the LOWEST admitted version makes every host in
+the pool valid. This mirrors `runpod_infra.REMOTE_SETUP` — keep them in sync.
 
 ```bash
-sudo apt install -y ffmpeg
+sudo apt install -y --no-install-recommends ffmpeg   # --no-install-recommends
+                                                     # or apt swaps the C runtime
+                                                     # and kills sshd mid-run
 python3.11 -m venv .venv && source .venv/bin/activate
-pip install chatterbox-tts==0.1.7      # FIRST: pins torch/torchaudio (CUDA build)
-pip install -e ".[dev]"
+pip install --upgrade pip                            # the old resolver backtracks
+                                                     # for ~26 min on this graph
+pip install torch==2.11.0 torchaudio==2.11.0 \
+  --index-url https://download.pytorch.org/whl/cu128
+pip install -e ".[dev]"                              # no .[sep]: s1 stays local
+# qwen: git-clone engine, pinned by SHA — see runpod.engine_setup in config.gpu.yaml
 python -c "import torch; print('CUDA:', torch.cuda.is_available())"   # must print True
 dubadabidu doctor                       # should report 'torch device: cuda'
 ```
@@ -130,8 +143,10 @@ rsync -avz user@GPU_HOST:~/dubadabidu/output/ ./output/
 sudo apt install ffmpeg
 # env
 uv venv --python 3.11 && source .venv/bin/activate
-uv pip install chatterbox-tts==0.1.7        # install FIRST — it pins torch deps
-uv pip install -r requirements.txt
+# torch on the SAME line as the separation extra: audio-separator declares
+# torch>=2.3 with no upper bound and will otherwise pull 2.13, breaking the
+# torchaudio pairing (torchaudio stopped at 2.11).
+uv pip install -e '.[dev,sep]' torch==2.11.0 torchaudio==2.11.0
 ```
 
 GPU: NVIDIA 8–12 GB VRAM (CUDA 12.x). Stages run sequentially so ASR and TTS
@@ -141,8 +156,13 @@ never share VRAM.
 
 Put 2–4 clean 15–20 s WAV clips of your voice (no music, typical teaching tone) in
 `glossary/../ref/` — actually anywhere; set `tts.reference_wav` in `config.yaml`.
-Per Chatterbox docs: reference language ≠ target language ⇒ **cfg_weight must be 0.0**
-to suppress Ukrainian accent bleed.
+The Ukrainian reference is cloned through Qwen3-TTS's `x_vector_only_mode`
+(speaker embedding only — a Ukrainian transcript cannot be tokenized for a
+target-language generation). `tts.reference_max_s` trims it: cloning quality
+climbs to ~15 s and then degrades, and an over-long reference is the documented
+trigger for Qwen's never-emits-EOS failure.
+(`tts.cfg_weight` survives at 0.0 only to keep old cache hashes valid — it was a
+Chatterbox knob and no current engine reads it.)
 
 ## Translation backend (local or remote)
 
@@ -241,10 +261,14 @@ Recommended workflow per video:
 
 ## Licensing notes
 
-- Chatterbox: MIT — OK for your commercial courses. Output carries an inaudible
-  PerTh watermark by design.
-- Do NOT ship XTTS-v2 output commercially (Coqui CPML is non-commercial); it is not
-  wired in here on purpose.
+- Qwen3-TTS (the only cloning engine since 2026-08-02): Apache-2.0 — OK for your
+  commercial courses, and no watermark. (Chatterbox, which used to sit here, was
+  MIT but stamped every take with an inaudible PerTh watermark.)
+- `pedalboard` (s6 mastering) is GPLv3, kept OPT-IN as the `.[master]` extra: it
+  only processes audio, so the WAV it emits is not a derivative, but the default
+  install stays permissive.
+- Do NOT ship XTTS-v2 output commercially (Coqui CPML is non-commercial), and keep
+  Fish-Speech weights (CC-BY-NC) out; neither is wired in here, on purpose.
 
 ## New in v0.4 (quality + flywheel release)
 

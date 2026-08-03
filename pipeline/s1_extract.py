@@ -107,6 +107,14 @@ def _separate_roformer(sep_cfg: dict, work_dir: str, full: Path,
 
 
 def _separate_demucs(sep_cfg: dict, full: Path, wd: Path) -> tuple[Path, Path]:
+    # demucs moved to the .[sep] extra on 2026-08-03 (it is s1-only, and s1
+    # never runs on a pod). Say so, instead of letting the subprocess die with
+    # a bare `No module named demucs` from `python -m`.
+    import importlib.util
+    if importlib.util.find_spec("demucs") is None:
+        raise FileNotFoundError(
+            "demucs not importable — separation.backend: demucs needs it: "
+            "pip install '.[sep]' (or switch to separation.backend: roformer).")
     model = sep_cfg["demucs_model"]
     sh(sys.executable, "-m", "demucs", "--two-stems=vocals", "-n", model,
        "-o", str(wd / "demucs"), str(full))

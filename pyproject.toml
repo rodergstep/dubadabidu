@@ -5,12 +5,14 @@ description = "Ukrainian -> multilingual AI video dubbing with voice cloning (Qw
 requires-python = ">=3.10,<3.13"
 dependencies = [
   "faster-whisper==1.2.1",
-  "demucs==4.1.0",
-  # torch/torchaudio are pinned 2.6.0 by the pod bootstrap (runpod_infra
-  # REMOTE_SETUP). They used to arrive via the `clone` extra (chatterbox-tts),
-  # which was removed with chatterbox on 2026-08-02 — the pin is ours now.
-  # 2.6.0 is forced by RunPod's CUDA 12.4 HOST DRIVER, not by our deps; see the
-  # measured note in REMOTE_SETUP before changing it.
+  # torch/torchaudio are pinned 2.11.0 by the pod bootstrap (runpod_infra
+  # REMOTE_SETUP), which installs them from the cu128 index BEFORE this
+  # project, so nothing here may pin them. They used to arrive via the `clone`
+  # extra (chatterbox-tts), which was removed with chatterbox on 2026-08-02.
+  # 2.11.0 is the torchaudio ceiling; the CUDA 12.4 driver that once forced
+  # 2.6.0 is filtered out by runpod.allowed_cuda_versions. Locally, install
+  # torch on the same command line as .[sep] — audio-separator declares
+  # torch>=2.3 with no upper bound and will happily pull 2.13.
   "edge-tts==7.2.8",
   "srt==3.5.3",
   "soundfile==0.14.0",
@@ -40,7 +42,15 @@ dependencies = [
 # library moved, the model did not, so stems stay comparable.
 # WART: 0.44.5 hard-depends on onnx-weekly, a dev-channel build. Upstream's
 # choice, not pinnable from here; it is why this stays an OPT-IN extra.
-sep = ["audio-separator[cpu]==0.44.5"]
+#
+# demucs lives HERE, not in core, since 2026-08-03. It is the FALLBACK
+# separation backend (separation.backend: demucs) and separation is s1 — a
+# stage that runs on the Mac and never on a pod, because the pod is deliberately
+# never sent the source video. Every pod bootstrap was nonetheless resolving and
+# downloading demucs and its tree (dora-search, julius, lameenc, openunmix) for
+# code it cannot reach. `pip install -e '.[dev]'` is on the critical path of
+# every fresh pod, so this is pure billed wall clock.
+sep = ["audio-separator[cpu]==0.44.5", "demucs==4.1.0"]
 # Apple-Silicon-only ASR accel: Whisper via MLX (Metal/ANE), ~4-5x vs CPU int8.
 # mlx is macOS/arm64-only — keep it OUT of core requirements (it won't resolve on
 # the Linux CUDA box, which auto-uses faster-whisper anyway).

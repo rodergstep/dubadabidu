@@ -272,6 +272,9 @@ def ssh_exec(rp: dict, host: str, port: int, cmd: str, timeout: int = 7200) -> i
     return subprocess.run(full, timeout=timeout).returncode
 
 
+WATCHDOG_PID = "/tmp/dubadabidu_watchdog.pid"
+
+
 def arm_pod_watchdog(rp: dict, host: str, port: int, seconds: float) -> None:
     """Independent pod-side self-destruct: a detached process that, after
     `seconds`, makes the pod remove ITSELF (runpodctl is self-authenticated on
@@ -279,11 +282,26 @@ def arm_pod_watchdog(rp: dict, host: str, port: int, seconds: float) -> None:
     can't cover — the LOCAL orchestrator dying (SIGKILL, laptop sleep) before
     its finally runs. Best-effort: if runpodctl is absent it halts the container.
     The client-side terminate still runs on the normal path; this only matters
-    when it never gets the chance."""
+    when it never gets the chance.
+
+    RE-ARMABLE, and that is load-bearing for --reuse. The watchdog used to be
+    armed exactly once, at provision. course.py then attaches ONE pod for every
+    video's s4 (--reuse --keep-alive), and each of those calls recomputes a
+    FRESH deadline locally while the pod is still counting down from video 1's.
+    A course longer than max_runtime_hours therefore had its pod self-destruct
+    mid-run with the local side believing it had hours left — paying for
+    everything up to that point and resuming from cache on the next attempt.
+    Killing the previous sleeper (its pid is parked at WATCHDOG_PID) before
+    starting a new one makes "the deadline this run computed" the only one in
+    force. `kill` targets the `sh -c` parent, so the pending runpodctl never
+    runs even though the orphaned `sleep` lives out its timer."""
     secs = max(60, int(seconds))
-    cmd = (f"nohup sh -c 'sleep {secs}; "
+    cmd = (f"[ -f {WATCHDOG_PID} ] && kill \"$(cat {WATCHDOG_PID})\" "
+           f"2>/dev/null; "
+           f"nohup sh -c 'sleep {secs}; "
            f"runpodctl remove pod $RUNPOD_POD_ID || shutdown -h now || "
-           f"kill -9 -1' </dev/null >/tmp/watchdog.log 2>&1 &")
+           f"kill -9 -1' </dev/null >/tmp/watchdog.log 2>&1 & "
+           f"echo $! > {WATCHDOG_PID}")
     try:
         ssh_exec(rp, host, port, cmd, timeout=30)
         log.info("pod self-destruct watchdog armed (~%.0f min)", secs / 60)
@@ -333,17 +351,26 @@ def _verify_ready(rp: dict, host: str, port: int, remote: str,
         once cost a week of 126 s/take runs, and it is silent without this
     Any failure, any non-zero rc, any doubt -> False, and setup runs normally.
     Skipping setup wrongly costs a whole experiment; running it needlessly costs
-    ~50 s, so the asymmetry says be conservative."""
+    ~50 s, so the asymmetry says be conservative.
+
+    `edge` needs no install, so it neither contributes an import check nor
+    disqualifies the pod — but a list containing ONLY engines with nothing to
+    verify still returns False, because then this proves nothing about the venv
+    beyond its existence. Unknown engine names stay disqualifying."""
     if not engines:
         return False
     py = f"{remote}/.venv/bin/python"
     checks = [f"test -x {py}"]
     for e in engines:
+        if e == "edge":        # network service; no venv install to verify
+            continue
         mod = ENGINE_MODULE.get(e)
-        if not mod:            # edge needs no install
+        if not mod:            # unknown engine — cannot prove anything
             return False
         checks.append(
             f"{py} -c 'import {mod}, torch; assert torch.cuda.is_available()'")
+    if len(checks) == 1:       # nothing but `test -x` — not proof enough
+        return False
     rc = ssh_exec(rp, host, port, " && ".join(checks), timeout=180)
     return rc == 0
 
@@ -712,6 +739,23 @@ def engine_install_cmd(remote: str, engine: str, snippet: str) -> str:
             f"{snippet}")
 
 
+def engines_for_task(cfg: dict, task: str, langs: list[str]) -> list[str]:
+    """Which TTS engines this pod must end up with.
+
+    ONE definition, because two callers must agree on it: _install_engines (what
+    to install) and _verify_ready (what proves a --reuse pod is already set up).
+    They used to disagree — the reuse probe was hardcoded to the BAKE-OFF's
+    engine list and saw `[]` for every other task, and an empty list is False by
+    design. `remote run --reuse` could therefore never skip setup, so course.py
+    re-ran the bootstrap and re-installed qwen once per video: exactly the
+    per-video cost its phase B exists to pay only once."""
+    if task == "bakeoff":
+        return list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
+    tc = cfg.get("tts", {})
+    ebl = tc.get("engine_by_lang") or {}
+    return list(dict.fromkeys(ebl.get(lg, tc.get("engine")) for lg in langs))
+
+
 def _install_engines(rp: dict, host: str, port: int, remote: str,
                      needed: list[str], fail_note: str) -> None:
     """Run each engine's engine_setup snippet on the pod, in the main venv.
@@ -780,6 +824,10 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
     hours = (deadline - time.time()) / 3600
     log.info("budget $%.2f -> auto-terminate in %.1f h", budget, hours)
 
+    # WHICH ENGINES this pod must have — resolved ONCE, before the reuse
+    # decision, and shared by the probe and the installer (see engines_for_task).
+    needed = engines_for_task(cfg, task, langs)
+
     pid = None
     rc = None   # bound before the finally can read it: a failure during
                 # provision/bootstrap never reaches the task, and an unbound
@@ -795,9 +843,14 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
             # ~1.5 MB/s (40-60 min) on a bad one, and one run died on a bare
             # ReadTimeoutError. Reuse converts that lottery into a one-off.
             pid, host, port = alive
-            log.info("reusing pod %s at %s:%d — skipping provision/apt "
-                     "(watchdog already armed by the run that created it)",
+            log.info("reusing pod %s at %s:%d — skipping provision/apt",
                      pid, host, port)
+            # RE-ARM against THIS run's deadline. The pod is still counting
+            # down from the deadline of the run that created it; a course of
+            # twenty videos on one pod would otherwise be killed partway
+            # through by video 1's timer while this process believed it had
+            # hours left. arm_pod_watchdog kills the old sleeper first.
+            arm_pod_watchdog(rp, host, port, deadline - time.time())
         else:
             if reuse:
                 log.info("--reuse: no live pod to attach to; sweeping then "
@@ -861,35 +914,21 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # certain re-runs setup.
         setup_ok = False
         if alive:
-            probe_engines = list(dict.fromkeys(
-                cfg.get("bakeoff", {}).get("engines", [])
-                if task == "bakeoff" else []))
-            setup_ok = _verify_ready(rp, host, port, remote, probe_engines)
+            setup_ok = _verify_ready(rp, host, port, remote, needed)
             if setup_ok:
                 log.info("reused pod already provisioned (venv + %s import + "
                          "CUDA all verified) — skipping setup and engine install",
-                         "/".join(probe_engines) or "engines")
+                         "/".join(needed) or "engines")
         if not setup_ok and ssh_exec(
                 rp, host, port, REMOTE_SETUP.format(dir=remote),
                 timeout=1800) != 0:
             raise RuntimeError("remote setup failed: dependency install error "
                                "OR CUDA unavailable (check the log's CUDA: line)")
         # 2.5 the git-clone engine (qwen) must be installed on the pod before
-        # the task runs. The bake-off lists it explicitly; run and autopilot
-        # need whatever engine_by_lang routes the requested langs to.
-        # chatterbox/edge need no
-        # snippet and are skipped. A failure is non-fatal: the bake-off marks the
-        # engine unavailable, and for a run s4 raises an actionable error for the
-        # langs that needed it.
-        if task == "bakeoff":
-            needed = list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
-        else:
-            tc = cfg.get("tts", {})
-            ebl = tc.get("engine_by_lang", {})
-            needed = list(dict.fromkeys(ebl.get(lg, tc.get("engine")) for lg in langs))
-        # each challenger installs into its own venv, so a collision with the
-        # chatterbox baseline is impossible by construction — no post-install
-        # baseline check needed (REMOTE_SETUP already verified the main venv).
+        # the task runs (`needed`, computed once above and shared with the reuse
+        # probe). edge needs no snippet and is skipped. A failure is non-fatal:
+        # the bake-off marks the engine unavailable, and for a run s4 raises an
+        # actionable error for the langs that needed it.
         if not setup_ok:
             _install_engines(rp, host, port, remote, needed,
                              "bake-off will mark it unavailable"

@@ -85,14 +85,32 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             slot = u["end"] - u["start"]
             ratio = (tr["synth_dur"] / slot) if slot > 0 else float("inf")
             if ratio > soft * VARIANT_MARGIN:
+                # STOP AT THE FIRST VARIANT THAT CLEARS THE SAME BAR. Variants
+                # are progressively shorter by construction (s3 generates them
+                # that way), so once one comfortably fits, every later one is
+                # shorter still and s5's ladder — which walks the candidates and
+                # takes the first that places — will never reach it. Making all
+                # of them meant up to translation.n_short_variants EXTRA
+                # best_of units per over-long segment, i.e. up to 3x s4's GPU
+                # bill on the segments that trip this gate, to synthesize audio
+                # nothing reads.
+                #
+                # The bar is the SAME margin the gate above uses, not a bare
+                # fit: s5 measures against the RETIMED slot, which can be
+                # tighter than this one, and VARIANT_MARGIN is exactly the
+                # headroom that buys. So this drops variants that are provably
+                # surplus and keeps the insurance that stops s5 needing a GPU.
+                keep_under = slot * soft * VARIANT_MARGIN if slot > 0 else 0.0
                 for c in (tr.get("variants") or []):
                     vh = M.synth_hash(c, lang, tu)
                     vout = seg_dir / f"{u['id']}_{vh}.wav"
-                    if vout.exists():
-                        continue
-                    synth_best_of(c, lang, vout, tu, target_dur=slot or None)
-                    n_var += 1
-                    M.save(cfg, video, man)
+                    if not vout.exists():
+                        synth_best_of(c, lang, vout, tu, target_dur=slot or None)
+                        n_var += 1
+                        M.save(cfg, video, man)
+                    vinfo = sf.info(str(vout))
+                    if keep_under and vinfo.frames / vinfo.samplerate <= keep_under:
+                        break
             if fresh:  # checkpoint each new synth: long best-of units are minutes each
                 M.save(cfg, video, man)
                 if n_new % 25 == 0:

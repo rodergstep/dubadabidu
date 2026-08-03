@@ -231,7 +231,18 @@ def run(cfg: dict, video: str, langs: list[str],
         spec_path: str | None = None, mux: bool = True) -> bool:
     spec = load_spec(spec_path)
     accept, budget = spec["accept"], spec["budget"]
-    langs = spec.get("policy", {}).get("langs") or langs
+    # The spec's policy.langs is the CONTRACT and still wins — only a human
+    # edits it. But it used to win SILENTLY, and specs/batch.yaml still carries
+    # the M1 fixture scope [en]. `remote autopilot` forwards all five languages
+    # into the pod command, so a pod was provisioned, bootstrapped and billed
+    # for five languages and then did one, with nothing in the log saying so.
+    spec_langs = spec.get("policy", {}).get("langs")
+    if spec_langs and set(spec_langs) != set(langs):
+        log.warning("spec policy.langs %s OVERRIDES the requested %s — only "
+                    "%s will be processed. Widen policy.langs in %s to use "
+                    "the rest.", spec_langs, langs, spec_langs,
+                    spec_path or DEFAULT_SPEC)
+    langs = spec_langs or langs
     name = Path(video).stem
     all_ok = True
 

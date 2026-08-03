@@ -445,3 +445,80 @@ def test_runtime_cap_fits_a_full_hour_lesson():
         f"max_runtime_hours={rp['max_runtime_hours']} but a 1-hour lesson in "
         f"{langs} languages needs ~{need:.2f} h — the watchdog would kill the "
         f"pod mid-run, after billing for the whole thing")
+
+
+# --- pod reuse: the probe and the installer must ask the same question ---
+
+def test_reuse_probe_covers_run_tasks_not_just_bakeoff():
+    """The reuse probe was hardcoded to bakeoff.engines and saw [] for `run`,
+    and _verify_ready([]) is False by design — so `remote run --reuse` could
+    never skip setup and course.py re-bootstrapped once per video."""
+    from pipeline.runpod_infra import engines_for_task
+    cfg = {"tts": {"engine": "qwen", "engine_by_lang": {}},
+           "bakeoff": {"engines": ["qwen"]}}
+    assert engines_for_task(cfg, "run", ["en", "ru"]) == ["qwen"]
+    assert engines_for_task(cfg, "autopilot", ["en"]) == ["qwen"]
+    assert engines_for_task(cfg, "bakeoff", ["en"]) == ["qwen"]
+
+
+def test_engines_for_task_honours_per_language_routing():
+    from pipeline.runpod_infra import engines_for_task
+    cfg = {"tts": {"engine": "qwen", "engine_by_lang": {"en": "edge"}}}
+    assert engines_for_task(cfg, "run", ["en", "de"]) == ["edge", "qwen"]
+
+
+def test_remote_run_probes_with_the_engines_it_installs():
+    """Both call sites must read the SAME list, or the bug returns wearing a
+    different hat."""
+    import ast
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1]
+           / "pipeline" / "runpod_infra.py").read_text()
+    fn = next(n for n in ast.walk(ast.parse(src))
+              if isinstance(n, ast.FunctionDef) and n.name == "remote_run")
+    calls = {n.func.id: [a.id for a in n.args if isinstance(a, ast.Name)]
+             for n in ast.walk(fn)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert "needed" in calls.get("_verify_ready", []), \
+        "_verify_ready must probe the engines the task actually needs"
+    assert "needed" in calls.get("_install_engines", [])
+
+
+def test_edge_alone_still_refuses_to_skip_setup(monkeypatch):
+    """edge needs no install, so it proves nothing about the venv."""
+    import pipeline.runpod_infra as R
+    monkeypatch.setattr(R, "ssh_exec", lambda *a, **k: 0)
+    assert R._verify_ready({}, "h", 22, "~/d", ["edge"]) is False
+    assert R._verify_ready({}, "h", 22, "~/d", ["edge", "qwen"]) is True
+
+
+# --- watchdog: re-armable, or a reused pod dies on the FIRST run's clock ---
+
+def test_watchdog_kills_the_previous_sleeper_before_arming(monkeypatch):
+    import pipeline.runpod_infra as R
+    sent = []
+    monkeypatch.setattr(R, "ssh_exec",
+                        lambda rp, h, p, cmd, timeout=30: sent.append(cmd) or 0)
+    R.arm_pod_watchdog({}, "h", 22, 3600)
+    cmd = sent[0]
+    assert f"kill \"$(cat {R.WATCHDOG_PID})\"" in cmd, \
+        "re-arming must cancel the deadline the previous run set"
+    assert cmd.index("kill") < cmd.index("nohup"), "kill the old one FIRST"
+    assert f"echo $! > {R.WATCHDOG_PID}" in cmd, "record the pid to kill next time"
+    assert "sleep 3600" in cmd
+
+
+def test_reuse_path_rearms_the_watchdog():
+    """course.py attaches ONE pod for twenty videos; each call recomputes a
+    fresh deadline locally, so the pod must be told about it."""
+    import ast
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1]
+           / "pipeline" / "runpod_infra.py").read_text()
+    fn = next(n for n in ast.walk(ast.parse(src))
+              if isinstance(n, ast.FunctionDef) and n.name == "remote_run")
+    n_arm = sum(1 for n in ast.walk(fn) if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Name)
+                and n.func.id == "arm_pod_watchdog")
+    assert n_arm == 2, ("arm on BOTH paths: the fresh provision and the reuse "
+                        f"attach (found {n_arm})")
