@@ -112,10 +112,61 @@ top_p 1.0 / repetition_penalty 1.05`; `tts.qwen_gen_kwargs` is empty, so we
 already inherit exactly those.
 **VERDICT** Not a lever. Nothing to change.
 
-**OPEN** ICL (reference audio **+ its transcript**) vs `x_vector_only`. Upstream
-reports speaker similarity ~0.75 → ~0.89; we measure 0.614, and sim is qwen's
-weakest metric. Documented downside: Ukrainian prosody bleeding into distant
-target languages, which `x_vector_only` avoids by construction. Testing en + ru.
+**CLAIM** ICL (reference audio **+ its transcript**) beats `x_vector_only`.
+**EVIDENCE** 2026-08-03, same reference (ref_04), one flag apart, 6 segments:
+
+| | en ctl | en ICL | ru ctl | ru ICL | band |
+|---|---|---|---|---|---|
+| sim→real | 0.524 | **0.700** | 0.721 | **0.757** | ±0.010 |
+| mos | 2.783 | **2.927** | 2.493 | **2.665** | ±0.007 |
+| f0st | 2.884 | *1.982* | 3.161 | *2.005* | ±0.438 |
+| wer | 0.030 | *0.062* | 0.187 | 0.184 | ±0.005 |
+
+Then **36 blind ratings per language** (shuffled, unlabelled):
+
+| | control | ICL | Δ | 95% CI |
+|---|---|---|---|---|
+| en | 2.06 | **1.22** | **−0.83** | ±0.60 → DECIDED |
+| ru | 2.11 | 2.33 | +0.22 | ±0.78 → no verdict |
+
+**VERDICT** **REFUTED for en by the ear**, despite winning sim by 17× the noise
+band and mos by 20×. 15 of 18 ICL clips were rated 1 (unusable). ru is
+undecided. `wer` doubling on en was the only metric that told the truth — that
+is what accent bleed looks like, exactly as the overlay predicted.
+**WHY THE METRICS LIED** see §2.1 — the objective weights `sim` at 0.25 and the
+ear weights it at **0.0**. ICL traded the thing nobody hears for the thing they
+do.
+**ENCODED** `config.exp.icl.yaml`, `config.exp.icl-control.yaml` (one axis
+apart — the bake-off's own tune sweep otherwise re-picks the reference and
+varies two axes at once).
+
+### 2.1 The take-selection objective does not track the ear
+
+**CLAIM** `qc.eval.weights` (sim .25 / mos .40 / f0 .20 / tempo .15) ranks takes
+the way a listener would.
+**EVIDENCE** 2026-08-03, first ratings this project has ever had (66 en / 68 ru):
+
+| | en | ru |
+|---|---|---|
+| current objective, cross-validated Spearman | **+0.022** | +0.134 |
+| best-fit, cross-validated | +0.308 | +0.149 |
+| best-fit weights | sim **0.0** · mos 0.05 · **f0 0.85** · tempo 0.10 | sim **0.0** · mos 0.75 · f0 0.10 · tempo 0.15 |
+
+**VERDICT** CONFIRMED that it does **not** track the ear — en correlates +0.022,
+i.e. selection has been ~random with respect to what the listener prefers.
+**`sim` gets weight 0.0 in BOTH languages**, and it is the metric this whole
+session chased (reference selection, ICL). The two languages disagree on what
+replaces it (en → f0, ru → mos), which at n≈34 each is likely noise.
+**NOT ADOPTED YET** en passes 2 of 3 gates; permutation **p 0.059** just misses
+0.05. ru fails all three. More ratings are the unblock.
+**CONSEQUENCE** Every "improvement" judged by the current composite is suspect,
+including the tune R1 reference winner, which was scored by it.
+
+**OPEN, and now the top priority** Overall quality is rated **~2.1/5** by the
+ear — *for both variants*, on a scale where 3 = acceptable. The ICL question was
+a distraction from this: the shipped dubs are below acceptable to their owner,
+and the selection objective that picks every shipped take is uncorrelated with
+his judgement.
 
 ---
 

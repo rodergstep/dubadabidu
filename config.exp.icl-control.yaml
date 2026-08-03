@@ -1,0 +1,46 @@
+# CONTROL for the ICL experiment — IDENTICAL to config.exp.icl.yaml except
+# qwen_x_vector_only. Exists because the bake-off's own tune-lite sweep is the
+# default: run without this and it re-sweeps bakeoff.grids over ref/*.wav,
+# picks whatever it likes (measured 2026-08-03: it chose a sketch60 clip and
+# reference_max_s=12), and the "baseline" then differs from the ICL run in
+# REFERENCE as well as in ICL — two axes at once, which measures nothing.
+#
+# tune.enabled: false and the pinned reference below are what make this a
+# control. Keep the reference and transcript in lockstep with the ICL overlay.
+#   dubadabidu remote bakeoff <video> --langs en --reuse --keep-alive \
+#     --overlay config.gpu.yaml --overlay config.exp.icl.yaml
+#
+# WHY: sim→real is qwen's weakest metric (0.614; voxcpm managed 0.804 before it
+# was cut). x_vector_only extracts a speaker EMBEDDING and nothing else. Passing
+# the reference transcript switches on full ICL — ref audio *and* its text in
+# context — which upstream documents as measurably better speaker similarity.
+#
+# WHY IT WAS RULED OUT BEFORE, AND WHY THAT WAS TOO QUICK: Ukrainian is not one
+# of Qwen3-TTS's 10 synthesis languages. But the reference transcript only has to
+# be TOKENIZED, not synthesized, and Qwen3's tokenizer handles Cyrillic. The real
+# risk is accent bleed — UA prosody leaking into the English output — which is
+# exactly what x_vector mode is documented to avoid. So this is a genuine A/B
+# with a plausible downside, not a free win, and the ear arbitrates: variant_key
+# gives it its own "+icl" row so both audio sets survive.
+#
+# reference_text MUST match reference_wav exactly — a mismatched transcript
+# degrades cloning, which would make this test read as "ICL is worse" when it
+# only means "we passed the wrong text". These come from work/sketch60/refs.json.
+# EDIT BOTH LINES TOGETHER to whichever reference the sweep picked.
+tts:
+  qwen_x_vector_only: true
+  reference_wav: ref/Organising the colour palette and materials_ref_04.wav
+  # TRIM MUST BE OFF HERE. refs.json's transcript covers the FULL 15.04 s clip;
+  # trimming to 12 s would leave the last ~3 s of text describing audio that is
+  # no longer there, and a mismatched transcript degrades cloning — the test
+  # would then read as "ICL is worse" when it only means "we passed wrong text".
+  reference_max_s: 0
+  reference_text: "Я передусім видавлю ультрамарин, який потрібний для холодних партій в натюрморті."
+
+bakeoff:
+  tune:
+    enabled: false        # fixes the reference: this run tests ONE axis.
+                          # NOTE this is what disables the sweep — a
+                          # `grids: {qwen: {}}` here would NOT, because
+                          # deep_merge merges dicts instead of replacing them,
+                          # so the base grid's keys survive an empty override.
