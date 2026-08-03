@@ -274,6 +274,12 @@ def ssh_exec(rp: dict, host: str, port: int, cmd: str, timeout: int = 7200) -> i
 
 WATCHDOG_PID = "/tmp/dubadabidu_watchdog.pid"
 
+# Filled by provision() with the pod's REAL price and shape, read by remote_run
+# when it writes the run ledger. A module global rather than a return value so
+# the ledger could be added without changing provision()'s signature — the
+# safety-critical path stays untouched.
+_LAST_POD: dict = {}
+
 
 def arm_pod_watchdog(rp: dict, host: str, port: int, seconds: float) -> None:
     """Independent pod-side self-destruct: a detached process that, after
@@ -540,6 +546,13 @@ def provision(rp: dict, deadline: float) -> tuple[str, str, int]:
                  pid, host, port, price, info.get("vcpuCount"),
                  info.get("memoryInGb"),
                  f"  [OVER the budgeted ${budgeted}/h]" if over else "")
+        # Stash the ACTUAL price/shape for the run ledger. This is the only
+        # place the real rate is known — the API reports costPerHr per pod, and
+        # rp["assumed_price_per_hr"] is deliberately the worst case (0.7), so
+        # costing a run from config would overstate it ~2.5x. See runlog.py.
+        _LAST_POD.update({"pod_id": pid, "price_per_hr": price,
+                          "vcpu": info.get("vcpuCount"),
+                          "ram_gb": info.get("memoryInGb")})
     except Exception as e:      # never fail a run over a log line
         log.info("pod %s SSH ready at %s:%d (price unknown: %s)",
                  pid, host, port, e)
@@ -836,6 +849,8 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
     # decision, and shared by the probe and the installer (see engines_for_task).
     needed = engines_for_task(cfg, task, langs)
 
+    _t0 = time.time()
+    _LAST_POD.clear()          # this run's pod, not the previous one's
     pid = None
     rc = None   # bound before the finally can read it: a failure during
                 # provision/bootstrap never reaches the task, and an unbound
@@ -996,6 +1011,29 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         log.info("remote task %s exited rc=%d; results synced back", task, rc)
         return rc == 0
     finally:
+        # RECORD WHAT THIS COST, before anything can throw. Written on every
+        # path including failure — a run that died after 30 min of bootstrap is
+        # exactly the data point that never survives in a log file. See
+        # runlog.py for why this is not hand-maintained.
+        try:
+            from . import runlog
+            man_p = M.manifest_path(cfg, video)
+            vid_min = segs = None
+            if man_p.exists():
+                _m = json.loads(man_p.read_text(encoding="utf-8"))
+                vid_min = round(float(_m.get("duration") or 0) / 60, 3) or None
+                segs = len(_m.get("utterances") or []) or None
+            runlog.append({
+                "video": Path(video).stem, "task": task, "langs": list(langs),
+                "stages": stages or None, "reuse": bool(reuse),
+                "ok": rc == 0, "rc": rc,
+                "wall_s": round(time.time() - _t0, 1),
+                "video_minutes": vid_min, "utterances": segs,
+                "engines": needed,
+                **{k: v for k, v in _LAST_POD.items()},
+            })
+        except Exception as e:                               # noqa: BLE001
+            log.debug("run ledger skipped (%s)", e)
         # keep_alive: leave the pod UP so an install recipe can be debugged IN
         # PLACE. Without it every attempt paid ~4 min of bootstrap (apt, rsync,
         # the torch install the qc metrics need) just to learn one error message,

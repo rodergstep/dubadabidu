@@ -536,8 +536,19 @@ def test_unknown_remote_task_is_refused_before_provisioning():
     from pipeline.runpod_infra import REMOTE_TASK, remote_run
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
                      yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
-    with pytest.raises(SystemExit, match="unknown remote task"):
-        remote_run(cfg, "v.mp4", ["en"], "typoed-task")
+    # Neutralise the two API calls that run BEFORE the guard, so this tests the
+    # guard and not whether RUNPOD_API_KEY happens to be exported: without the
+    # key, sweep_orphans() raises about credentials first and the assertion
+    # passes or fails depending on the shell.
+    import pipeline.runpod_infra as R
+    orig_sweep, orig_live = R.sweep_orphans, R._live_pod
+    R.sweep_orphans = lambda *a, **k: None
+    R._live_pod = lambda *a, **k: None
+    try:
+        with pytest.raises(SystemExit, match="unknown remote task"):
+            remote_run(cfg, "v.mp4", ["en"], "typoed-task")
+    finally:
+        R.sweep_orphans, R._live_pod = orig_sweep, orig_live
     # and the tasks that DO exist must stay reachable
     assert {"run", "bakeoff", "autopilot", "preamble"} <= set(REMOTE_TASK)
 

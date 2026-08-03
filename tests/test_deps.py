@@ -103,3 +103,62 @@ def test_removed_engines_stay_removed():
         assert gone not in body.lower(), (
             f"{gone} was removed from this repo but requirements.txt still "
             f"installs it")
+
+
+# --- FINDINGS.md / runs.jsonl: the knowledge ledger --------------------------
+
+def test_findings_entries_carry_evidence_and_a_verdict():
+    """FINDINGS.md is only worth having if every claim is falsifiable. An entry
+    without EVIDENCE is an opinion; one without a VERDICT is an open loop that
+    reads as settled. Both failure modes already happened in this repo's
+    comments — four claims this week asserted behaviour nobody had checked."""
+    text = (ROOT / "FINDINGS.md").read_text(encoding="utf-8")
+    claims = text.count("**CLAIM**")
+    verdicts = text.count("**VERDICT**")
+    evidence = text.count("**EVIDENCE**")
+    assert claims >= 8, f"only {claims} claims — findings are drifting elsewhere"
+    assert verdicts >= claims, (
+        f"{claims} CLAIM vs {verdicts} VERDICT — a claim without a verdict reads "
+        f"as settled when it is not")
+    assert evidence >= claims - 1, (
+        f"{claims} CLAIM vs {evidence} EVIDENCE — an entry without numbers is an "
+        f"opinion, and this file exists because opinions were re-derived as fact")
+    for word in ("CONFIRMED", "REFUTED", "OPEN"):
+        assert word in text, f"verdict vocabulary lost: {word}"
+
+
+def test_findings_leads_with_the_noise_floor():
+    """Every measurement in the file is unreadable without it — two prior
+    results were retroactively invalidated once the floor was known."""
+    text = (ROOT / "FINDINGS.md").read_text(encoding="utf-8")
+    head = text[:text.index("## 1.")]
+    assert "noise floor" in head.lower(), "the noise floor must come first"
+    for band in ("sim ±0.010", "mos ±0.007", "f0st ±0.438"):
+        assert band in head, f"missing measured band: {band}"
+
+
+def test_run_ledger_is_machine_written_not_hand_maintained():
+    """runs.jsonl must be appended by the code that spends the money. A
+    hand-kept stats file rots, which is how 'what does an hour cost' got three
+    different answers in one day."""
+    src = (ROOT / "pipeline" / "runpod_infra.py").read_text(encoding="utf-8")
+    assert "runlog.append" in src, (
+        "remote_run no longer records the run — the ledger will silently stop "
+        "reflecting reality")
+    i = src.index("runlog.append")
+    assert "finally" in src[:i].rsplit("def remote_run", 1)[-1], (
+        "the ledger write must sit in the finally block: a run that dies after "
+        "30 min of bootstrap is exactly the data point that never survives")
+
+
+def test_ledger_cost_helper_ignores_runs_with_no_audio():
+    """A setup-check has no video to divide by; including it would silently
+    inflate $/video-hour."""
+    from pipeline.runlog import cost_per_video_hour
+    rows = [{"task": "setup-check", "wall_s": 200, "price_per_hr": 0.28,
+             "langs": []},
+            {"task": "run", "wall_s": 2466, "price_per_hr": 0.28,
+             "video_minutes": 8.13, "langs": ["en", "ru"], "bootstrap_s": 396}]
+    out = cost_per_video_hour(rows)
+    assert out["runs"] == 1, "setup-check must not count as a dubbing run"
+    assert abs(out["total_cost_usd"] - 0.192) < 0.002

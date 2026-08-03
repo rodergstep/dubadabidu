@@ -21,13 +21,13 @@
 # EDIT BOTH LINES TOGETHER to whichever reference the sweep picked.
 tts:
   qwen_x_vector_only: false
-  reference_wav: ref/sketch60_ref_03.wav     # the 2026-08-01 sweep winner
+  reference_wav: ref/Organising the colour palette and materials_ref_04.wav
   # TRIM MUST BE OFF HERE. refs.json's transcript covers the FULL 15.04 s clip;
   # trimming to 12 s would leave the last ~3 s of text describing audio that is
   # no longer there, and a mismatched transcript degrades cloning — the test
   # would then read as "ICL is worse" when it only means "we passed wrong text".
   reference_max_s: 0
-  reference_text: "тобто щоб не з'явилася велика кількість деталей. Велика кількість деталей потягне за собою створення такої ж великої кількості деталях на інших поверхнях. Тобто, якщо... Тобто, якщо ми зробимо..."
+  reference_text: "Я передусім видавлю ультрамарин, який потрібний для холодних партій в натюрморті."
 
 bakeoff:
   tune:
