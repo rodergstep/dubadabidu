@@ -206,3 +206,29 @@ def test_reused_pods_reach_the_ledger_with_a_price():
     assert "costPerHr" in branch, (
         "the reuse branch must read the REAL rate from the API, not fall back "
         "to assumed_price_per_hr (deliberately the worst case, ~2.5x high)")
+
+
+def test_ru_icl_arms_differ_in_exactly_one_axis():
+    """Arm B (marked) and arm C (unmarked) exist to isolate the stress marks
+    from ICL itself. That only works if the reference, the trim and the
+    transcript are identical apart from the acutes — the mistake
+    config.exp.ru-stress.yaml originally shipped with was a reference pinned
+    from a different experiment, which measured the reference, not the axis."""
+    import yaml
+    b = yaml.safe_load((ROOT / "config.exp.ru-icl-stress.yaml").read_text(
+        encoding="utf-8"))["tts"]
+    c = yaml.safe_load((ROOT / "config.exp.ru-icl-plain.yaml").read_text(
+        encoding="utf-8"))["tts"]
+    for k in ("reference_wav", "reference_max_s", "qwen_x_vector_only"):
+        assert b[k] == c[k], f"arms differ in {k}: {b[k]!r} vs {c[k]!r}"
+    assert b["ru_stress"] is True and c["ru_stress"] is False
+    acute = "́"
+    assert acute in b["reference_text"], "arm B's reference must be MARKED"
+    assert acute not in c["reference_text"], "arm C's reference must be PLAIN"
+    assert b["reference_text"].replace(acute, "") == c["reference_text"], (
+        "the two transcripts must be the same text apart from the acutes, or "
+        "the comparison measures the transcript rather than the marks")
+    # ICL needs a transcript; x_vector_only true would silently ignore it and
+    # the whole experiment would degrade into the already-refuted test.
+    assert b["qwen_x_vector_only"] is False, (
+        "ICL off means ref_text is dropped — that is the REFUTED configuration")

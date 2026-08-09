@@ -1,0 +1,35 @@
+# EXPERIMENT (arm C): ICL with an UNMARKED reference transcript and unmarked
+# Russian target. The control that makes arm B interpretable.
+#
+#   dubadabidu remote bakeoff <video> --langs ru --reuse --keep-alive \
+#     --overlay config.gpu.yaml --overlay config.exp.ru-icl-plain.yaml \
+#     --overlay config.exp.ru-full.yaml
+#
+# WHY IT IS REQUIRED. Arm B changes TWO things against production at once: it
+# turns on full ICL, and it marks the text. Without this arm, a win could be the
+# marks or could be ICL alone, and a loss could be accent bleed rather than the
+# marks failing again. The three-arm read is:
+#
+#   A  qwen+fast+control  x_vector, unmarked   <- production, ALREADY MEASURED
+#                                                 2026-08-09, no pod needed
+#   B  qwen+fast+icl+stress  ICL, marked ref + marked target
+#   C  qwen+fast+icl         ICL, unmarked
+#
+#   B vs C = the effect of the STRESS MARKS (ICL held constant)
+#   C vs A = the effect of ICL alone (marks held constant)
+#
+# Reference and trim are IN LOCKSTOCK with arm B — same wav, same reference_max_s,
+# same transcript minus the acutes. If those drift the comparison measures the
+# reference again, which is the mistake config.exp.ru-stress.yaml shipped with
+# (it pinned a per-video reference copy-pasted from the ICL overlay).
+tts:
+  ru_stress: false                # unmarked TARGET (also the config.yaml default,
+                                  # stated explicitly so the contrast is readable)
+  qwen_x_vector_only: false       # full ICL: ref audio + ref transcript
+  reference_wav: ref/sketch_ref_08.trim12s.wav
+  reference_max_s: 0
+  reference_text: "Наступна стадія присвячується більш детальній процесі менших форм. Менші форми в нашому етюді – це дерево,"
+
+bakeoff:
+  tune:
+    enabled: false
