@@ -935,10 +935,21 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
             # Without it the pod merges into an empty dict and the sync-back
             # overwrites the local scorecard — which silently discarded the
             # voxcpm+qwen comparison twice before this was spotted.
-            needed = [str(wd / n) for n in ("manifest.json", "vocals.wav",
-                                            "qc_ua", "bakeoff")
-                      if (wd / n).exists()]
-            _rsync_paths(rp, port, needed, up)
+            # NOT `needed` — that name holds the ENGINE list computed at the top
+            # of this function and used further down by _verify_ready and
+            # _install_engines. Reusing it here clobbered the engines with file
+            # paths, so `_install_engines` looked up engine_setup["…/vocals.wav"],
+            # found nothing, and installed NOTHING — silently, because a missing
+            # snippet is a legitimate skip (edge has none).
+            # Every `remote bakeoff` on a FRESH pod therefore came up with
+            # "qwen unavailable" and measured zero engines. It went unnoticed
+            # because bake-offs are normally run with --reuse against a pod some
+            # earlier `run` had already installed qwen on; on 2026-08-09 two ICL
+            # arms provisioned their own pod and both produced empty scorecards.
+            bake_paths = [str(wd / n) for n in ("manifest.json", "vocals.wav",
+                                                "qc_ua", "bakeoff")
+                          if (wd / n).exists()]
+            _rsync_paths(rp, port, bake_paths, up)
         else:
             rsync(rp, port, "./", up, extra_excludes=("input", "output"))
         # 2. install + verify CUDA (fails fast if CUDA is unavailable).

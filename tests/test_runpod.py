@@ -585,3 +585,50 @@ def test_preamble_has_a_pod_command_because_tune_synthesizes():
     assert cmd.startswith("dubadabidu preamble ")
     assert "--overlay config.gpu.yaml" in cmd        # engine + pod settings
     assert "--overlay config.deepseek.yaml" in cmd   # preamble runs s3 first
+
+
+def test_bakeoff_rsync_does_not_clobber_the_engine_list():
+    """`needed` holds the ENGINE list from engines_for_task and is consumed far
+    below by _verify_ready and _install_engines. The bake-off branch reassigned
+    it to a list of rsync file paths, so _install_engines iterated over paths,
+    found no engine_setup snippet for "…/vocals.wav", and installed NOTHING —
+    silently, since a missing snippet is a legitimate skip.
+
+    Effect: every `remote bakeoff` on a FRESH pod reported "qwen unavailable"
+    and measured zero engines. Masked because bake-offs are usually run with
+    --reuse against a pod an earlier `run` had already set up. Two ICL arms
+    provisioned their own pod on 2026-08-09 and both returned empty scorecards.
+    """
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    src = (root / "pipeline" / "runpod_infra.py").read_text(encoding="utf-8")
+    body = src.split("def remote_run", 1)[1].split("\ndef ", 1)[0]
+    # the engine list is assigned exactly once in remote_run
+    assigns = re.findall(r"^\s*needed\s*=", body, re.M)
+    assert len(assigns) == 1, (
+        f"`needed` is assigned {len(assigns)}x in remote_run — the engine list "
+        f"must not be reused as a scratch variable")
+    assert "needed = engines_for_task" in body, (
+        "the single assignment must be the engine list itself")
+    # and it must still be the value handed to the installer
+    assert "_install_engines(rp, host, port, remote, needed" in body
+
+
+def test_engine_list_handed_to_the_installer_is_engine_names():
+    """Defence in depth: the silent part of the bug was that _install_engines
+    treats an unrecognised name as 'no snippet, skip'. That is correct for edge
+    and catastrophic for a file path, so nothing else may flow into it.
+
+    engines_for_task is the only source, and every name it can return for the
+    shipped config must be a known engine."""
+    import yaml
+    from pipeline.logic import deep_merge
+    from pipeline.runpod_infra import engines_for_task, ENGINE_MODULE
+    cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
+                     yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
+    for task in ("bakeoff", "run"):
+        for e in engines_for_task(cfg, task, ["en", "ru"]):
+            assert e in ENGINE_MODULE, (
+                f"{task}: {e!r} is not an engine name — if a path reaches "
+                f"_install_engines it silently installs nothing")
