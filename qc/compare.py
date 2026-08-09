@@ -98,7 +98,19 @@ def _groups(bo: Path, lang: str, variants: list[str],
 
 def build(wd: Path, lang: str, variants: list[str],
           min_seconds: float = MIN_SECONDS, embed: bool = True,
-          takes_per_variant: int = 1, max_groups: int | None = None) -> Path:
+          takes_per_variant: int = 1, max_groups: int | None = None,
+          axis: str = "overall quality — the one you would ship") -> Path:
+    """`axis` is printed ON the page, and it is not decoration.
+
+    2026-08-09: a page was built to settle whether ICL's flatter delivery was
+    acceptable. The page said "click best on the one you would ship" and the
+    monotony instruction was given in chat. The listener rated STRESS — "I rate
+    the stressing, not the quality of the track... sometimes stress was okay but
+    the whole quality of the voice was worse". Perfectly reasonable, and it
+    answered a different question than the one the run was paid for. The axis
+    has to travel WITH the page, because that is the only thing in front of the
+    listener while they judge.
+    """
     bo = wd / "bakeoff"
     groups = _groups(bo, lang, variants, min_seconds, takes_per_variant)
     if max_groups:
@@ -142,9 +154,23 @@ def build(wd: Path, lang: str, variants: list[str],
     (bo / f"compare_{lang}_truth.json").write_text(
         json.dumps(truth, indent=1, ensure_ascii=False), encoding="utf-8")
 
+    # localStorage is namespaced by the BUILD, not just the language. It was
+    # keyed "cmp_<lang>", one key shared by every ru page ever built, so a new
+    # page loaded the previous page's answers and the download merged both. On
+    # 2026-08-09 a 15x2 page came back carrying 64 marks for clips that did not
+    # exist on it — the stress page's ratings, byte-identical. Silent, and it
+    # would have contaminated the tally had the keys happened to line up.
+    build_id = hashlib.sha1(
+        json.dumps([[i["key"] for i in g["items"]] for g in payload],
+                   sort_keys=True).encode()).hexdigest()[:8]
     out = bo / f"compare_{lang}.html"
     out.write_text(_HTML.replace("__LANG__", lang)
+                   .replace("__BUILD__", "_" + build_id)
+                   .replace("__AXIS__", axis)
                    .replace("__DATA__", json.dumps(payload)), encoding="utf-8")
+    (bo / f"compare_{lang}_truth.json").write_text(
+        json.dumps({"_build": build_id, "_axis": axis, **truth},
+                   indent=1, ensure_ascii=False), encoding="utf-8")
     log.info("%d group(s), %d clips -> %s", len(payload),
              sum(len(g["items"]) for g in payload), out)
     return out
@@ -171,14 +197,15 @@ _HTML = """<meta charset='utf-8'>
 </style>
 <div id='bar'><b>pick the best — __LANG__</b> <span class='muted' id='prog'></span>
  <button onclick='dl()'>Download</button></div>
-<p class='muted'>Each block is the SAME sentence in several versions, shuffled and
-unlabelled. Click <b>best</b> on the one you would ship. Click <b>unusable</b> on
-any that are broken. Skip a block if you cannot tell them apart — that is a real
-answer and better than a guess.</p>
+<p class='muted'><b>Judge: __AXIS__.</b> Each block is the SAME sentence in
+several versions, shuffled and unlabelled. Click <b>best</b> on the one that wins
+<i>on that axis</i>, even if it loses on others. Click <b>unusable</b> on any that
+are broken. Skip a block if you cannot tell them apart — that is a real answer and
+better than a guess.</p>
 <div id='list'></div>
 <script>
 const G = __DATA__;
-const S = JSON.parse(localStorage.getItem('cmp___LANG__') || '{}');
+const S = JSON.parse(localStorage.getItem('cmp___LANG____BUILD__') || '{}');
 function draw(){
   document.getElementById('list').innerHTML = G.map(g => `
     <div class='g'><h3>${g.g} &middot; ${g.dur}s</h3>
@@ -195,7 +222,7 @@ function draw(){
 function best(g,k){ S[g]=S[g]||{}; S[g].best = S[g].best===k?null:k; save(); }
 function bad(g,k){ S[g]=S[g]||{}; const b=new Set(S[g].bad||[]);
   b.has(k)?b.delete(k):b.add(k); S[g].bad=[...b]; save(); }
-function save(){ localStorage.setItem('cmp___LANG__', JSON.stringify(S)); draw(); }
+function save(){ localStorage.setItem('cmp___LANG____BUILD__', JSON.stringify(S)); draw(); }
 function dl(){
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],
