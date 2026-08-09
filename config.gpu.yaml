@@ -406,3 +406,25 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   # retries+verifies and only clears state on confirmation; an independent
   # pod-side watchdog self-destructs at the deadline even if this process dies;
   # `remote kill`/next call sweeps orphans. .env (RunPod key) never reaches pod.
+
+qc:
+  # VALIDATED 2026-08-09, on the pod, exactly as set_device()'s docstring asks:
+  # the same 24 real takes scored twice in one process, device switched between
+  # passes, nothing else changed.
+  #   ECAPA embeddings: cosine cpu-vs-cuda 1.000000 (min AND mean) — identical
+  #   Distill-MOS:      max |delta| 0.000412, mean 0.000122, against a measured
+  #                     noise floor of 0.007 — 17x inside it
+  #   wall clock:       33.9 s -> 2.8 s, a 12.3x speedup
+  # So this is free: scores stay comparable with every manifest, ratings row and
+  # scorecard already on disk, which was the whole reason it defaulted to cpu.
+  # SCOPE, so the saving is not oversold: set_device moves the two TORCH models
+  # only. Of the bake-off's measured phase totals (sim 3% + mos 11% + f0 6% +
+  # wer 16%), this touches the 14% that is sim+mos. f0 is librosa pyin and wer
+  # is faster-whisper — both still CPU, both still worth their own look.
+  # It lives HERE and not in config.yaml on purpose: cuda is a property of the
+  # pod profile. A Mac run of the same config falls back (set_device returns the
+  # device it actually selected), so local scores stay on cpu and comparable.
+  # WART, harmless: speechbrain logs "Could not parse CUDA device string 'cuda'
+  # ... Falling back to device 0" — it wants 'cuda:0'. Device 0 is what we want
+  # anyway, and the embeddings above prove it landed correctly.
+  metrics_device: cuda

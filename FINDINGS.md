@@ -162,6 +162,41 @@ replaces it (en → f0, ru → mos), which at n≈34 each is likely noise.
 **CONSEQUENCE** Every "improvement" judged by the current composite is suspect,
 including the tune R1 reference winner, which was scored by it.
 
+### 2.1b RU lexical stress: RUAccent marks DESTROY qwen's output
+
+**CLAIM** Marking Russian lexical stress with RUAccent's combining acutes fixes
+the wrong-stress the listener has reported three times (2026-08-03, twice
+2026-08-09). It worked for chatterbox, which was trained on the marks.
+**EVIDENCE** 2026-08-09, first time this A/B has ever actually run — the
+2026-08-03 attempt died on the `transformers` conflict before synthesis. Both
+arms, all 46 segments, same reference, one axis:
+
+| metric | stress | control | Δ | noise band |
+|---|---|---|---|---|
+| sim→real | 0.690 | 0.687 | +0.003 | ±0.010 — inside |
+| mos | 2.051 | 2.394 | −0.343 | ±0.008 |
+| f0st | 2.829 | 2.874 | −0.045 | ±0.438 — inside |
+| **wer** | **0.811** | **0.068** | **+0.743** | ±0.005 |
+| pace | 1.196 | 0.864 | +0.332 | — |
+| s/take | 4.05 | 2.34 | +1.71 | ±1.7 |
+
+**VERDICT** **REFUTED, and actively harmful.** Back-transcription WER goes from
+7% to 81%: the audio no longer contains the words. `pace` and `s/take` corroborate
+— it generates far more audio for identical text, the signature of garbled or
+spelled-out output. qwen was not trained on U+0301 and reads it as content.
+**MEASUREMENT VALIDITY, checked before believing it:** the marks could have
+inflated WER cosmetically by surviving normalization. They do not —
+`backcheck._norm`'s `[^\w\s]` strips U+0301 (combining marks are not `\w`), and
+accented-vs-plain text scores WER 0.0 after normalization. The 0.811 is real.
+**ENCODED** `tts.ru_stress` stays `false`. `config.exp.ru-stress.yaml` keeps the
+recipe so nobody re-runs it from scratch to re-learn this.
+**THE COMPLAINT IS STILL OPEN.** 6 of 25 rated ru segments (**24%**) were marked
+unusable in *both* arms of the reference test — u0006, u0015, u0020, u0023,
+u0027, u0030 — attributed by ear to wrong stress. No metric here sees it: `sim`,
+`mos` and `f0st` are all blind to which syllable is stressed, which is also why
+`refit` cannot calibrate on ru. The fix must come from somewhere other than
+input marking — a stress-aware model, or a phoneme-level input path.
+
 ### 2.2 The reference is a CURATED asset, not a per-video by-product
 
 **CLAIM** Cutting the clone reference from each lesson's own audio beats reusing
@@ -202,6 +237,28 @@ three metric sweeps — was never once preferred. I had argued for sketch_ref_07
 on its 0.092 identity lead (9x the noise band) and was wrong. `tts.reference_wav`
 is now `ref/sketch_ref_08.trim12s.wav`. n=3 sentences, so the ORDER is
 provisional; "the incumbent was never preferred" is not.
+
+**AND THEN UN-SETTLED, 2026-08-09 — the reference is not a lever at all.**
+The n=3 caveat above turned out to be the whole story. The new reference was
+re-synthesized across all five languages and paired against the old one, same
+sentence, blind, ≥5 s, in both languages:
+
+| | new (`ref_08.trim12s`) | old (`sketch60_ref_03`) | two-sided binomial |
+|---|---|---|---|
+| en | 13 | 10 | p = 0.68 |
+| ru | 8 | 11 | p = 0.65 |
+| **combined** | **21** | **21** | **p = 1.000** |
+
+A perfect tie on 42 within-sentence judgements. At n=23 the split would have had
+to reach 17–6 to clear p<0.05; the 2-of-3 result that drove the config change has
+a two-sided p of **1.00** and could never have shown anything.
+**VERDICT** **REFUTED — the reference choice is below the resolution of the ear.**
+Four sweeps and three blind tests went into choosing between clips that are
+indistinguishable in use. No revert: there is no evidence either way now, and
+ref_08 is already synthesized everywhere. **Stop sweeping references.** The
+generalisable lesson is the one this file keeps re-learning — *compute the
+binomial before treating a small blind test as a decision.* A 2-of-3 is a
+coin flip with extra steps.
 
 ### 2.3 The accent is identity, not a defect
 
@@ -261,6 +318,22 @@ GPU idles at ~7%. Scoring runs on a rented vCPU.
 **VERDICT** REFUTED — this is the largest untaken lever. `qc.metrics_device`
 exists and defaults to `cpu` deliberately: every stored score was produced on
 CPU, so flipping it needs a measured diff first (`qc/metrics.py set_device()`).
+
+**CLAIM** Moving the torch-backed metrics to CUDA changes the scores.
+**EVIDENCE** 2026-08-09, the validation `set_device()` asks for: 24 real takes
+scored twice in one process, device switched between passes, nothing else
+changed. ECAPA embeddings cosine cpu-vs-cuda **1.000000** (min and mean).
+Distill-MOS max |Δ| **0.000412**, mean 0.000122, against a 0.007 noise floor —
+17× inside it. Wall clock **33.9 s → 2.8 s, 12.3×**.
+**VERDICT** **REFUTED — it is free.** Scores stay comparable with every manifest,
+ratings row and scorecard on disk, which was the entire reason for the cpu
+default.
+**SCOPE, so the saving is not oversold:** `set_device` moves the two TORCH models
+only. Of measured phase totals (sim 3% + mos 11% + f0 6% + wer 16%), this touches
+the **14%** that is sim+mos. `f0` is librosa pyin and `wer` is faster-whisper —
+both still CPU and both still worth their own look.
+**ENCODED** `config.gpu.yaml` `qc.metrics_device: cuda` — in the pod profile, not
+`config.yaml`, because a Mac run falls back and local scores must stay on cpu.
 
 **CLAIM** Spot (`interruptible: true`) is a 2–3× cost lever, made safe by the
 take cache: preemption resumes from cached segments rather than from zero.
@@ -322,17 +395,26 @@ was one command from being checked.
 
 ## 5. Open questions, ranked
 
-1. **RU lexical stress** (`tts.ru_stress`, RUAccent) — reported wrong by ear
-   twice, and the A/B has still never run: the 2026-08-03 attempt died on the
-   `transformers` conflict before synthesis. This is the only open item with a
-   *known* quality complaint attached to it. *(queued)*
-2. **`metrics_device: cuda`** — up to ~40% of s4, needs a score diff.
-   *(Now the largest untaken cost lever, since spot is closed — §3.)*
-3. **Eval calibration** — `refit` says KEEP CURRENT WEIGHTS (rho 0.237 vs a 0.30
+1. **RU wrong stress — 24% of segments unusable, and the obvious fix is gone.**
+   RUAccent marks destroy the audio (§2.1b), so input marking is closed. What is
+   left: a stress-aware or phoneme-input TTS path for ru, or accepting that ru
+   ships worse than the other four. No metric detects it, so any candidate has to
+   be judged by ear. **This is the largest known quality defect in the product.**
+2. **Eval calibration** — `refit` says KEEP CURRENT WEIGHTS (rho 0.237 vs a 0.30
    floor, p 0.078). Until this clears, the harness cannot arbitrate quality
    changes and every lever above is judged by ear. **Needs more human ratings.**
-4. **Cross-model ASR consensus** — the only technique that catches silent
+   Note ru may be uncalibratable until #1 is fixed: a quarter of its ratings are
+   driven by a defect absent from the feature set.
+3. **Cross-model ASR consensus** — the only technique that catches silent
    omissions (v3 dropped a clause v2 and turbo both caught). Proposed, not built.
+4. **`f0` and `wer` scoring are still CPU** — 22% of measured phase totals, now
+   the largest remaining cost lever after `metrics_device: cuda` took sim+mos.
+
+*(Closed 2026-08-09: spot instances — REFUTED, §3. `metrics_device: cuda` —
+adopted, free, §3. Reference selection — REFUTED as a lever, §2.2. ICL vs
+x_vector left on 2026-08-04, REFUTED by ear, §2. It had sat here reading as
+"in flight" for five days after it was settled, which is the same stale-status
+failure §4 warns about.)*
 
 *(ICL vs x_vector left this list on 2026-08-04 — REFUTED by ear, §2. It sat here
 reading as "in flight" for five days after it was settled, which is the same
