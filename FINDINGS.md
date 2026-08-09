@@ -328,6 +328,43 @@ boundaries, with RUAccent as the oracle for which vowel *should* carry stress.
 Validate against these 28 labelled takes — a free, already-collected test set —
 before spending a pod.
 
+### 2.1g Phoneme-based stress detector: BUILT, VALIDATED, FAILED
+
+**CLAIM** Russian reduces unstressed vowels (/o a/ → [ɐ ə]), so a multilingual
+phoneme recogniser reports stress position directly: the unreduced vowel is the
+stressed one. That reads a CATEGORICAL symbol instead of ranking a continuous
+prominence, which is why the earlier acoustic detector self-flipped 29% (§2.1f).
+`facebook/wav2vec2-xlsr-53-espeak-cv-ft` has both vowel sets in its vocabulary.
+**EVIDENCE** `qc/stress_detect.py`, 2026-08-09, no pod.
+1. **The premise is empirically false.** Over 320 vowels from 8 real takes the
+   model emits **99% full vowels, 1% reduced**. It transcribes Russian broadly,
+   not narrowly. Having the symbols in the vocabulary is not the same as using
+   them, and only measuring showed the difference.
+2. **One sub-signal survives: akanye.** Unstressed orthographic о is realised
+   [a], so a full [o] marks a stressed о. At word level, with ±120 ms slice
+   padding: stressed-о words produce [o] **89%** of the time, unstressed-о words
+   **26%** — separation **+0.63**, a real effect.
+3. **Slice padding matters as much as the model.** [o] found on a stressed о:
+   50% at no padding, 68% at ±60 ms, **86% at ±120 ms**. Whisper word bounds
+   clip short Russian words and lose the very vowel being judged — the same
+   localisation weakness that killed the prominence detector.
+4. **It still fails the gate.** Against the 28 human-labelled takes:
+   `mismatches` **AUC 0.562**, `rate` AUC 0.539 — below the **0.647** that
+   back-transcription WER already gives for free. **4 of 8 error takes scored
+   ZERO detected mismatches.**
+**VERDICT** **REFUTED — not wired in.** A real word-level signal did not survive
+aggregation to take level. Two reasons, both structural: coverage (only words
+containing о can be judged, 3-8 per take, and the listener's error is often on a
+word without one) and precision (a 26% word-level false-positive rate over ~6
+words produces ~1.5 spurious mismatches per take, swamping the single real one).
+**WHAT WOULD BE NEEDED** a recogniser that transcribes Russian NARROWLY, with
+reduction — which this one demonstrably does not — or a Russian-specific phoneme
+model, plus real forced alignment rather than padded Whisper bounds.
+**PROCESS NOTE, the point of the exercise:** the gate ran BEFORE the detector was
+wired into take selection and before any pod was spent. The previous detector
+was built and used before it was ever checked against a label, and it silently
+measured itself. Cost here: a few hours and no money, for a clean negative.
+
 ### 2.1c No zero-shot cloning TTS handles Russian stress (survey, 2026-08-09)
 
 **CLAIM** Some other open model solves this and we can swap engines for ru via
@@ -625,9 +662,11 @@ was one command from being checked.
    two, so correct audio already exists in every lesson and is being discarded at
    random. A stress-aware selector takes the error rate from ~29% to 8.2% at
    `best_of=2` and 2.3% at 3. The one missing piece is a DETECTOR — no existing
-   metric works (wer AUC 0.647; mos AUC 0.725 in the WRONG direction). Build
-   phoneme-level forced alignment (wav2vec2/MMS CTC) with RUAccent as the oracle,
-   and validate it against the 28 already-labelled takes for free.
+   metric works (wer AUC 0.647; mos AUC 0.725 in the WRONG direction), and the
+   phoneme-based detector FAILED its gate at AUC 0.562 (§2.1g) — the model does
+   not transcribe Russian vowel reduction. A narrow-transcribing or
+   Russian-specific phoneme model plus real forced alignment is what is left;
+   validate any candidate against the 28 labelled takes before spending a pod.
    **Largest known quality defect, and now the best-understood one.**
 2. **Eval calibration** — `refit` says KEEP CURRENT WEIGHTS (rho 0.237 vs a 0.30
    floor, p 0.078). Until this clears, the harness cannot arbitrate quality
