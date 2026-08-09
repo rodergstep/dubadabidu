@@ -226,24 +226,58 @@ cannot mismatch, marked with lang-uk/ukrainian-word-stress, MIT):
 mechanism is real — but the audio is still destroyed. Marks fail with grounding
 and without it, so **text-side stress marking is closed for qwen**, not merely
 unpromising.
-**VERDICT (ICL) OPEN and LEANING ADOPT for ru — but f0st just failed.** C vs A is
-the best identity measured here (sim +0.035, 3.5x the noise band; mos +0.121,
-15x) while f0st falls 2.874 → 1.931, over 2x its band. I read that as "flatter"
-and warned the listener to judge monotony.
+**VERDICT (ICL) OPEN, and it SPLITS BY SENTENCE LENGTH.** C vs A is the best
+identity measured here (sim +0.035, 3.5x the noise band; mos +0.121, 15x) while
+f0st falls 2.874 → 1.931.
 
-**The ear says the opposite.** Blind, 12 sentences, axis printed on the page
-("which is LESS flat and more expressive"): **ICL 9, production 3** (two-sided
-p = 0.146 — suggestive, short of 0.05; 10-2 would clear it at n=12). A
-continuation page covers the remaining 13 sentences.
+Blind ear, axis printed on the page ("which is LESS flat and more expressive"),
+run in two halves — and the halves disagree:
 
-**So f0st is inverted against perceived liveliness on this comparison.** That is
-the metric whose entire job is anti-monotony, and it carries **0.85 weight** in
-the en best-fit `refit` keeps proposing (§2.1) — a proposal that would have
-optimised hard against the listener's actual preference. It is also the second
-independent time f0st has pointed the wrong way: reference f0st and output f0st
-are inversely ordered across the whole reference set (§2.2 note).
-**CAUTION** n=12 and one language. Do not adopt ICL for ru, and do not touch the
-weights, until the continuation page lands.
+| round | sentences | ICL | production | ICL unusable |
+|---|---|---|---|---|
+| 1 | the 12 LONGEST | **9** | 3 | — |
+| 2 | the next 13, shorter | 2 | **9** | **6** vs 2 |
+| combined | 25 | 11 | 12 | — |
+
+**Fisher exact p = 0.0123** between rounds. The combined 11-12 (p = 1.000) is
+averaging over a real split, not measuring sameness — quoting it alone would be
+the mistake. ICL appears to help on long sentences and hurt on short ones, which
+is what accent bleed should look like: less room to recover in a short clip.
+**DO NOT ADOPT** on this. The next question is whether the effect is length or
+something correlated with it.
+
+**A CLAIM I MADE AND RETRACTED WITHIN THE HOUR.** After round 1 alone I reported
+that f0st was "inverted against the ear" and the user reasonably asked me to fix
+or remove it. Round 2 reversed the sign, and on the full corpus f0st is the
+STRONGEST feature we have (below). Twelve sentences was not enough to claim an
+inversion in a metric whose measured band is ±0.438. The retraction cost nothing
+only because the weights had not been touched yet.
+
+### 2.1e What the 226 ratings actually say about each metric
+
+**CLAIM** The take-selection features all carry some signal.
+**EVIDENCE** 2026-08-09, pooled per language, permutation-tested against 5000
+shuffles of the ratings:
+
+| feature | en rho | en p | ru rho | ru p |
+|---|---|---|---|---|
+| **f0st** | **+0.290** | **0.0016** | **+0.190** | **0.0386** |
+| mos | −0.016 | 0.87 | **+0.295** | **0.0014** |
+| sim | −0.075 | 0.42 | −0.136 | 0.15 |
+
+**VERDICT** **`sim` is REFUTED as a predictor** — indistinguishable from noise in
+both languages, and NEGATIVE in sign in both. It is the metric this project
+chased hardest: three reference sweeps, the ICL experiment, and a blind test
+where the ear picked the lowest-sim candidate. Five failures.
+**`f0st` is CONFIRMED** as the only feature significant in both languages.
+**NOT A CONTRADICTION with `qc/bakeoff.py`, which excludes f0st from its score.**
+The bake-off ranks whole RUNS, where f0st's run-to-run band (±0.438) swamps any
+difference. `qc.eval.weights` ranks TAKES inside one segment. Same metric,
+different comparison, different noise — both exclusions are correct in place.
+**ENCODED** `config.yaml` `qc.eval.weights: {sim: 0.0, mos: 0.55, f0: 0.30,
+tempo: 0.15}`, guarded by `tests/test_deps.py`. This is a targeted removal of a
+measured non-signal, NOT an adopted refit — refit still says KEEP CURRENT
+WEIGHTS and its fits remain unstable at this n (§2.1d).
 
 ### 2.1c No zero-shot cloning TTS handles Russian stress (survey, 2026-08-09)
 

@@ -232,3 +232,21 @@ def test_ru_icl_arms_differ_in_exactly_one_axis():
     # the whole experiment would degrade into the already-refuted test.
     assert b["qwen_x_vector_only"] is False, (
         "ICL off means ref_text is dropped — that is the REFUTED configuration")
+
+
+def test_eval_weights_sum_to_one_and_sim_stays_out():
+    """sim was measured to be noise against 226 ratings (en p 0.42, ru p 0.15)
+    and removed 2026-08-09. Re-adding it needs new evidence, not a tidy-up: it
+    has failed to predict this listener five separate times, including an ICL
+    round it won by 17x the noise band and the ear rated 15/18 unusable."""
+    import yaml
+    w = yaml.safe_load((ROOT / "config.yaml").read_text(
+        encoding="utf-8"))["qc"]["eval"]["weights"]
+    assert abs(sum(w.values()) - 1.0) < 1e-9, f"weights must sum to 1: {w}"
+    assert w["sim"] == 0.0, (
+        "sim is back in the take-selection objective — it does not predict the "
+        "listener in either language")
+    assert w["f0"] > 0, (
+        "f0st is the only feature significant in BOTH languages (en p 0.0016, "
+        "ru p 0.0386); bakeoff excludes it for RUN-level ranking, which is a "
+        "different comparison with a different noise floor")

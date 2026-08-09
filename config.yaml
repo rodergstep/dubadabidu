@@ -231,8 +231,40 @@ qc:
   # see qc/metrics.py set_device() for the two-command validation.
   metrics_device: cpu
   eval:                             # `dubadabidu evaluate` + tune objective
-    # calibrated vs human ratings 2026-07-08 (spearman: mos +.63 f0 +.48 sim -.30)
-    weights: {sim: 0.25, mos: 0.40, f0: 0.20, tempo: 0.15}
+    # Calibrated vs human ratings 2026-07-08 (spearman: mos +.63 f0 +.48
+    # sim -.30) — those numbers were taken under CHATTERBOX and did not survive
+    # the engine change.
+    #
+    # sim DROPPED 0.25 -> 0.0 on 2026-08-09, at the user's call, on 112 en / 114
+    # ru ratings. Permutation-tested against 5000 shuffles, sim does not predict
+    # this listener in EITHER language:
+    #     en rho -0.075 (p 0.42)    ru rho -0.136 (p 0.15)
+    # It is also weighted 0.0 in the best fit for both languages, and it has now
+    # failed to predict his judgement FIVE separate times — three reference
+    # sweeps, the ICL round (won sim by 17x the noise band, rated 15/18
+    # unusable), and the sketch_ref_08 blind test, where the ear chose the
+    # LOWEST-sim candidate. Paying 0.25 of the objective for an anti-signal.
+    #
+    # f0 RAISED 0.20 -> 0.30. It is the only feature that predicts him in BOTH
+    # languages (en rho +0.290 p 0.0016, ru +0.190 p 0.0386) and the strongest
+    # single predictor in en.
+    # NOTE THE APPARENT CONTRADICTION with qc/bakeoff.py, which deliberately
+    # EXCLUDES f0st from its score. Both are right: the bake-off ranks whole
+    # RUNS, where f0st's run-to-run band is ±0.438 and swamps any difference;
+    # this ranks TAKES inside one segment, where the ratings say it carries the
+    # signal. Same metric, different comparison, different noise.
+    #
+    # mos RAISED 0.40 -> 0.55 — significant in ru (rho +0.295, p 0.0014) though
+    # not in en (p 0.87), so it takes the remainder rather than leading.
+    # tempo unchanged at 0.15: never tested against ratings, kept as-is rather
+    # than moved on no evidence.
+    #
+    # THIS IS NOT refit's PROPOSAL. refit still says KEEP CURRENT WEIGHTS and
+    # its gates have never passed; its own best fits are unstable at this n
+    # (pooled f0 0.95 vs within-round sim 0.55 on the SAME ratings, FINDINGS
+    # 2.1d). This is a targeted removal of a feature measured to be noise, not
+    # an adopted re-fit — do not read it as the gate having cleared.
+    weights: {sim: 0.0, mos: 0.55, f0: 0.30, tempo: 0.15}
     score_flag: 0.55                # review page flags segments below this
     sim_floor_default: 0.35         # fallback if edge floor-synth is offline
   refit:                            # `dubadabidu refit` — AUTOPILOT M4.
