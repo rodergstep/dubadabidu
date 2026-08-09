@@ -267,10 +267,34 @@ def test_remote_stages_reads_the_real_argparse_dests():
     narrowed = argparse.Namespace(from_stage="s4_synthesize",
                                   to_stage="s4_synthesize")
     assert _remote_stages(narrowed) == "--from s4_synthesize --to s4_synthesize"
-    # untouched flags keep the long-standing pod default: stop at s7, because
-    # the mux needs the source video and that stays local
+    # untouched flags stop the pod at s5: s4 is the only stage needing a GPU,
+    # and s6/s7 are CPU work on files that sync both ways. Was s7 until
+    # 2026-08-09, when s6's pedalboard import (the [master] extra, never
+    # installed on a pod) failed a run in which all five languages had already
+    # synthesized and fitted successfully.
     default = argparse.Namespace(from_stage="s1_extract", to_stage="s8_mux")
-    assert _remote_stages(default) == "--to s7_subtitles"
+    assert _remote_stages(default) == "--to s5_fit"
+    # an explicit --to still wins, so a pod can be made to carry further
+    further = argparse.Namespace(from_stage="s1_extract",
+                                 to_stage="s7_subtitles")
+    assert _remote_stages(further) == "--to s7_subtitles"
+
+
+def test_pod_never_runs_a_stage_needing_an_extra_it_does_not_install():
+    """The pod installs `.[dev]`. s6's mastering chain needs `.[master]`
+    (pedalboard, GPLv3, opt-in on purpose), so a pod that reaches s6 with
+    mix.master.enabled dies AFTER all the billed GPU work is done."""
+    import argparse
+    from dub import _remote_stages, ORDER
+    from pipeline.runpod_infra import REMOTE_TASK
+    default = argparse.Namespace(from_stage="s1_extract", to_stage="s8_mux")
+    stop = _remote_stages(default).split("--to ")[1].strip()
+    assert ORDER.index(stop) < ORDER.index("s6_mix"), (
+        f"the pod stops at {stop}, which reaches s6_mix — that stage imports "
+        f"pedalboard from the [master] extra, which no pod installs")
+    # and the fallback inside remote_run must agree with it
+    fallback = REMOTE_TASK["run"].format(video="v", langs="en", stages="")
+    assert "{stages}" not in fallback
 
 
 def test_bootstrap_pins_torch_itself_now_that_chatterbox_is_gone():

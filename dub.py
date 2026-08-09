@@ -216,9 +216,22 @@ def _remote_stages(a) -> str | None:
     if getattr(a, "from_stage", "s1_extract") != "s1_extract":
         parts.append(f"--from {a.from_stage}")
     to = getattr(a, "to_stage", "s8_mux")
-    # the pod always stops at s7: the mux needs the source video, which stays
-    # local. An explicit --to wins; otherwise keep that long-standing default.
-    parts.append(f"--to {to if to != 's8_mux' else 's7_subtitles'}")
+    # THE POD STOPS AT s5. It used to stop at s7, on the reasoning that only the
+    # MUX needs the source video — true, but it is the wrong cut. s4 is the only
+    # stage that needs a GPU. s6 (mix) and s7 (subtitles) are CPU work on files
+    # that already live in work/ and sync both ways, so running them on the pod
+    # billed rented time for something the laptop does free.
+    # It also broke a run, 2026-08-09: s6's mastering chain imports pedalboard,
+    # which is the opt-in [master] extra (GPLv3, deliberately not in the default
+    # install) and therefore absent from every pod, which installs `.[dev]`. All
+    # five languages synthesized and fitted, then the task exited rc=1 in s6 —
+    # a full GPU run reported as a failure over a stage that had no business
+    # being there. Finishing locally with `--from s6_mix` cost nothing.
+    # The alternative fix — install pedalboard on the pod — would have paid to
+    # move a GPL dependency onto rented hardware to do CPU work slower.
+    # An explicit --to still wins, so `--to s7_subtitles` reproduces the old
+    # behaviour when a pod genuinely needs to carry further.
+    parts.append(f"--to {to if to != 's8_mux' else 's5_fit'}")
     return " ".join(parts)
 
 

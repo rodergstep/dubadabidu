@@ -968,7 +968,10 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # already safe: it passes a list to subprocess, never a shell.
         cmd = REMOTE_TASK[task].format(
             video=shlex.quote(video), langs=",".join(langs),
-            stages=stages or "--to s7_subtitles")
+            # s5, not s7 — see dub._remote_stages. Only s4 needs the GPU; s6/s7
+            # are CPU work on already-synced files, and s6 needs the [master]
+            # extra that pods do not install (it failed a full run 2026-08-09).
+            stages=stages or "--to s5_fit")
         # extras AFTER the hardcoded config.gpu.yaml so they win, matching the
         # local merge order. The files themselves ship with the project rsync.
         for ov in extra_overlays:
