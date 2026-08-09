@@ -205,6 +205,35 @@ control arm: 4 of 30 groups had nothing shippable. No metric here sees it —
 `sim`, `mos` and `f0st` are all blind to which syllable is stressed, which is
 also why `refit` cannot calibrate on ru.
 
+### 2.1bb Stress marks fail WITH in-context grounding too — the route is closed
+
+**CLAIM** The refuted stress test was unfair: it ran `qwen_x_vector_only: true`,
+so the model got acutes in the target having never seen a mark paired with the
+audio it denotes. Upstream [#185](https://github.com/QwenLM/Qwen3-TTS/discussions/185)
+says marking the REFERENCE transcript teaches the model to read them.
+**EVIDENCE** 2026-08-09, three arms, 46 ru segments, reference held constant
+(`sketch_ref_08.trim12s`, transcript taken from the trimmed clip itself so it
+cannot mismatch, marked with lang-uk/ukrainian-word-stress, MIT):
+
+| arm | sim | mos | f0st | **wer** | pace |
+|---|---|---|---|---|---|
+| A production — x_vector, unmarked | 0.687 | 2.394 | **2.874** | **0.068** | 0.864 |
+| C ICL, unmarked | **0.722** | **2.515** | 1.931 | 0.080 | 0.803 |
+| B ICL, marked ref + marked target | 0.718 | 2.326 | 2.059 | **0.621** | 1.046 |
+
+**VERDICT (marks) REFUTED, definitively.** B vs C holds ICL constant: WER
+0.080 → 0.621. Grounding helps against the ungrounded run (0.811 → 0.621) — the
+mechanism is real — but the audio is still destroyed. Marks fail with grounding
+and without it, so **text-side stress marking is closed for qwen**, not merely
+unpromising.
+**VERDICT (ICL) OPEN, and do not adopt on these numbers.** C vs A is the best
+identity this project has measured (sim +0.035, 3.5x the noise band; mos +0.121,
+15x) — but f0st falls 2.874 → 1.931, more than 2x its band, i.e. markedly
+flatter. Monotony is a standing ear complaint, `sim` has failed to predict this
+listener four times, and ICL was REFUTED by ear for English (15/18 unusable).
+Metrics-favourable and ear-unknown is exactly the shape that has misled this
+project before. Blind ru page built from the cached audio; awaiting the ear.
+
 ### 2.1c No zero-shot cloning TTS handles Russian stress (survey, 2026-08-09)
 
 **CLAIM** Some other open model solves this and we can swap engines for ru via
