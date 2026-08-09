@@ -868,6 +868,21 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
             pid, host, port = alive
             log.info("reusing pod %s at %s:%d — skipping provision/apt",
                      pid, host, port)
+            # The ledger's price comes from provision(), which a reused run
+            # skips — so every --reuse run recorded price_per_hr 0.00 and cost
+            # $0.000. That is silent UNDER-reporting of exactly the runs
+            # --keep-alive exists to encourage: two real A/B arms on 2026-08-09
+            # billed ~20 min of pod time and landed in runs.jsonl as free.
+            # cost_per_video_hour then averages the zeros in. Re-stamp it here.
+            try:
+                info = get_pod(pid)
+                _LAST_POD.update({"pod_id": pid,
+                                  "price_per_hr": info.get("costPerHr"),
+                                  "vcpu": info.get("vcpuCount"),
+                                  "ram_gb": info.get("memoryInGb"),
+                                  "reused": True})
+            except Exception as e:   # never fail a run over a ledger field
+                log.info("reused pod price unknown: %s", e)
             # RE-ARM against THIS run's deadline. The pod is still counting
             # down from the deadline of the run that created it; a course of
             # twenty videos on one pod would otherwise be killed partway

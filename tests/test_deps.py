@@ -189,3 +189,20 @@ def test_ruaccent_is_declared_where_synthesis_runs():
     assert "ruaccent" in proj, (
         "ruaccent moved out of core: tts.ru_stress would silently no-op on the "
         "pod, because normalize_for_tts swallows the ImportError by design")
+
+
+def test_reused_pods_reach_the_ledger_with_a_price():
+    """--reuse skips provision(), which is where the ledger's price_per_hr is
+    stamped. Without a re-stamp every reused run costs $0.000 in runs.jsonl —
+    silent UNDER-reporting of precisely the runs --keep-alive encourages, and
+    cost_per_video_hour averages the zeros in. Measured 2026-08-09: two real
+    A/B arms billed ~20 min of pod time and recorded as free."""
+    src = (ROOT / "pipeline" / "runpod_infra.py").read_text(encoding="utf-8")
+    body = src.split("alive = _live_pod() if reuse else None", 1)[1]
+    branch = body.split("else:", 1)[0]
+    assert "_LAST_POD.update" in branch, (
+        "the --reuse branch does not stamp _LAST_POD, so its runs land in "
+        "runs.jsonl with price_per_hr 0 and cost $0.000")
+    assert "costPerHr" in branch, (
+        "the reuse branch must read the REAL rate from the API, not fall back "
+        "to assumed_price_per_hr (deliberately the worst case, ~2.5x high)")
