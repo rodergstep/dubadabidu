@@ -55,13 +55,32 @@ def _dur(p: Path) -> float:
 
 
 def _groups(bo: Path, lang: str, variants: list[str],
-            min_seconds: float) -> list[dict]:
-    """One group per segment: every take of every variant, shuffled."""
+            min_seconds: float, takes_per_variant: int = 1) -> list[dict]:
+    """One group per segment: `takes_per_variant` take(s) of each, shuffled.
+
+    ONE take per variant by default, and that default matters. Every take of
+    every variant produced 4 clips per sentence for a 2-arm test, and the
+    listener's objection to the 40-track page was precisely this: more clips per
+    decision is harder, not more informative. The question a comparison page
+    asks is "which VARIANT ships", so a second take of the same variant adds
+    take-to-take noise to a variant-level judgement — the listener ends up
+    resolving a 4-way with two near-duplicates instead of an A/B.
+
+    Take 0 for every variant, never the highest-ranked one. The rank comes from
+    the take-selection objective, which correlates +0.022 with this listener
+    (FINDINGS 2.1) — picking each variant's "best" by a metric he does not agree
+    with would quietly bias the comparison. The same positional rule applied to
+    both arms cannot favour either.
+    """
     by_seg: dict[str, list[Path]] = {}
     for v in variants:
         d = bo / "seg" / v / lang
-        for w in sorted(d.glob("*_t*.wav")) if d.is_dir() else []:
-            by_seg.setdefault(w.stem.split("_t")[0], []).append(w)
+        takes = sorted(d.glob("*_t*.wav")) if d.is_dir() else []
+        per_seg: dict[str, list[Path]] = {}
+        for w in takes:
+            per_seg.setdefault(w.stem.split("_t")[0], []).append(w)
+        for seg, ts in per_seg.items():
+            by_seg.setdefault(seg, []).extend(ts[:max(1, takes_per_variant)])
     out = []
     for seg, takes in by_seg.items():
         dur = sum(_dur(t) for t in takes) / max(len(takes), 1)
@@ -78,9 +97,17 @@ def _groups(bo: Path, lang: str, variants: list[str],
 
 
 def build(wd: Path, lang: str, variants: list[str],
-          min_seconds: float = MIN_SECONDS, embed: bool = True) -> Path:
+          min_seconds: float = MIN_SECONDS, embed: bool = True,
+          takes_per_variant: int = 1, max_groups: int | None = None) -> Path:
     bo = wd / "bakeoff"
-    groups = _groups(bo, lang, variants, min_seconds)
+    groups = _groups(bo, lang, variants, min_seconds, takes_per_variant)
+    if max_groups:
+        # groups are longest-first, so a cap keeps the most judgeable ones
+        dropped = len(groups) - max_groups
+        groups = groups[:max_groups]
+        if dropped > 0:
+            log.info("capped at %d group(s); %d shorter one(s) dropped",
+                     max_groups, dropped)
     if not groups:
         raise SystemExit(
             f"no segment of {variants} in {lang} has >= {min_seconds}s of audio "
