@@ -365,6 +365,40 @@ wired into take selection and before any pod was spent. The previous detector
 was built and used before it was ever checked against a label, and it silently
 measured itself. Cost here: a few hours and no money, for a clean negative.
 
+### 2.1h MFA variant-alignment detector: BUILT, VALIDATED, FAILED (and why)
+
+**CLAIM** Pronunciation-variant forced alignment detects wrong stress. The MFA
+Russian dictionary (v3.1.0, CC BY 4.0) transcribes narrowly — stress IS vowel
+quality, and it already ships `замок` twice (`z̪ ɐ m o k` / `z̪ a m ə k`) on
+exactly that principle. Offer the aligner every stress placement, let its
+acoustic model pick, read the winner's vowels back.
+**EVIDENCE** `qc/stress_mfa.py` + `qc/stress_variants.py`, 2026-08-09, no pod.
+The machinery works: **14.2 words resolved per take** (against 3-8 for the
+wav2vec2 route), and spot checks are right — `пото́м`→1, `о́хра`→0, `жёлтая`→0.
+Against the 16 labelled takes: `rate` **AUC 0.641**, `mismatches` AUC 0.578 —
+under the **0.647** that WER already gives free. Within-pair (the actual use
+case, picking the better of two takes): **3 correct, 2 wrong, 3 ties**.
+**VERDICT** **REFUTED — not wired in.** Chance-level discrimination.
+**WHY IT FAILS, which is the useful part.** 12 words were flagged in BOTH takes
+of a pair. Errors are stochastic per take (§2.1f), so a both-take mismatch is
+not a TTS error — it is the DETECTOR AND ORACLE disagreeing systematically:
+- **RUAccent is wrong sometimes.** It marks `перед` on slot 1; the preposition
+  is `пе́ред`, slot 0. The oracle this whole family of approaches depends on is
+  not itself reliable.
+- **Some words have no single right answer.** `цвета` is `цве́та` (gen. sg.) or
+  `цвета́` (nom. pl.), both valid; a context-free oracle cannot arbitrate, and
+  disagreement there is noise, not signal.
+**CONSEQUENCE FOR THE WHOLE APPROACH** every oracle-based stress detector
+inherits the oracle's error rate, and here that rate is comparable to the defect
+being measured. Improving the acoustic side cannot fix that.
+**PROCESS NOTE** the gate ran on 16 takes. Iterating on the detector until it
+passed would be fitting to the validation set, so it was run ONCE per design
+change and the design was not tuned against the labels. Three detectors have now
+failed this gate before shipping; none reached take selection or cost a pod.
+**RETAINED** the code stays, unwired, with its gate — so the negative is
+reproducible and nobody rebuilds it. MFA install is a throwaway micromamba env,
+NOT a project dependency.
+
 ### 2.1c No zero-shot cloning TTS handles Russian stress (survey, 2026-08-09)
 
 **CLAIM** Some other open model solves this and we can swap engines for ru via
@@ -662,11 +696,15 @@ was one command from being checked.
    two, so correct audio already exists in every lesson and is being discarded at
    random. A stress-aware selector takes the error rate from ~29% to 8.2% at
    `best_of=2` and 2.3% at 3. The one missing piece is a DETECTOR — no existing
-   metric works (wer AUC 0.647; mos AUC 0.725 in the WRONG direction), and the
-   phoneme-based detector FAILED its gate at AUC 0.562 (§2.1g) — the model does
-   not transcribe Russian vowel reduction. A narrow-transcribing or
-   Russian-specific phoneme model plus real forced alignment is what is left;
-   validate any candidate against the 28 labelled takes before spending a pod.
+   metric works (wer AUC 0.647; mos AUC 0.725 in the WRONG direction), and THREE
+   detectors have now failed the gate: acoustic prominence (§2.1f, 29% self-flip),
+   wav2vec2 phonemes (§2.1g, AUC 0.562) and MFA variant alignment (§2.1h, AUC
+   0.641). The blocker is no longer acoustic — §2.1h showed the ORACLE itself
+   (RUAccent) errs on real words, and some words have no context-free answer, so
+   any oracle-based detector inherits an error rate comparable to the defect.
+   **The remaining option that works today needs no detector: the listener flags
+   bad ru takes by ear and we re-roll only those — correct takes always exist
+   (§2.1f).**
    **Largest known quality defect, and now the best-understood one.**
 2. **Eval calibration** — `refit` says KEEP CURRENT WEIGHTS (rho 0.237 vs a 0.30
    floor, p 0.078). Until this clears, the harness cannot arbitrate quality
