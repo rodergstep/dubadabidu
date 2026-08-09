@@ -236,13 +236,36 @@ failure was only ever in feeding marks to a model that cannot read them. Align
 each synthesized word, measure which vowel actually carries prominence (F0 +
 energy + duration), and **veto takes that disagree** — the same shape as the
 existing WER veto, inside `best_of`, no engine change.
-**PREREQUISITE, UNMEASURED:** this only works if the error varies take-to-take.
-A first look at the rated control takes is inconclusive — of the 3 groups with a
-bad control take, 2 had the other take rated good and 1 had both bad. n=3 decides
-nothing. **Measure take-to-take stress variability before building the detector.**
-**FREE VALIDATION SET:** any detector can be scored against ratings already on
-disk (the 6 unusable control clips and the segments marked bad in the reference
-test) before a single pod is spent on it.
+**PREREQUISITE, MEASURED 2026-08-09 — AND THE INSTRUMENT FAILED.** Whether the
+error varies take-to-take was tested on the 46 ru control segments already on
+disk (2 takes each), by detecting the stressed syllable acoustically and asking
+whether the two takes agreed. Deliberately an AGREEMENT test, not a correctness
+test: it needs only a consistent detector, not a right one.
+
+| | rate |
+|---|---|
+| cross-take disagreement | 35.7% (140/392 words) |
+| **null: same take, time-stretched 5%** | **29.4% (116/395)** |
+| difference | 6.3 pp, z = 1.90, **p = 0.057** |
+
+**VERDICT** **INCONCLUSIVE, and the detector is why.** A reliable detector would
+put the null near 0%; at 29.4%, **82% of the apparent cross-take movement is
+detector noise**. p = 0.057 hints the stress really does move but does not clear
+0.05, and this is NOT evidence that placement is deterministic — only that this
+instrument cannot tell.
+**THE FIRST NULL WAS TOO WEAK AND SAID 0%.** It added faint noise, which leaves
+every word boundary in place and therefore tests only that the detector is
+deterministic — which it trivially is. The null has to perturb TIMING, the way a
+real second take does. A control that cannot fail is not a control.
+**CONSEQUENCE FOR THE VETO PLAN:** blocked on the detector, not on the premise.
+A veto misfiring on 29% of words would reject good takes constantly. Energy
+peak-picking over Whisper word timestamps is not a usable stress detector — the
+weak link is localisation: word boundaries are coarse and syllable nuclei are
+inferred from a smoothed sonority envelope rather than measured.
+**NEXT INSTRUMENT** phoneme-level forced alignment (wav2vec2/MMS CTC, or MFA)
+gives real vowel boundaries instead of guessed ones. Validate any replacement
+against ratings already on disk — the 6 unusable control clips and the segments
+marked bad in the reference test — before spending a pod on it.
 
 ### 2.2 The reference is a CURATED asset, not a per-video by-product
 
