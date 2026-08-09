@@ -84,3 +84,19 @@ def test_truth_file_records_the_axis_and_build(tmp_path):
     compare.build(tmp_path, "ru", ["A", "B"], embed=False, axis="stress only")
     truth = json.loads((bo / "compare_ru_truth.json").read_text())
     assert truth["_axis"] == "stress only" and truth["_build"]
+
+
+def test_skip_groups_continues_where_the_last_page_stopped(tmp_path):
+    """Rating rounds are capped to stay short, so the rest must be reachable
+    without re-asking what was already answered."""
+    bo = tmp_path / "bakeoff"
+    for v in ("A", "B"):
+        d = bo / "seg" / v / "ru"
+        d.mkdir(parents=True)
+        for i, secs in enumerate([9.0, 8.0, 7.0, 6.0]):
+            sf.write(d / f"u{i:04d}_t0.wav", np.zeros(int(16000 * secs)), 16000)
+    first = compare._groups(bo, "ru", ["A", "B"], 5.0)[:2]
+    rest = compare._groups(bo, "ru", ["A", "B"], 5.0)[2:]
+    assert [g["seg"] for g in first] + [g["seg"] for g in rest] == \
+        [g["seg"] for g in compare._groups(bo, "ru", ["A", "B"], 5.0)]
+    assert not ({g["seg"] for g in first} & {g["seg"] for g in rest})

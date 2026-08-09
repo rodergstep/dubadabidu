@@ -99,7 +99,8 @@ def _groups(bo: Path, lang: str, variants: list[str],
 def build(wd: Path, lang: str, variants: list[str],
           min_seconds: float = MIN_SECONDS, embed: bool = True,
           takes_per_variant: int = 1, max_groups: int | None = None,
-          axis: str = "overall quality — the one you would ship") -> Path:
+          axis: str = "overall quality — the one you would ship",
+          skip_groups: int = 0) -> Path:
     """`axis` is printed ON the page, and it is not decoration.
 
     2026-08-09: a page was built to settle whether ICL's flatter delivery was
@@ -113,6 +114,13 @@ def build(wd: Path, lang: str, variants: list[str],
     """
     bo = wd / "bakeoff"
     groups = _groups(bo, lang, variants, min_seconds, takes_per_variant)
+    # skip_groups continues an earlier page instead of re-asking what was already
+    # answered. Groups are sorted longest-first and that order is deterministic,
+    # so skip_groups=N picks up exactly where a max_groups=N page stopped. The
+    # localStorage key is derived from the clip layout, so the continuation gets
+    # its own store and cannot inherit the first page's answers.
+    if skip_groups:
+        groups = groups[skip_groups:]
     if max_groups:
         # groups are longest-first, so a cap keeps the most judgeable ones
         dropped = len(groups) - max_groups

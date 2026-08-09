@@ -226,13 +226,24 @@ cannot mismatch, marked with lang-uk/ukrainian-word-stress, MIT):
 mechanism is real — but the audio is still destroyed. Marks fail with grounding
 and without it, so **text-side stress marking is closed for qwen**, not merely
 unpromising.
-**VERDICT (ICL) OPEN, and do not adopt on these numbers.** C vs A is the best
-identity this project has measured (sim +0.035, 3.5x the noise band; mos +0.121,
-15x) — but f0st falls 2.874 → 1.931, more than 2x its band, i.e. markedly
-flatter. Monotony is a standing ear complaint, `sim` has failed to predict this
-listener four times, and ICL was REFUTED by ear for English (15/18 unusable).
-Metrics-favourable and ear-unknown is exactly the shape that has misled this
-project before. Blind ru page built from the cached audio; awaiting the ear.
+**VERDICT (ICL) OPEN and LEANING ADOPT for ru — but f0st just failed.** C vs A is
+the best identity measured here (sim +0.035, 3.5x the noise band; mos +0.121,
+15x) while f0st falls 2.874 → 1.931, over 2x its band. I read that as "flatter"
+and warned the listener to judge monotony.
+
+**The ear says the opposite.** Blind, 12 sentences, axis printed on the page
+("which is LESS flat and more expressive"): **ICL 9, production 3** (two-sided
+p = 0.146 — suggestive, short of 0.05; 10-2 would clear it at n=12). A
+continuation page covers the remaining 13 sentences.
+
+**So f0st is inverted against perceived liveliness on this comparison.** That is
+the metric whose entire job is anti-monotony, and it carries **0.85 weight** in
+the en best-fit `refit` keeps proposing (§2.1) — a proposal that would have
+optimised hard against the listener's actual preference. It is also the second
+independent time f0st has pointed the wrong way: reference f0st and output f0st
+are inversely ordered across the whole reference set (§2.2 note).
+**CAUTION** n=12 and one language. Do not adopt ICL for ru, and do not touch the
+weights, until the continuation page lands.
 
 ### 2.1c No zero-shot cloning TTS handles Russian stress (survey, 2026-08-09)
 
@@ -295,6 +306,38 @@ inferred from a smoothed sonority envelope rather than measured.
 gives real vowel boundaries instead of guessed ones. Validate any replacement
 against ratings already on disk — the 6 unusable control clips and the segments
 marked bad in the reference test — before spending a pod on it.
+
+### 2.1d Mixed rating axes did NOT break refit (my hypothesis, refuted)
+
+**CLAIM** The listener said (2026-08-09) he had been rating STRESS while every
+page's instruction said "the one you would ship". If rounds were judged on
+different axes, refit has been fitting one weight vector to several different
+questions, which would explain its near-zero cross-validated rho.
+**EVIDENCE** `qc/axis_check.py`, on the 112 en / 114 ru rows. `variant` is a
+proxy for rating round.
+- **Rounds disagree no more than chance.** Permuting round labels 1000x within a
+  language, the observed between-round spread of per-round Spearman sits inside
+  the null for every feature: en sim p=0.155, mos p=0.208, f0st p=0.716; ru sim
+  p=0.147, mos p=0.986, f0st p=0.198. The eye-catching sign flips (en sim +0.447
+  in one round, -0.507 in another) are what Spearman does at n=8-46.
+- **Removing round effects does not recover signal.** Rank-normalising ratings
+  WITHIN round strips any per-round axis or scale offset. Cross-validated rho
+  moves **en +0.024, ru -0.129**. If pooling heterogeneous rounds were the
+  problem this is the fix, and in ru it makes things clearly worse.
+**VERDICT** **REFUTED.** I proposed this an hour after the listener's remark and
+it does not survive its own test. Recorded because the remark was TRUE — he was
+rating a different axis — and the plausible inference from it was still wrong.
+**WHAT THE TEST DID FIND, and it is worse:**
+1. **Floor effects shrink the usable sample.** en `qwen+fast+icl` is 83% rated 1,
+   `0.6B` 62%, `rank-best` 67%. A round with no rating variance contributes
+   nothing whatever its axis, so the effective n is well under 112.
+2. **The fit is not identified at this n.** en pooled best-fit is `f0 0.95`; the
+   within-round fit of the SAME ratings is `sim 0.55, tempo 0.35`. Two defensible
+   procedures, near-opposite weights — that instability IS why refit refuses.
+3. **A MISSING feature, not a mixed one.** Stress drives 10-24% of ru ratings
+   (§2.1b) and NO metric in the set encodes it. Unmodellable signal caps rho no
+   matter how many ratings are added, so "needs more ratings" is not the whole
+   answer and may not be the main one.
 
 ### 2.2 The reference is a CURATED asset, not a per-video by-product
 
@@ -501,9 +544,10 @@ was one command from being checked.
    be judged by ear. **This is the largest known quality defect in the product.**
 2. **Eval calibration** — `refit` says KEEP CURRENT WEIGHTS (rho 0.237 vs a 0.30
    floor, p 0.078). Until this clears, the harness cannot arbitrate quality
-   changes and every lever above is judged by ear. **Needs more human ratings.**
-   Note ru may be uncalibratable until #1 is fixed: a quarter of its ratings are
-   driven by a defect absent from the feature set.
+   changes and every lever above is judged by ear.
+   **NOT a mixed-axis problem — tested and refuted 2026-08-09 (§2.1d).** The
+   likeliest cause is a MISSING feature: nothing in the set encodes stress, and
+   stress drives 10-24% of the ru ratings. More ratings alone may not fix it.
 3. **Cross-model ASR consensus** — the only technique that catches silent
    omissions (v3 dropped a clause v2 and turbo both caught). Proposed, not built.
 4. **`f0` and `wer` scoring are still CPU** — 22% of measured phase totals, now
