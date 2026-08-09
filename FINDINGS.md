@@ -279,6 +279,55 @@ tempo: 0.15}`, guarded by `tests/test_deps.py`. This is a targeted removal of a
 measured non-signal, NOT an adopted refit — refit still says KEEP CURRENT
 WEIGHTS and its fits remain unstable at this n (§2.1d).
 
+### 2.1f RU stress errors are STOCHASTIC per take — the fix is selection
+
+**CLAIM** qwen mis-stresses a given word the same way every time, so re-rolling
+cannot escape it and `best_of` is the wrong lever. (The premise the veto idea
+rests on; my acoustic detector failed to settle it — §2.1b — at 29% self-flip.)
+**EVIDENCE** 2026-08-09. Settled with the listener's ear instead of an
+instrument: 14 ru sentences, TWO takes of the SAME config, single question —
+does the stress differ?
+
+| | count |
+|---|---|
+| exactly ONE take had a stress error | **8** |
+| **BOTH** takes had a stress error | **0** |
+| no error heard | 6 |
+
+Determinism predicts every group with an error has BOTH takes bad: predicted 8,
+**observed 0**.
+**VERDICT** **REFUTED — errors are stochastic per take.** 8 of 28 takes (29%)
+carry at least one stress error, and a correct take existed for every affected
+segment. **Every lesson already contains correct-stress audio; we discard it at
+random because the objective cannot see stress.**
+**QUANTIFIED PAYOFF** with a working stress-aware selector, assuming
+independence at p=0.29: `best_of=2` → **8.2%** of segments still wrong,
+`best_of=3` → **2.3%**, `best_of=4` → 0.7%. Against ~29% today.
+**THIS IS THE HIGHEST-VALUE OPEN ITEM IN THE PROJECT.** It converts the largest
+known quality defect from "no solution exists" (§2.1c) into "build the
+detector", with the payoff measured rather than hoped for.
+
+**BUT NO EXISTING METRIC DETECTS IT** — `qc/stress_wer.py`, the 28 rated takes:
+
+| feature | error-take mean | clean mean | AUC | p |
+|---|---|---|---|---|
+| wer | 0.090 | 0.089 | 0.647 | 0.232 |
+| mos | **2.232** | **1.961** | 0.725 | 0.067 |
+
+`wer` does not separate them — the means are identical, so a mis-stressed
+Russian word still back-transcribes to the right word. Whisper is robust to
+stress, which is exactly what makes it useless here.
+**AND `mos` POINTS THE WRONG WAY.** Stress-error takes score *higher* (2.232 vs
+1.961). `mos` now carries **0.55** of the take-selection weight (§2.1e), so
+selection may be actively biased TOWARD mis-stressed takes — which would make
+the shipped rate worse than the 29% a coin flip would give. Marginal (p=0.067,
+n=8 vs 20) and NOT acted on, but it is the first hypothesis to test with more
+ratings, and it would explain the listener's complaints better than chance does.
+**NEXT** phoneme-level forced alignment (wav2vec2/MMS CTC) for real vowel
+boundaries, with RUAccent as the oracle for which vowel *should* carry stress.
+Validate against these 28 labelled takes — a free, already-collected test set —
+before spending a pod.
+
 ### 2.1c No zero-shot cloning TTS handles Russian stress (survey, 2026-08-09)
 
 **CLAIM** Some other open model solves this and we can swap engines for ru via
@@ -571,11 +620,15 @@ was one command from being checked.
 
 ## 5. Open questions, ranked
 
-1. **RU wrong stress — 24% of segments unusable, and the obvious fix is gone.**
-   RUAccent marks destroy the audio (§2.1b), so input marking is closed. What is
-   left: a stress-aware or phoneme-input TTS path for ru, or accepting that ru
-   ships worse than the other four. No metric detects it, so any candidate has to
-   be judged by ear. **This is the largest known quality defect in the product.**
+1. **RU wrong stress — SOLVABLE, and the path is now known (§2.1f).** Errors are
+   stochastic per take: 8 of 14 sentences had exactly one bad take and NONE had
+   two, so correct audio already exists in every lesson and is being discarded at
+   random. A stress-aware selector takes the error rate from ~29% to 8.2% at
+   `best_of=2` and 2.3% at 3. The one missing piece is a DETECTOR — no existing
+   metric works (wer AUC 0.647; mos AUC 0.725 in the WRONG direction). Build
+   phoneme-level forced alignment (wav2vec2/MMS CTC) with RUAccent as the oracle,
+   and validate it against the 28 already-labelled takes for free.
+   **Largest known quality defect, and now the best-understood one.**
 2. **Eval calibration** — `refit` says KEEP CURRENT WEIGHTS (rho 0.237 vs a 0.30
    floor, p 0.078). Until this clears, the harness cannot arbitrate quality
    changes and every lever above is judged by ear.
