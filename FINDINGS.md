@@ -190,12 +190,59 @@ inflated WER cosmetically by surviving normalization. They do not —
 accented-vs-plain text scores WER 0.0 after normalization. The 0.811 is real.
 **ENCODED** `tts.ru_stress` stays `false`. `config.exp.ru-stress.yaml` keeps the
 recipe so nobody re-runs it from scratch to re-learn this.
-**THE COMPLAINT IS STILL OPEN.** 6 of 25 rated ru segments (**24%**) were marked
-unusable in *both* arms of the reference test — u0006, u0015, u0020, u0023,
-u0027, u0030 — attributed by ear to wrong stress. No metric here sees it: `sim`,
-`mos` and `f0st` are all blind to which syllable is stressed, which is also why
-`refit` cannot calibrate on ru. The fix must come from somewhere other than
-input marking — a stress-aware model, or a phoneme-level input path.
+**CONFIRMED BY EAR 2026-08-09**, 30 sentences x 4 clips, blind:
+
+| | control | stress |
+|---|---|---|
+| best | **27** | 2 |
+| unusable | 6/60 = **10%** | 58/60 = **97%** |
+
+two-sided binomial **p = 0.00000**. Metrics and ear agree for once, and they
+agree the marks are catastrophic.
+
+**THE COMPLAINT IS STILL OPEN.** The listener still hears wrong stress in the
+control arm: 4 of 30 groups had nothing shippable. No metric here sees it —
+`sim`, `mos` and `f0st` are all blind to which syllable is stressed, which is
+also why `refit` cannot calibrate on ru.
+
+### 2.1c No zero-shot cloning TTS handles Russian stress (survey, 2026-08-09)
+
+**CLAIM** Some other open model solves this and we can swap engines for ru via
+`tts.engine_by_lang`.
+**EVIDENCE** Web survey:
+- **Qwen3-TTS** — trained without stress marks; upstream discussions
+  [#185](https://github.com/QwenLM/Qwen3-TTS/discussions/185) and
+  [#53](https://github.com/QwenLM/Qwen3-TTS/discussions/53) report exactly our
+  result ("manual workarounds produce worse results than unstressed text"). No
+  maintainer response, no roadmap, open since April 2026.
+- **OmniVoice** (k2-fsa, Apache-2.0, 600+ langs, zero-shot cloning) — U+0301 is
+  **ignored**; plus signs, SSML phoneme tags and full ARPAbet all fail
+  ([issue #65](https://github.com/k2-fsa/OmniVoice/issues/65), closed as
+  duplicate). Reporter's partial workaround — ARPAbet for homographs only —
+  imports an English accent on those words.
+- **XTTS-v2** — clones, supports ru, but **CPML licensed** (non-commercial above
+  revenue/user thresholds) and Coqui is defunct. No documented stress support.
+- **Silero v5** — native `+` stress marks *and* a `silero_stress` predictor, i.e.
+  correct Russian. **No voice cloning**: fixed speakers only.
+- **F5-TTS** — en/zh; the Russian variant is a community fine-tune.
+
+**VERDICT** CONFIRMED — there is no drop-in. The field splits cleanly into
+*clones your voice but cannot be told where the stress goes* and *gets the stress
+right but is not your voice*. Voice identity is the product (§2.3), so the
+engine swap is not available.
+**WHAT IS LEFT, and the one worth trying:** use RUAccent as an **oracle** rather
+than as input conditioning. It predicts the correct stressed vowel reliably; the
+failure was only ever in feeding marks to a model that cannot read them. Align
+each synthesized word, measure which vowel actually carries prominence (F0 +
+energy + duration), and **veto takes that disagree** — the same shape as the
+existing WER veto, inside `best_of`, no engine change.
+**PREREQUISITE, UNMEASURED:** this only works if the error varies take-to-take.
+A first look at the rated control takes is inconclusive — of the 3 groups with a
+bad control take, 2 had the other take rated good and 1 had both bad. n=3 decides
+nothing. **Measure take-to-take stress variability before building the detector.**
+**FREE VALIDATION SET:** any detector can be scored against ratings already on
+disk (the 6 unusable control clips and the segments marked bad in the reference
+test) before a single pod is spent on it.
 
 ### 2.2 The reference is a CURATED asset, not a per-video by-product
 
