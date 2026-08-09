@@ -262,9 +262,25 @@ GPU idles at ~7%. Scoring runs on a rented vCPU.
 exists and defaults to `cpu` deliberately: every stored score was produced on
 CPU, so flipping it needs a measured diff first (`qc/metrics.py set_device()`).
 
-**OPEN** Spot (`interruptible: true`) is 2–3×, and `synth_best_of` checkpoints
-per segment so preemption resumes from cache. Not flipped: this project lost
-four runs to spot reclamation on COMMUNITY. Needs one measured run.
+**CLAIM** Spot (`interruptible: true`) is a 2–3× cost lever, made safe by the
+take cache: preemption resumes from cached segments rather than from zero.
+**EVIDENCE** Six spot pods over two days, none of which ever reached synthesis.
+2026-07-30 on COMMUNITY: died at 62 s / 7m27s / 8m32s / 8m53s. 2026-08-09 on
+SECURE, after the pool change that was supposed to fix it: `EXITED` before SSH
+at ~2 min, then `closed by remote host` at ~11 min at the end of the pip
+install. Disk is ruled out — 40 GB with ~14 GB measured headroom, and the same
+install completes on on-demand pods routinely.
+**VERDICT** REFUTED, and the *reasoning* was refuted, not just the setting. The
+cache argument only covers work already done, and every death has been during
+the **~11 min bootstrap**, which caches nothing and is re-paid in full. Spot
+does not make a short run cheaper; it makes it never finish. A run of this shape
+is ~40 min, so the bootstrap is a quarter of it and the exposure is
+structural.
+**ENCODED** `config.gpu.yaml` `runpod.interruptible: false`, with the six
+lifetimes in the comment. Reopening this needs a mechanism that survives a
+mid-bootstrap kill — a network volume holding `.venv` is the honest
+prerequisite, and it is region-locked, which shrinks the spot pool it would
+depend on.
 
 ---
 
@@ -306,11 +322,18 @@ was one command from being checked.
 
 ## 5. Open questions, ranked
 
-1. **ICL vs x_vector** — the only identified lever on speaker similarity. *(in flight)*
-2. **Spot instances** — 2–3× cost, needs one measured run.
-3. **`metrics_device: cuda`** — up to ~40% of s4, needs a score diff.
-4. **Eval calibration** — `refit` says KEEP CURRENT WEIGHTS (rho 0.237 vs a 0.30
+1. **RU lexical stress** (`tts.ru_stress`, RUAccent) — reported wrong by ear
+   twice, and the A/B has still never run: the 2026-08-03 attempt died on the
+   `transformers` conflict before synthesis. This is the only open item with a
+   *known* quality complaint attached to it. *(queued)*
+2. **`metrics_device: cuda`** — up to ~40% of s4, needs a score diff.
+   *(Now the largest untaken cost lever, since spot is closed — §3.)*
+3. **Eval calibration** — `refit` says KEEP CURRENT WEIGHTS (rho 0.237 vs a 0.30
    floor, p 0.078). Until this clears, the harness cannot arbitrate quality
    changes and every lever above is judged by ear. **Needs more human ratings.**
-5. **Cross-model ASR consensus** — the only technique that catches silent
+4. **Cross-model ASR consensus** — the only technique that catches silent
    omissions (v3 dropped a clause v2 and turbo both caught). Proposed, not built.
+
+*(ICL vs x_vector left this list on 2026-08-04 — REFUTED by ear, §2. It sat here
+reading as "in flight" for five days after it was settled, which is the same
+stale-status failure the file warns about in §4.)*
