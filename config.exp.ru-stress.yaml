@@ -1,55 +1,44 @@
 # EXPERIMENT: RU lexical stress (RUAccent combining acutes) vs unaccented.
-# Control is config.exp.icl-control.yaml — identical but ru_stress: false.
 #
 #   dubadabidu remote bakeoff <video> --langs ru --reuse --keep-alive \
 #     --overlay config.gpu.yaml --overlay config.exp.ru-stress.yaml
 #
-# WHY. The listener reported wrong stress on the shipped ru track (2026-08-03).
-# Russian stress is lexical, unmarked in writing, and homographs resolve only
-# from context (за́мок / замо́к), so a TTS must guess. RUAccent marks it.
+# The CONTROL is config.exp.ru-control.yaml: same overlay stack, no ru_stress,
+# and a variant_label so the two rows cannot merge. Run both, diff the
+# scorecard, then judge by ear — this axis is about which SYLLABLE is stressed,
+# and no metric we have measures that. sim/mos/f0st can only tell us whether the
+# marks damaged anything else.
+#
+# WHY. The listener reported wrong stress on the shipped ru track (2026-08-03),
+# and again after the reference change (2026-08-09). Russian stress is lexical,
+# unmarked in writing, and homographs resolve only from context (за́мок / замо́к),
+# so a TTS must guess. RUAccent marks it explicitly.
 #
 # WHY IT IS A QUESTION, NOT A FIX. Chatterbox was TRAINED on combining acutes —
-# A/B-verified 2026-07-08 that marks fix its stress — and qwen was not. Marks
-# may help, do nothing, or be read as noise/artifacts. The row carries a
-# +stress suffix so both audio sets survive for the ear.
-# qwen_x_vector_only. Exists because the bake-off's own tune-lite sweep is the
-# default: run without this and it re-sweeps bakeoff.grids over ref/*.wav,
-# picks whatever it likes (measured 2026-08-03: it chose a sketch60 clip and
-# reference_max_s=12), and the "baseline" then differs from the ICL run in
-# REFERENCE as well as in ICL — two axes at once, which measures nothing.
+# A/B-verified 2026-07-08 that marks fix its stress — and qwen was not. Marks may
+# help, do nothing, or be read as noise. The row carries a +stress suffix
+# (qc/bakeoff.variant_key) so both audio sets survive for the ear, and ru_stress
+# salts synth_hash so the A side cannot serve the B side's cached takes.
 #
-# tune.enabled: false and the pinned reference below are what make this a
-# control. Keep the reference and transcript in lockstep with the ICL overlay.
-#   dubadabidu remote bakeoff <video> --langs en --reuse --keep-alive \
-#     --overlay config.gpu.yaml --overlay config.exp.icl.yaml
+# THIS NEVER ACTUALLY RAN. The 2026-08-03 attempt died before synthesis:
+# ruaccent declares `transformers` unpinned, pip resolved 5.14.1, and
+# faster-qwen3-tts needs <5, so the pod came up with `qwen unavailable` and the
+# whole A/B measured nothing. Fixed in 41ed3d9 (transformers==4.57.3 declared in
+# pyproject) and guarded by tests/test_deps.py. Check the pod log for the
+# "qwen ok, torch ... transformers ..." line before believing any result here.
 #
-# WHY: sim→real is qwen's weakest metric (0.614; voxcpm managed 0.804 before it
-# was cut). x_vector_only extracts a speaker EMBEDDING and nothing else. Passing
-# the reference transcript switches on full ICL — ref audio *and* its text in
-# context — which upstream documents as measurably better speaker similarity.
-#
-# WHY IT WAS RULED OUT BEFORE, AND WHY THAT WAS TOO QUICK: Ukrainian is not one
-# of Qwen3-TTS's 10 synthesis languages. But the reference transcript only has to
-# be TOKENIZED, not synthesized, and Qwen3's tokenizer handles Cyrillic. The real
-# risk is accent bleed — UA prosody leaking into the English output — which is
-# exactly what x_vector mode is documented to avoid. So this is a genuine A/B
-# with a plausible downside, not a free win, and the ear arbitrates: variant_key
-# gives it its own "+icl" row so both audio sets survive.
-#
-# reference_text MUST match reference_wav exactly — a mismatched transcript
-# degrades cloning, which would make this test read as "ICL is worse" when it
-# only means "we passed the wrong text". These come from work/sketch60/refs.json.
-# EDIT BOTH LINES TOGETHER to whichever reference the sweep picked.
+# NO REFERENCE PINNED, deliberately — changed 2026-08-09. This file used to pin
+# `Organising the colour palette and materials_ref_04.wav` plus a transcript,
+# copy-pasted wholesale from the ICL overlay along with two paragraphs of ICL
+# prose that had nothing to do with stress. That made the experiment measure
+# stress marks ON A REFERENCE WE DO NOT SHIP. tune.enabled: false alone fixes
+# the reference (it disables the tune-lite sweep, which would otherwise re-pick
+# one from bakeoff.grids); with no override the reference falls through to
+# config.gpu.yaml's tts.reference_wav — sketch_ref_08.trim12s, the clip the
+# blind ear test chose and the one production actually uses. A result measured
+# on the shipped reference is the only one that transfers.
 tts:
-  ru_stress: true       # THE axis under test
-  qwen_x_vector_only: true
-  reference_wav: ref/Organising the colour palette and materials_ref_04.wav
-  # TRIM MUST BE OFF HERE. refs.json's transcript covers the FULL 15.04 s clip;
-  # trimming to 12 s would leave the last ~3 s of text describing audio that is
-  # no longer there, and a mismatched transcript degrades cloning — the test
-  # would then read as "ICL is worse" when it only means "we passed wrong text".
-  reference_max_s: 0
-  reference_text: "Я передусім видавлю ультрамарин, який потрібний для холодних партій в натюрморті."
+  ru_stress: true       # THE axis under test — nothing else may differ
 
 bakeoff:
   tune:

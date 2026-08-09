@@ -300,9 +300,21 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   # one host points at reclamation / an unhealthy box. On-demand removes that
   # variable. Cost is irrelevant here: max_runtime_hours caps a run at 3 h, so
   # worst case moves from ~$0.75 to ~$1.50.
-  # Flip back to true once a run completes end-to-end — spot is genuinely fine
-  # for the batch, where the manifest cache makes a preempted run resumable.
-  interruptible: false         # on-demand; diagnostic (see above)
+  # FLIPPED BACK TO SPOT 2026-08-09, which is what the note above asked for.
+  # The precondition is met several times over: every run since 2026-07-31 has
+  # completed end-to-end, including the 5-language production lesson (38.8 min
+  # of pod wall, zero preemptions), so the four deaths of 2026-07-30 are
+  # attributable to COMMUNITY capacity and one unhealthy host rather than to
+  # anything this bootstrap does. cloud_type is SECURE now, a different pool
+  # from the one that failed.
+  # The downside is bounded by construction: synth_hash caches takes on the Mac
+  # side, so a preempted run resumes at the segment it reached rather than from
+  # zero. Worst case is one lost bootstrap (~7 min).
+  # UNMEASURED: the actual spot discount on SECURE for these gpu_type_ids. The
+  # run ledger (runs.jsonl) records price_per_hr, so the next few runs settle it
+  # against the $0.69/h on-demand figure below. Revert this line if preemptions
+  # come back — the diagnosis above is the reason it was ever false.
+  interruptible: true          # spot — resumable via the take cache
   budget_usd: 10.0             # HARD cap -> auto-terminate; override with --budget
   assumed_price_per_hr: 0.70   # MEASURED: the 4090 pods actually billed $0.69/h,
                                # so the old 0.60 made every budget estimate ~13%
