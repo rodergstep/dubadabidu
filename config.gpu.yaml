@@ -211,7 +211,8 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   # these types ("create pod: There are no instances currently available") and
   # its spot pods were reclaimed within 1-9 min, four times running. Secure is
   # RunPod's own datacenters, where on-demand capacity actually exists. Costs
-  # roughly 2-3x community per hour; max_runtime_hours still caps a run at 3 h.
+  # roughly 2-3x community per hour; max_runtime_hours still bounds a run
+  # (6.0 h since 2026-08-02 — see that setting for the measurement).
   cloud_type: SECURE
   # ORDER MATTERS ONLY WITH gpu_type_priority: custom. With "availability"
   # (the old hardcoded value) RunPod picks whichever type is free and the list
@@ -298,8 +299,8 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   # deterministic step in our setup (apt was investigated and cleared: attempt 4
   # ran `0 upgraded, 2 newly installed` and still died), and repeatedly landing on
   # one host points at reclamation / an unhealthy box. On-demand removes that
-  # variable. Cost is irrelevant here: max_runtime_hours caps a run at 3 h, so
-  # worst case moves from ~$0.75 to ~$1.50.
+  # variable. Cost is irrelevant here: max_runtime_hours bounds the run, so the
+  # worst case is that cap times the hourly rate.
   # SPOT TRIED AGAIN AND REFUTED AGAIN, 2026-08-09. Flipped to true on the
   # reasoning that the 2026-07-30 deaths were COMMUNITY capacity plus one
   # unhealthy host, and that SECURE would be a different pool. It is not a
@@ -351,8 +352,9 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   # OPTIONAL and NOT recommended by default: a RunPod network-volume id to
   # persist .venv/venvs across runs, so the per-venv torch install happens once.
   # Do the math before enabling — it does NOT clearly save money:
-  #   - a run is capped at min(budget/assumed_price_per_hr, max_runtime_hours)
-  #     = 3 h, i.e. well under $1 TOTAL. The install it avoids is ~$0.17 of that.
+  #   - a run is capped at min(budget/assumed_price_per_hr, max_runtime_hours),
+  #     and a measured 5-language run costs well under $1 TOTAL. The install it
+  #     avoids is ~$0.17 of that.
   #   - volume storage bills CONTINUOUSLY, including months with no runs, so
   #     break-even needs roughly 20 runs inside one month. A 20-video batch only
   #     reaches that if it is compressed into a single month.
