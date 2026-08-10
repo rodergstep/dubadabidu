@@ -54,8 +54,10 @@ def _synth_stub(monkeypatch, durations: dict[str, float], default: float):
     """Give each candidate TEXT a chosen synth duration; record the order."""
     made: list[str] = []
 
+    # **kw so a new synth_best_of parameter does not fail four tests for a
+    # reason unrelated to what they check (rank_weights, added 2026-08-09)
     def fake(text, lang, out, t, meta=None, verify_cfg=None, verify_text=None,
-             target_dur=None):
+             target_dur=None, **kw):
         made.append(text)
         _wav(Path(out), durations.get(text, default))
         return 4.0

@@ -250,3 +250,40 @@ def test_eval_weights_sum_to_one_and_sim_stays_out():
         "f0st is the only feature significant in BOTH languages (en p 0.0016, "
         "ru p 0.0386); bakeoff excludes it for RUN-level ranking, which is a "
         "different comparison with a different noise floor")
+
+
+def test_take_ranking_actually_reads_the_configured_weights():
+    """qc.eval.weights was read ONLY by tune.py, while tts_engine._take_rank
+    hardcoded its own copy — so editing the weights changed the reference-sweep
+    objective and nothing about which take ships. refit gated on a formula the
+    pipeline never ran, and dropping sim to 0.0 left it at an effective 0.2 in
+    selection. Wired up 2026-08-09; this keeps them connected."""
+    from pipeline.tts_engine import _take_rank
+    m_hi_sim = {"mos_min": 3.0, "f0st": 2.0, "sim": 0.9}
+    m_lo_sim = {"mos_min": 3.0, "f0st": 2.0, "sim": 0.1}
+    sim_heavy = {"sim": 1.0, "mos": 0.0, "f0": 0.0, "tempo": 0.0}
+    no_sim = {"sim": 0.0, "mos": 1.0, "f0": 0.0, "tempo": 0.0}
+    # with all weight on sim the high-sim take must win
+    assert _take_rank(m_hi_sim, None, sim_heavy) > _take_rank(m_lo_sim, None, sim_heavy)
+    # with sim at zero the two must tie — otherwise sim still leaks in
+    assert _take_rank(m_hi_sim, None, no_sim) == _take_rank(m_lo_sim, None, no_sim)
+
+
+def test_zero_weights_do_not_disable_best_of():
+    """If every applicable weight is 0 the rank must not become a constant —
+    `max` would then return the FIRST take every time and best_of would quietly
+    stop selecting at all."""
+    from pipeline.tts_engine import _take_rank
+    zero = {"sim": 0.0, "mos": 0.0, "f0": 0.0, "tempo": 0.0}
+    better = {"mos_min": 4.0, "f0st": 2.0, "sim": 0.5}
+    worse = {"mos_min": 2.0, "f0st": 2.0, "sim": 0.5}
+    assert _take_rank(better, None, zero) > _take_rank(worse, None, zero)
+
+
+def test_s4_and_s5_pass_the_weights_through():
+    """The engine takes a TTS-config dict and the weights live under qc, so the
+    lookup has to happen at the call site. If a caller forgets, that language
+    silently reverts to DEFAULT_RANK_W."""
+    for mod in ("s4_synthesize", "s5_fit"):
+        src = (ROOT / "pipeline" / f"{mod}.py").read_text(encoding="utf-8")
+        assert "rank_weights=" in src, f"{mod} does not pass rank_weights"

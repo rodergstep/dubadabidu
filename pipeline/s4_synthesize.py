@@ -17,6 +17,15 @@ import soundfile as sf
 from . import manifest as M
 from .tts_engine import synth_best_of
 
+
+def _rank_w(cfg: dict) -> dict | None:
+    """qc.eval.weights, which is what ranks takes (tts_engine._take_rank).
+
+    Threaded explicitly rather than read inside the engine: the engine takes a
+    TTS-config dict, and these live under qc — hiding the lookup in there is how
+    the two drifted apart in the first place."""
+    return (cfg.get("qc", {}).get("eval", {}) or {}).get("weights")
+
 log = logging.getLogger("dubadabidu.s4")
 
 # How far BELOW s5's soft_tempo threshold to start pre-making variants. s5
@@ -53,6 +62,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 synth_best_of(tr["text"], lang, out, tu, meta=takes,
                               verify_cfg=cfg if verify else None,
                               verify_text=tr["text"] if verify else None,
+                              rank_weights=_rank_w(cfg),
                               # source slot: rank takes toward the speaker's
                               # own pace and prefer takes that fit it
                               target_dur=u["end"] - u["start"])
@@ -105,7 +115,9 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                     vh = M.synth_hash(c, lang, tu)
                     vout = seg_dir / f"{u['id']}_{vh}.wav"
                     if not vout.exists():
-                        synth_best_of(c, lang, vout, tu, target_dur=slot or None)
+                        synth_best_of(c, lang, vout, tu,
+                                      target_dur=slot or None,
+                                      rank_weights=_rank_w(cfg))
                         n_var += 1
                         M.save(cfg, video, man)
                     vinfo = sf.info(str(vout))

@@ -110,7 +110,11 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                     # primary in the mix must not be an ungated single take.
                     # target = this segment's actual slot: a variant exists
                     # to FIT, so fitting takes are preferred outright.
-                    synth_best_of(text, lang, wav, tu, target_dur=slot or None)
+                    synth_best_of(text, lang, wav, tu,
+                                  target_dur=slot or None,
+                                  rank_weights=(cfg.get('qc', {})
+                                                .get('eval', {})
+                                                .get('weights')))
                 return wav
 
             soft = f.get("soft_tempo", 1.06)

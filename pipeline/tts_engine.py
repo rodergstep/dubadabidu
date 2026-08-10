@@ -296,30 +296,63 @@ def _f0_delivered(cand: Path) -> float:
         tmp.unlink(missing_ok=True)
 
 
-def _take_rank(m: dict, target_dur: float | None = None) -> float:
-    """Relative ranking of takes of the SAME text/ref. Weights follow the
-    human-rating calibration (mos +.63, f0 +.48, sim kept for identity):
-    windowed MOS first, prosody liveliness and raw ECAPA sim next.
-    Raw (uncalibrated) cosine is fine here — all takes share one reference,
-    only the ordering matters. Renormalized when sim is unavailable (edge
-    engine / missing ref).
+# Fallback only. These are the values _take_rank hardcoded until 2026-08-09,
+# normalised: mos .4 / f0 .2 / sim .2 / pace .2. They were a hand-copy of
+# qc.eval.weights that then drifted out of contact with it — see _take_rank.
+DEFAULT_RANK_W = {"mos": 0.40, "f0": 0.20, "sim": 0.20, "tempo": 0.20}
 
-    Pace term (when target_dur is known): chatterbox pacing varies wildly
-    between rolls of the same text (measured −18%..+45% on sketch60), so
-    without this term the delivered speed is a dice roll — a fast-talking
-    take can win on MOS alone and the dub's rhythm drifts run to run.
-    Takes closest to the source slot's pace score highest; PACE_TOL away
-    scores zero."""
+
+def _take_rank(m: dict, target_dur: float | None = None,
+               weights: dict | None = None) -> float:
+    """Relative ranking of takes of the SAME text/ref, from `qc.eval.weights`.
+
+    THE WEIGHTS ARE NOW CONFIG, AND THAT IS A FIX. They were hardcoded here as
+    (0.5 mos, 0.25 f0, 0.25 sim, 0.25 pace) — a hand-copy of the config values
+    that could not follow them. `qc.eval.weights` was read in exactly one place,
+    tune.py, so editing it changed the reference-sweep objective and NOTHING
+    about which take ships. Three consequences, all live until this was found:
+      - `refit` proposes and gates changes to a knob that did not select takes,
+        so every cross-validated rho in FINDINGS 2.1 described a formula the
+        pipeline never ran;
+      - dropping `sim` to 0.0 on 2026-08-09 did not remove it from selection —
+        it stayed at an effective 0.2 here;
+      - a diagnostic that scored takes with the config weights was measuring
+        something that does not exist.
+    Same family as "production was still routed to chatterbox" and the adoption
+    gate with no incumbent: a knob that looks load-bearing and is not.
+
+    `tempo` in the config maps to the PACE term. Raw (uncalibrated) cosine is
+    fine for sim — all takes share one reference, only the ordering matters.
+    Terms that do not apply (no sim on the edge engine, no target_dur) drop out
+    and the rest renormalise, so a weight set that sums to 1 still behaves.
+
+    Pace term (when target_dur is known): pacing varies widely between rolls of
+    the same text (measured −18%..+45% on sketch60), so without it the delivered
+    speed is a dice roll — a fast-talking take can win on MOS alone and the
+    dub's rhythm drifts run to run. Takes closest to the source slot's pace
+    score highest; PACE_TOL away scores zero.
+
+    NOTE the take metrics are cached in the manifest but `rank` is NOT part of
+    synth_hash, so changing these weights does not invalidate cached audio —
+    re-selection needs `--force` (or a re-rank from the stored per-take
+    metrics). That is deliberate and documented on dub.py's --force.
+    """
+    w = weights or DEFAULT_RANK_W
     mos_n = max(0.0, min(1.0, (m["mos_min"] - 1.0) / 4.0))
     f0_n = max(0.0, min(1.0, m.get("f0st", 0.0) / 4.0))
-    parts = [(0.5, mos_n), (0.25, f0_n)]
+    parts = [(float(w.get("mos", 0.0)), mos_n), (float(w.get("f0", 0.0)), f0_n)]
     if m.get("sim") is not None:
-        parts.append((0.25, m["sim"]))
+        parts.append((float(w.get("sim", 0.0)), m["sim"]))
     if target_dur and m.get("dur"):
         pace = max(0.0, 1.0 - abs(m["dur"] / target_dur - 1.0) / PACE_TOL)
-        parts.append((0.25, pace))
-    total = sum(w for w, _ in parts)
-    return sum(w * v for w, v in parts) / total
+        parts.append((float(w.get("tempo", 0.0)), pace))
+    total = sum(x for x, _ in parts)
+    if total <= 0:
+        # every applicable weight is zero — fall back to MOS rather than
+        # dividing by zero or silently returning a constant (which would make
+        # `max` pick the FIRST take every time, i.e. best_of would stop working)
+        return mos_n
+    return sum(x * v for x, v in parts) / total
 
 
 def early_accept_ok(m: dict, mos_floor: float, sim_floor: float,
@@ -350,7 +383,8 @@ def early_accept_ok(m: dict, mos_floor: float, sim_floor: float,
 def synth_best_of(text: str, lang: str, out: Path, t: dict,
                   meta: list | None = None, verify_cfg: dict | None = None,
                   verify_text: str | None = None,
-                  target_dur: float | None = None) -> float:
+                  target_dur: float | None = None,
+                  rank_weights: dict | None = None) -> float:
     """Synthesize best_of takes; keep the winner at `out`.
 
     Two modes (tts.rank_takes, default true):
@@ -495,7 +529,7 @@ def synth_best_of(text: str, lang: str, out: Path, t: dict,
         # f0 term). Applied after the MOS gate so a lively pick still holds up.
         lively = [tk for tk in pool if tk[1].get("f0st", 0.0) >= min_f0st]
         pool = lively or pool
-    key = (lambda m: _take_rank(m, target_dur)) if ranked \
+    key = (lambda m: _take_rank(m, target_dur, rank_weights)) if ranked \
         else (lambda m: m["mos_min"])
     winner = max(pool, key=lambda tk: key(tk[1]))
     for path, m in takes:
