@@ -18,6 +18,69 @@ Verdicts: `CONFIRMED` · `REFUTED` · `SUPERSEDED` · `OPEN`.
 
 ---
 
+## CLOSED — do not re-attempt without NEW evidence
+
+Read this before spending a pod. Every line was measured, not argued, and the
+section exists because this project has re-derived the same answers more than
+once. "New evidence" means an upstream capability that did not exist when the
+entry was written — not a fresh idea about how to try the same thing again.
+
+### Russian lexical stress — CLOSED 2026-08-09, shipping as-is
+The product decision: **ru ships with the defect.** ~29% of takes carry at least
+one stress error; the other four languages have no equivalent problem. Everything
+below was tried and failed, each for a different reason:
+
+| attempt | outcome | § |
+|---|---|---|
+| RUAccent marks in the target text | 97% unusable by ear, WER 0.068 → 0.811 | 2.1b |
+| RUAccent marks + ICL-grounded reference | still destroyed, WER 0.621 | 2.1bb |
+| `instruct` pronunciation control | does not exist on the cloning path | 2.1c |
+| Engine swap (OmniVoice / XTTS / Silero / F5) | none both clones AND controls stress | 2.1c |
+| chatterbox for ru only | ruled out by the user | — |
+| Detector: acoustic prominence | 29% self-disagreement | 2.1f |
+| Detector: wav2vec2 phonemes | model does not transcribe vowel reduction | 2.1g |
+| Detector: MFA variant alignment | AUC 0.641, and the RUAccent oracle itself errs | 2.1h |
+| Selection: 5-take consensus | ANTI-correlated — prefers the systematic error | 2.1i, 2.1j |
+
+**The reason it is closed, and it is structural (§2.1j):** the errors are partly
+SYSTEMATIC. For some words qwen is reliably wrong, so the majority placement is
+wrong and no selection rule can reach them. `best_of`, vetoes and consensus can
+only touch the smaller stochastic band.
+**What would reopen it:** per-word pronunciation control in Qwen3-TTS (open
+upstream request, no roadmap), or a cloning TTS with a stress-aware frontend.
+Neither is a thing we can build.
+
+### Also closed
+| question | verdict | § |
+|---|---|---|
+| Spot instances | 6 pods, none ever reached synthesis | 3 |
+| Reference choice as a quality lever | 21–21 across 42 blind judgements, p = 1.000 | 2.2 |
+| ICL vs x_vector (en) | refuted by ear, 15/18 unusable | 2 |
+| Per-video references | worse than a curated one | 2.2 |
+| Longer reference clips | score falls monotonically with length | 2 |
+| Sampling-temperature tuning | gain real but cheaper spent on takes | 2 |
+| Generation params | already at upstream defaults | 2 |
+| 0.6B model | costs identity for no reliable gain | config.gpu.yaml |
+| Alternative ASR for Ukrainian | no model uniformly better | 1 |
+| `sim` as a quality predictor | noise in both languages, weight now 0 | 2.1e |
+| Mixed rating axes as refit's problem | refuted by permutation test | 2.1d |
+| "More ratings will fix refit" | no — the audio is uniformly good now | 2.0 |
+
+### Method rules earned the hard way
+- **Compute the binomial before believing a small blind test.** A 2-of-3 has a
+  two-sided p of 1.00 and drove a config change (§2.2).
+- **Matching base rates is not per-item agreement.** 33% vs 29% looked like
+  corroboration and was coincidence (§2.1i).
+- **A control that cannot fail is not a control.** A noise-based null said 0%
+  where a timing-based null said 29% (§2.1f); a storage test compared page
+  shapes when the bug was page content.
+- **Validate a detector against labels BEFORE wiring it in.** Four have failed
+  that gate; none reached production or cost a pod beyond its own test.
+- **A knob that looks load-bearing may not be.** `qc.eval.weights` did not
+  select takes; production was routed to chatterbox for a week (§2.1e).
+
+---
+
 ## 0. Noise floor — the bar every result must clear
 
 **CLAIM** Run-to-run variation on an unchanged config bounds what any comparison

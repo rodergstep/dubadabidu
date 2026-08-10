@@ -98,6 +98,15 @@ tts:
   # back — see FINDINGS.md before flipping it on trust.
   # Salted into synth_hash, so turning it on re-synthesizes ru rather than
   # serving unaccented cache.
+  # KEPT FALSE, and this is settled — see FINDINGS "CLOSED" and 2.1b/2.1bb.
+  # RUAccent marks destroy qwen's Russian: 97% of clips unusable by ear with
+  # x_vector, and still WER 0.621 with an ICL-grounded reference. qwen was not
+  # trained on U+0301 and reads it as content to pronounce.
+  # Russian SHIPS with ~29% of takes carrying a stress error. That is a product
+  # decision taken 2026-08-09, not an oversight: the errors are partly
+  # SYSTEMATIC (qwen is reliably wrong on certain words), so no selection rule
+  # can reach them, and four detectors failed their validation gate. Do not
+  # re-open without per-word pronunciation control in the engine.
   ru_stress: false
           # transcript of reference_wav; `dubadabidu prep`
                               # fills refs.json. Unused by the UA-ref paths.

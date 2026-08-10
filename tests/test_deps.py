@@ -287,3 +287,30 @@ def test_s4_and_s5_pass_the_weights_through():
     for mod in ("s4_synthesize", "s5_fit"):
         src = (ROOT / "pipeline" / f"{mod}.py").read_text(encoding="utf-8")
         assert "rank_weights=" in src, f"{mod} does not pass rank_weights"
+
+
+def test_the_closed_list_survives_and_stays_near_the_top():
+    """FINDINGS opens with a CLOSED list because this project has re-derived the
+    same answers more than once — "what does an hour cost" got three numbers in
+    one day, and a refuted hypothesis was re-proposed twice. It only works if it
+    is the first thing read, so it must stay above the detail sections."""
+    text = (ROOT / "FINDINGS.md").read_text(encoding="utf-8")
+    assert "## CLOSED — do not re-attempt" in text
+    assert text.index("## CLOSED") < text.index("## 1. ASR"), (
+        "the closed list moved below the detail — it is an index, and an index "
+        "nobody reaches first is not one")
+    # the expensive dead ends, by the words a future session would search for
+    for closed in ("Spot instances", "consensus", "RUAccent marks",
+                   "Reference choice as a quality lever"):
+        assert closed in text, f"{closed!r} dropped out of the closed list"
+
+
+def test_russian_ships_as_is_is_recorded_as_a_DECISION():
+    """A known defect that is shipped on purpose has to be written down, or the
+    next session reads ~29% wrong stress as a bug to chase — which is what four
+    failed experiments already cost."""
+    text = (ROOT / "FINDINGS.md").read_text(encoding="utf-8")
+    assert "ru ships with the defect" in text
+    assert "SYSTEMATIC" in text, (
+        "the REASON must survive alongside the decision: the errors are partly "
+        "systematic, so no selection rule can reach them")
