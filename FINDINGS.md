@@ -140,6 +140,40 @@ do.
 apart — the bake-off's own tune sweep otherwise re-picks the reference and
 varies two axes at once).
 
+### 2.0 Post-processing costs nothing, and the engine work is DONE
+
+**CLAIM** The listener's "almost perfect quality" verdict describes what ships.
+Not obvious: every comparison page in this project used RAW bake-off takes,
+straight out of s4, while the product goes through s5 placement, the s6 master
+chain (HPF -> compressor -> limiter) and a loudnorm pass. None of that had ever
+been A/B'd — the quality verdicts were all measured upstream of it.
+**EVIDENCE** 2026-08-09. Raw take vs the mastered vocals actually in the shipped
+video, same sentence, 12 pairs, loudness-matched (mastering raises level and
+louder wins blind tests regardless of quality), blind:
+
+| | best | unusable |
+|---|---|---|
+| shipped (mastered) | 5 | 1 |
+| raw take | 5 | 0 |
+
+**5-5, two-sided p = 1.000.**
+**VERDICT** CONFIRMED — post-processing is transparent. The product is as good as
+the audio being rated. Compared against the MASTERED VOCALS, not `dub_ru.m4a`,
+on purpose: the full mix carries the background bed, which is instantly
+recognisable and would turn a blind test into "do you like background music".
+**THE BIGGER READ, and it changes what is worth working on.** The listener now
+rates the audio near-perfect apart from ru stress. On 2026-08-03 the shipped en
+ratings were 1:1 2:2 3:18 4:20 5:5 — mean ~3.5, with real 1s and 2s. Monotony,
+fidelity and pacing dominated every earlier session and are now closed.
+**CONSEQUENCE FOR CALIBRATION:** this is also why `refit` cannot clear its gates,
+and more ratings will NOT fix it. When the audio is uniformly good there is
+almost no rating variance left to predict, and what remains is driven by a
+defect no metric measures (§2.1f). A flat objective against uniformly good audio
+is a success, not a failure to calibrate.
+**CONSEQUENCE FOR PRIORITIES:** one defect remains — ru stress, one language,
+~29% of takes, with a manual fix that works today. Everything else is polishing
+audio the listener already calls near-perfect.
+
 ### 2.1 The take-selection objective does not track the ear
 
 **CLAIM** `qc.eval.weights` (sim .25 / mos .40 / f0 .20 / tempo .15) ranks takes
