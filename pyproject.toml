@@ -1,38 +1,69 @@
 [project]
 name = "dubadabidu"
 version = "0.4.0"
-description = "Ukrainian -> multilingual AI video dubbing with voice cloning (Chatterbox Multilingual v3)"
+description = "Ukrainian -> multilingual AI video dubbing with voice cloning (Qwen3-TTS)"
 requires-python = ">=3.10,<3.13"
 dependencies = [
   "faster-whisper==1.2.1",
-  "demucs==4.1.0",
-  # torchcodec is intentionally NOT a base dep: it must match the torch version.
-  # The `clone` extra pins torch 2.6.0 (ta.save is native there — no torchcodec needed).
-  # For an edge-only install on torch>=2.9, add the `hifi` extra below.
+  # torch/torchaudio are pinned 2.11.0 by the pod bootstrap (runpod_infra
+  # REMOTE_SETUP), which installs them from the cu128 index BEFORE this
+  # project, so nothing here may pin them. They used to arrive via the `clone`
+  # extra (chatterbox-tts), which was removed with chatterbox on 2026-08-02.
+  # 2.11.0 is the torchaudio ceiling; the CUDA 12.4 driver that once forced
+  # 2.6.0 is filtered out by runpod.allowed_cuda_versions. Locally, install
+  # torch on the same command line as .[sep] — audio-separator declares
+  # torch>=2.3 with no upper bound and will happily pull 2.13.
   "edge-tts==7.2.8",
   "srt==3.5.3",
   "soundfile==0.14.0",
   "librosa==0.11.0",
   "pydub==0.25.1",
-  "openai==2.45.0",
+  "openai==2.52.0",
   "jiwer",
   "num2words",            # digit->word expansion in backcheck WER normalization
+  # Russian lexical stress (RUAccent, Apache-2.0, context-aware homographs).
+  # Needed wherever SYNTHESIS runs, i.e. the pod, so core rather than an extra.
+  # Gated at runtime by tts.ru_stress.
+  "ruaccent==1.5.8.3",
+  # PINNED, and it is load-bearing. qwen-tts pins transformers==4.57.3 and
+  # faster-qwen3-tts requires <5,>=4.57, but neither is a dependency of THIS
+  # project — they install later, from runpod.engine_setup. ruaccent declares
+  # `transformers` UNPINNED, so adding it (2026-08-03) let pip resolve 5.14.1
+  # into .[dev] and the qwen install could no longer be satisfied:
+  #     qwen unavailable: faster-qwen3-tts (tts.qwen_fast is on)
+  # A whole ru-stress A/B measured nothing and cost a pod. Declaring the version
+  # the engine needs makes the constraint explicit instead of emergent.
+  "transformers==4.57.3",
   "speechbrain==1.1.0",   # ECAPA-TDNN speaker similarity (qc), Apache-2.0
-  "ruaccent==1.5.8.3",    # Russian stress marking pre-TTS, Apache-2.0
   "distillmos==0.9.1",    # neural MOS naturalness proxy (qc), MIT
   "pyyaml",
 ]
 
 [project.optional-dependencies]
-clone = ["chatterbox-tts==0.1.7"]   # install first / separately: pins torch/torchaudio 2.6.0
-hifi = ["torchcodec==0.14.0"]       # ta.save backend for torch>=2.9; do NOT combine with `clone`
 # RoFormer separation backend (s1, local-only: the remote flow runs s1/s2 on the
 # Mac, so pods install plain .[dev]). [cpu] only picks the onnxruntime flavor —
 # RoFormer ckpts run on torch and auto-use CUDA/MPS either way.
-# CAUTION: when combined with `clone`, install with explicit torch/numpy pins
-# on the same command line or the resolver moves torch 2.6.0 (see requirements.txt).
-# 0.30.2 = the numpy<2 ceiling forced by chatterbox; 0.44.3 needs numpy>=2.
-sep = ["audio-separator[cpu]==0.30.2"]
+# CAUTION, still live: audio-separator declares only `torch>=2.3` with NO upper
+# bound, so an unpinned install pulls torch 2.13 and breaks the torchaudio
+# pairing (torchaudio stopped at 2.11). Always install with torch/torchaudio
+# pinned ON THE SAME COMMAND LINE:
+#   uv pip install 'audio-separator[cpu]==0.44.5' torch==2.11.0 torchaudio==2.11.0
+# 0.30.2 was the numpy<2 ceiling forced by chatterbox; chatterbox went on
+# 2026-08-02 and 0.44.5 requires numpy>=2, so the two moved together.
+# Our pinned checkpoint (separation.roformer_model,
+# model_bs_roformer_ep_317_sdr_12.9755) is still in 0.44.5's registry — the
+# library moved, the model did not, so stems stay comparable.
+# WART: 0.44.5 hard-depends on onnx-weekly, a dev-channel build. Upstream's
+# choice, not pinnable from here; it is why this stays an OPT-IN extra.
+#
+# demucs lives HERE, not in core, since 2026-08-03. It is the FALLBACK
+# separation backend (separation.backend: demucs) and separation is s1 — a
+# stage that runs on the Mac and never on a pod, because the pod is deliberately
+# never sent the source video. Every pod bootstrap was nonetheless resolving and
+# downloading demucs and its tree (dora-search, julius, lameenc, openunmix) for
+# code it cannot reach. `pip install -e '.[dev]'` is on the critical path of
+# every fresh pod, so this is pure billed wall clock.
+sep = ["audio-separator[cpu]==0.44.5", "demucs==4.1.0"]
 # Apple-Silicon-only ASR accel: Whisper via MLX (Metal/ANE), ~4-5x vs CPU int8.
 # mlx is macOS/arm64-only — keep it OUT of core requirements (it won't resolve on
 # the Linux CUDA box, which auto-uses faster-whisper anyway).

@@ -50,7 +50,17 @@ DEFAULTS = {
     "gpu_type_ids": ["NVIDIA RTX A5000", "NVIDIA GeForce RTX 3090",
                      "NVIDIA RTX A4500", "NVIDIA RTX A4000"],
     "gpu_count": 1,
-    "image": "runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04",
+    # Ubuntu 24.04 => python3.12 (the old py3.10 image capped numpy at 2.2.6);
+    # cu129 => a host driver new enough for torch 2.11's cu126/cu128 builds.
+    # Verified present on Docker Hub 2026-08-02 (stable, not an -rc tag).
+    "image": "runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404",
+    # Filters to hosts whose DRIVER supports these CUDA versions. Without it the
+    # scheduler handed us a CUDA 12.4 driver, which caps torch at 2.6.0. Enum is
+    # 11.8..13.0 (RunPod OpenAPI). Empty/absent => no filter, old behaviour.
+    # TRADE-OFF: every entry removed here shrinks the host pool, and this project
+    # has lost runs to capacity before. Widen this list first if provisioning
+    # starts failing with "no instances currently available".
+    "allowed_cuda_versions": ["12.8", "12.9", "13.0"],
     "container_disk_gb": 30,
     "volume_gb": 0,               # ephemeral; all state rsync'd back
     "cloud_type": "COMMUNITY",
@@ -65,7 +75,7 @@ DEFAULTS = {
     "provision_timeout_s": 420,   # wait this long for the pod to reach RUNNING+SSH
     # per-engine install snippets for the bake-off (git-clone challengers —
     # THIRD_PARTY.md). Each runs on the pod in that engine's OWN venv
-    # (venvs/<engine>, created by engine_install_cmd — the incumbent's .venv is
+    # (installed into .venv by engine_install_cmd — the per-engine venvs were
     # untouchable by construction); empty => that engine is marked unavailable
     # and skipped. Fill with PINNED commands once validated.
     "engine_setup": {},           # e.g. {"qwen": "git clone ... && pip install ..."}
@@ -120,10 +130,13 @@ def create_pod(rp: dict) -> dict:
         "ports": rp["ports"],
         "supportPublicIp": True,
     }
+    # Only send it when set — an empty list would filter to nothing.
+    if rp.get("allowed_cuda_versions"):
+        payload["allowedCudaVersions"] = list(rp["allowed_cuda_versions"])
     if rp.get("network_volume_id"):
         # persistent volume mounted at /workspace — keeps .venv across runs so
-        # the ~15min chatterbox/torch install happens once (REMOTE_SETUP skips
-        # reinstall when chatterbox already imports). remote_dir moves onto it.
+        # the ~15min torch install happens once (REMOTE_SETUP skips reinstall
+        # when torch already imports). remote_dir moves onto it.
         payload["networkVolumeId"] = rp["network_volume_id"]
         payload["volumeMountPath"] = "/workspace"
     elif rp.get("volume_gb"):
@@ -259,6 +272,15 @@ def ssh_exec(rp: dict, host: str, port: int, cmd: str, timeout: int = 7200) -> i
     return subprocess.run(full, timeout=timeout).returncode
 
 
+WATCHDOG_PID = "/tmp/dubadabidu_watchdog.pid"
+
+# Filled by provision() with the pod's REAL price and shape, read by remote_run
+# when it writes the run ledger. A module global rather than a return value so
+# the ledger could be added without changing provision()'s signature — the
+# safety-critical path stays untouched.
+_LAST_POD: dict = {}
+
+
 def arm_pod_watchdog(rp: dict, host: str, port: int, seconds: float) -> None:
     """Independent pod-side self-destruct: a detached process that, after
     `seconds`, makes the pod remove ITSELF (runpodctl is self-authenticated on
@@ -266,11 +288,26 @@ def arm_pod_watchdog(rp: dict, host: str, port: int, seconds: float) -> None:
     can't cover — the LOCAL orchestrator dying (SIGKILL, laptop sleep) before
     its finally runs. Best-effort: if runpodctl is absent it halts the container.
     The client-side terminate still runs on the normal path; this only matters
-    when it never gets the chance."""
+    when it never gets the chance.
+
+    RE-ARMABLE, and that is load-bearing for --reuse. The watchdog used to be
+    armed exactly once, at provision. course.py then attaches ONE pod for every
+    video's s4 (--reuse --keep-alive), and each of those calls recomputes a
+    FRESH deadline locally while the pod is still counting down from video 1's.
+    A course longer than max_runtime_hours therefore had its pod self-destruct
+    mid-run with the local side believing it had hours left — paying for
+    everything up to that point and resuming from cache on the next attempt.
+    Killing the previous sleeper (its pid is parked at WATCHDOG_PID) before
+    starting a new one makes "the deadline this run computed" the only one in
+    force. `kill` targets the `sh -c` parent, so the pending runpodctl never
+    runs even though the orphaned `sleep` lives out its timer."""
     secs = max(60, int(seconds))
-    cmd = (f"nohup sh -c 'sleep {secs}; "
+    cmd = (f"[ -f {WATCHDOG_PID} ] && kill \"$(cat {WATCHDOG_PID})\" "
+           f"2>/dev/null; "
+           f"nohup sh -c 'sleep {secs}; "
            f"runpodctl remove pod $RUNPOD_POD_ID || shutdown -h now || "
-           f"kill -9 -1' </dev/null >/tmp/watchdog.log 2>&1 &")
+           f"kill -9 -1' </dev/null >/tmp/watchdog.log 2>&1 & "
+           f"echo $! > {WATCHDOG_PID}")
     try:
         ssh_exec(rp, host, port, cmd, timeout=30)
         log.info("pod self-destruct watchdog armed (~%.0f min)", secs / 60)
@@ -313,26 +350,33 @@ def _verify_ready(rp: dict, host: str, port: int, remote: str,
                   engines: list[str]) -> bool:
     """Is this pod ALREADY set up for these engines? Proof, not assumption.
 
-    Checks, in the engine's own venv rather than the base one (a CPU-only torch
-    in venvs/<engine> is exactly the failure that once cost a week of 126 s/take
-    runs, and the base venv cannot see it):
-      - the main .venv exists and imports the qc stack
+    Checks, in the venv that now holds everything:
+      - .venv exists
       - each engine's module imports
-      - torch.cuda.is_available() inside that venv
+      - torch.cuda.is_available() — a CPU-only torch is exactly the failure that
+        once cost a week of 126 s/take runs, and it is silent without this
     Any failure, any non-zero rc, any doubt -> False, and setup runs normally.
     Skipping setup wrongly costs a whole experiment; running it needlessly costs
-    ~50 s, so the asymmetry says be conservative."""
+    ~50 s, so the asymmetry says be conservative.
+
+    `edge` needs no install, so it neither contributes an import check nor
+    disqualifies the pod — but a list containing ONLY engines with nothing to
+    verify still returns False, because then this proves nothing about the venv
+    beyond its existence. Unknown engine names stay disqualifying."""
     if not engines:
         return False
-    checks = [f'test -x {remote}/.venv/bin/python']
+    py = f"{remote}/.venv/bin/python"
+    checks = [f"test -x {py}"]
     for e in engines:
+        if e == "edge":        # network service; no venv install to verify
+            continue
         mod = ENGINE_MODULE.get(e)
-        if not mod:            # chatterbox/edge live in the base venv
+        if not mod:            # unknown engine — cannot prove anything
             return False
-        py = f"{remote}/venvs/{e}/bin/python"
         checks.append(
-            f"test -x {py} && {py} -c "
-            f"'import {mod}, torch; assert torch.cuda.is_available()'")
+            f"{py} -c 'import {mod}, torch; assert torch.cuda.is_available()'")
+    if len(checks) == 1:       # nothing but `test -x` — not proof enough
+        return False
     rc = ssh_exec(rp, host, port, " && ".join(checks), timeout=180)
     return rc == 0
 
@@ -400,7 +444,7 @@ def free_engine(rp: dict, host: str, port: int, remote: str,
         return
     # Reclaim the BULK — model weights — and keep the venv and clone, which are
     # small and expensive to rebuild. The original order was backwards: it deleted
-    # venvs/ and third_party/ (~5 GB) while keeping checkpoints/ and
+    # third_party/ (~5 GB) while keeping checkpoints/ and
     # pretrained_models/ (~16 GB), so it fired right after a big download and
     # destroyed the environment that download was for. Measured 2026-07-30: a
     # 5.4 GB CosyVoice2 fetch pushed disk to 79%, the sweep deleted the freshly
@@ -502,6 +546,13 @@ def provision(rp: dict, deadline: float) -> tuple[str, str, int]:
                  pid, host, port, price, info.get("vcpuCount"),
                  info.get("memoryInGb"),
                  f"  [OVER the budgeted ${budgeted}/h]" if over else "")
+        # Stash the ACTUAL price/shape for the run ledger. This is the only
+        # place the real rate is known — the API reports costPerHr per pod, and
+        # rp["assumed_price_per_hr"] is deliberately the worst case (0.7), so
+        # costing a run from config would overstate it ~2.5x. See runlog.py.
+        _LAST_POD.update({"pod_id": pid, "price_per_hr": price,
+                          "vcpu": info.get("vcpuCount"),
+                          "ram_gb": info.get("memoryInGb")})
     except Exception as e:      # never fail a run over a log line
         log.info("pod %s SSH ready at %s:%d (price unknown: %s)",
                  pid, host, port, e)
@@ -511,17 +562,26 @@ def provision(rp: dict, deadline: float) -> tuple[str, str, int]:
 REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     "set -e; cd {dir}; "
     # Retries/timeout on the BOOTSTRAP too, not just the engine installs
-    # (engine_install_cmd). This pip pulls chatterbox-tts and with it ~2.5 GB of
+    # (engine_install_cmd). This pip pulls ~2.5 GB of
     # CUDA torch — the largest download of the whole run — and on 2026-07-30 it
     # died on a bare `ReadTimeoutError ... files.pythonhosted.org`, leaving no
     # torch and failing the CUDA check 7 min in. It was the one big transfer left
     # without retry protection, because the engine path was hardened first simply
     # for having failed first.
     "export PIP_RETRIES=10 PIP_TIMEOUT=60; "
-    "python3 -m venv .venv 2>/dev/null || true; . .venv/bin/activate; "
+    # The old form was `python3 -m venv .venv 2>/dev/null || true`, which hid the
+    # one failure that matters: an image whose python ships no venv module (the
+    # ubuntu2404/py3.12 images need python3-venv). `set -e` then aborted one line
+    # later on `activate`, with the actual cause discarded. Self-heal instead.
+    # NOTE the doubled braces: REMOTE_SETUP is a .format() template, so a literal
+    # shell `{ ...; }` group must be written {{ ...; }} or format() reads it as a
+    # placeholder and raises KeyError. Caught by the tests, before a pod.
+    "python3 -m venv .venv || {{ echo '[setup] no venv module — installing'; "
+    "apt-get install -y -q python3-venv && python3 -m venv .venv; }}; "
+    ". .venv/bin/activate; "
     # UPGRADE PIP FIRST — the single biggest bootstrap win. Ubuntu 22.04's
     # python3.10-venv ships pip 22.0.2, whose resolver backtracks badly on
-    # chatterbox-tts's graph (it hard-pins torch/torchaudio 2.6.0 and numpy<2).
+    # a heavily-pinned dependency graph.
     # Measured on a pod 2026-07-30: 26 min elapsed, 39 s of CPU, 3.3 GB pulled
     # and NOTHING installed — it was downloading 100-700 MB nvidia wheels,
     # reading their metadata, rejecting them and trying other versions. The link
@@ -532,17 +592,47 @@ REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     "pip install -q --upgrade pip; "
     # skip the ~15min reinstall when deps are already present (persistent-volume
     # reuse across runs — see runpod.network_volume_id)
-    # {clone} is chatterbox-tts, installed ONLY when a language actually routes
-    # to chatterbox. It is the `clone` extra and exists to pin torch/torchaudio
-    # 2.6.0 — but it also drags diffusers, s3tokenizer, resemble-perth,
-    # conformer and spacy-pkuseg, plus EXACT pins (transformers==5.2.0,
-    # diffusers==0.29.0) that make pip backtrack. With qwen as the production
-    # engine none of that is used, so the pin moves to us and the package goes.
-    # torch itself still dominates the download; this is not "half the
-    # bootstrap", it is chatterbox's dependency tree and the resolver churn.
+    # torch/torchaudio for the qc stack (speechbrain ECAPA, Distill-MOS,
+    # resampling). The old 2.6.0 pin arrived via chatterbox-tts; chatterbox was
+    # removed 2026-08-02 and with it diffusers, s3tokenizer, resemble-perth,
+    # conformer, spacy-pkuseg and the exact pins (transformers==5.2.0,
+    # diffusers==0.29.0) that made pip backtrack.
+    #
+    # 2.11.0, reached by fixing the HOST rather than the pin. A first attempt at
+    # this bump failed on a pod: "The NVIDIA driver on your system is too old
+    # (found version 12040)", CUDA: False — torch 2.11's oldest build is cu126
+    # (no 2.11+cu124 wheel exists) and the scheduler had handed us a CUDA 12.4
+    # driver. The fix is runpod.allowed_cuda_versions (POST /pods
+    # `allowedCudaVersions`, enum 11.8..13.0) plus the cu129 image, so the driver
+    # is new enough by construction. If that filter is ever emptied, this pin
+    # MUST drop back to 2.6.0 — they change together.
+    #
+    # 2.11.0 is the ceiling above this: torchaudio stopped there (it did not
+    # follow torch to 2.12/2.13) and the two ship as version-locked pairs. The
+    # single remaining torchaudio call is functional.resample; dropping it would
+    # open 2.13, at the cost of re-validating every metric against a different
+    # resampler.
+    #
+    # Nothing in OUR code pins us any more: qc/metrics.py reads via
+    # soundfile instead of torchaudio.load (which needs the separate torchcodec
+    # package from 2.9 on), faster-qwen3-tts wants >=2.5.1 and speechbrain
+    # >=2.1.0. torchaudio's own latest is 2.11.0 — it did not follow torch to
+    # 2.12/2.13 and the two are version-locked — so 2.11 is the ceiling above
+    # this one. qc metrics are bit-identical across 2.6/2.11 (verified), so a
+    # later bump will not move any historical scorecard.
     "if ! python -c 'import torch' 2>/dev/null; then "
-    "{clone}"
-    "pip install --progress-bar off torch==2.6.0 torchaudio==2.6.0 && "
+    # --index-url cu128 is LOAD-BEARING, not cargo-culting. Plain PyPI serves
+    # torch 2.11.0+cu130 (it pulls cuda-toolkit 13.0.2 / nvidia-*-cu13), which
+    # needs a 13.0 DRIVER — while allowed_cuda_versions also admits 12.8 and
+    # 12.9 hosts. Measured 2026-08-02: the default wheel came up `cuda True`
+    # only because that pod happened to draw a 13.0 driver. A cu128 build runs
+    # on 12.8, 12.9 AND 13.0 (drivers are backward compatible with older CUDA
+    # runtimes), so pinning the LOWEST admitted version makes every host in the
+    # filter valid instead of one in three.
+    # Keep this in sync with min(allowed_cuda_versions) — asserted by
+    # test_torch_wheel_matches_the_oldest_allowed_driver.
+    "pip install --progress-bar off torch==2.11.0 torchaudio==2.11.0 "
+    "--index-url https://download.pytorch.org/whl/cu128 && "
     "pip install --progress-bar off -e '.[dev]'; fi; "
     # FAIL if CUDA is missing — otherwise the run would silently synth on CPU,
     # which is uselessly slow and defeats the point of renting a GPU
@@ -565,6 +655,14 @@ REMOTE_TASK = {
     # Default keeps the old whole-pipeline behaviour.
     "run": "dubadabidu run {video} --langs {langs} {stages} "
            "--overlay config.gpu.yaml --overlay config.deepseek.yaml",
+    # preamble = prep's other half: tune R1 scores every ref candidate by real
+    # ECAPA similarity on synthesized output and writes the winner (plus its
+    # transcript, for ICL) into the manifest's tts_overrides. It SYNTHESIZES, so
+    # it cannot run on the laptop with a GPU-only engine — and without this
+    # entry `remote preamble` KeyError'd on REMOTE_TASK[task] AFTER provisioning
+    # a pod. {stages} is unused here but kept so the format() call is uniform.
+    "preamble": "dubadabidu preamble {video} --langs {langs} "
+                "--overlay config.gpu.yaml --overlay config.deepseek.yaml",
 }
 
 # The base image (runpod/pytorch, Ubuntu) lacks rsync/ffmpeg — install them
@@ -621,21 +719,26 @@ def apt_setup(with_ffmpeg: bool = True) -> str:
 
 # faster-whisper short name -> import module, for the engines the bake-off/run
 # may need on the pod. edge is CPU/PyPI (no git-clone) so it's not probed here.
-ENGINE_MODULE = {"chatterbox": "chatterbox", "qwen": "qwen_tts"}
+ENGINE_MODULE = {"qwen": "qwen_tts"}
 
 # installed into every engine venv alongside the snippet: soundfile because
-# the voxcpm/qwen adapters write via sf and not every engine's own requirements
 # carry it. Deliberately minimal — the venv is the ENGINE's resolver's turf.
-WORKER_PIP = "soundfile"
 
 
 def engine_install_cmd(remote: str, engine: str, snippet: str) -> str:
-    """The pod command that installs `engine` into its OWN venv
-    (venvs/<engine>), created here and active while the snippet runs — the
-    engine's resolver can then pick whatever torch it wants; the incumbent's
-    .venv is untouchable by construction (this isolation replaced the old
-    best-effort torch-pin guards). s4/bakeoff auto-route the engine through a
-    worker in this venv the moment it exists (pipeline/engine_client.py)."""
+    """Install `engine` into the MAIN venv.
+
+    It used to get its own venvs/<engine>, because four engines had colliding
+    pins. Three are gone and chatterbox took its torch pin with it, and the
+    surviving constraint sets agree: faster-qwen3-tts wants torch>=2.5.1 (the
+    base has 2.6.0), qwen-tts pins transformers==4.57.3 which nothing in the qc
+    stack requires, and huggingface-hub<1.0 satisfies speechbrain>=0.8 and
+    faster-whisper>=0.21. Isolation was therefore costing a SECOND ~2.5 GB torch
+    download on every fresh pod — the largest single item in the bootstrap — to
+    prevent a collision that can no longer happen.
+
+    If a second cloning engine returns, revert rather than reinvent: the venv
+    machinery (engine_client, engine_worker, the worker pool) is in git."""
     # PIP_CONSTRAINT pins the setuptools pip uses to BUILD wheels. Measured
     # 2026-07-30: CosyVoice's requirements include a source dist whose setup.py
     # does `import pkg_resources`, which current setuptools no longer ships, so
@@ -648,29 +751,43 @@ def engine_install_cmd(remote: str, engine: str, snippet: str) -> str:
     # PIP_RETRIES/PIP_TIMEOUT: engine wheels are hundreds of MB (nvidia_cusolver
     # alone is 267 MB) and pod downloads were seen truncating mid-transfer.
     return (f"set -e; cd {remote}; "
-            f"python3 -m venv venvs/{engine}; "
-            f". venvs/{engine}/bin/activate; "
-            f"printf 'setuptools<80\\n' > venvs/{engine}/pip-constraint.txt; "
-            f"export PIP_CONSTRAINT=$PWD/venvs/{engine}/pip-constraint.txt; "
+            f". .venv/bin/activate; "
+            f"printf 'setuptools<80\\n' > .venv/pip-constraint.txt; "
+            f"export PIP_CONSTRAINT=$PWD/.venv/pip-constraint.txt; "
             f"export PIP_RETRIES=10 PIP_TIMEOUT=60; "
             f"pip install -q --upgrade pip; "
             f"pip install -q 'setuptools<80' wheel; "
-            f"pip install -q {WORKER_PIP}; "
             f"{snippet}")
+
+
+def engines_for_task(cfg: dict, task: str, langs: list[str]) -> list[str]:
+    """Which TTS engines this pod must end up with.
+
+    ONE definition, because two callers must agree on it: _install_engines (what
+    to install) and _verify_ready (what proves a --reuse pod is already set up).
+    They used to disagree — the reuse probe was hardcoded to the BAKE-OFF's
+    engine list and saw `[]` for every other task, and an empty list is False by
+    design. `remote run --reuse` could therefore never skip setup, so course.py
+    re-ran the bootstrap and re-installed qwen once per video: exactly the
+    per-video cost its phase B exists to pay only once."""
+    if task == "bakeoff":
+        return list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
+    tc = cfg.get("tts", {})
+    ebl = tc.get("engine_by_lang") or {}
+    return list(dict.fromkeys(ebl.get(lg, tc.get("engine")) for lg in langs))
 
 
 def _install_engines(rp: dict, host: str, port: int, remote: str,
                      needed: list[str], fail_note: str) -> None:
-    """Run each engine's engine_setup snippet on the pod, each in its own
-    venv (engine_install_cmd). chatterbox/edge have no snippet and are
-    skipped (they live in the main venv). A failure is non-fatal and cannot
-    hurt the other engines — the caller decides what an unavailable engine
-    means (bake-off skips it; a run's s4 raises)."""
+    """Run each engine's engine_setup snippet on the pod, in the main venv.
+    edge has no snippet and is skipped. A failure is non-fatal — the caller
+    decides what an unavailable engine means (bake-off skips it; a run's s4
+    raises)."""
     for eng in needed:
         snip = rp.get("engine_setup", {}).get(eng)
         if not snip:
             continue
-        log.info("installing engine on pod: %s (isolated venv venvs/%s)",
+        log.info("installing engine on pod: %s (main venv) [%s]",
                  eng, eng)
         if ssh_exec(rp, host, port, engine_install_cmd(remote, eng, snip),
                     timeout=2400) != 0:
@@ -728,6 +845,12 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
     hours = (deadline - time.time()) / 3600
     log.info("budget $%.2f -> auto-terminate in %.1f h", budget, hours)
 
+    # WHICH ENGINES this pod must have — resolved ONCE, before the reuse
+    # decision, and shared by the probe and the installer (see engines_for_task).
+    needed = engines_for_task(cfg, task, langs)
+
+    _t0 = time.time()
+    _LAST_POD.clear()          # this run's pod, not the previous one's
     pid = None
     rc = None   # bound before the finally can read it: a failure during
                 # provision/bootstrap never reaches the task, and an unbound
@@ -743,9 +866,29 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
             # ~1.5 MB/s (40-60 min) on a bad one, and one run died on a bare
             # ReadTimeoutError. Reuse converts that lottery into a one-off.
             pid, host, port = alive
-            log.info("reusing pod %s at %s:%d — skipping provision/apt "
-                     "(watchdog already armed by the run that created it)",
+            log.info("reusing pod %s at %s:%d — skipping provision/apt",
                      pid, host, port)
+            # The ledger's price comes from provision(), which a reused run
+            # skips — so every --reuse run recorded price_per_hr 0.00 and cost
+            # $0.000. That is silent UNDER-reporting of exactly the runs
+            # --keep-alive exists to encourage: two real A/B arms on 2026-08-09
+            # billed ~20 min of pod time and landed in runs.jsonl as free.
+            # cost_per_video_hour then averages the zeros in. Re-stamp it here.
+            try:
+                info = get_pod(pid)
+                _LAST_POD.update({"pod_id": pid,
+                                  "price_per_hr": info.get("costPerHr"),
+                                  "vcpu": info.get("vcpuCount"),
+                                  "ram_gb": info.get("memoryInGb"),
+                                  "reused": True})
+            except Exception as e:   # never fail a run over a ledger field
+                log.info("reused pod price unknown: %s", e)
+            # RE-ARM against THIS run's deadline. The pod is still counting
+            # down from the deadline of the run that created it; a course of
+            # twenty videos on one pod would otherwise be killed partway
+            # through by video 1's timer while this process believed it had
+            # hours left. arm_pod_watchdog kills the old sleeper first.
+            arm_pod_watchdog(rp, host, port, deadline - time.time())
         else:
             if reuse:
                 log.info("--reuse: no live pod to attach to; sweeping then "
@@ -792,10 +935,21 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
             # Without it the pod merges into an empty dict and the sync-back
             # overwrites the local scorecard — which silently discarded the
             # voxcpm+qwen comparison twice before this was spotted.
-            needed = [str(wd / n) for n in ("manifest.json", "vocals.wav",
-                                            "qc_ua", "bakeoff")
-                      if (wd / n).exists()]
-            _rsync_paths(rp, port, needed, up)
+            # NOT `needed` — that name holds the ENGINE list computed at the top
+            # of this function and used further down by _verify_ready and
+            # _install_engines. Reusing it here clobbered the engines with file
+            # paths, so `_install_engines` looked up engine_setup["…/vocals.wav"],
+            # found nothing, and installed NOTHING — silently, because a missing
+            # snippet is a legitimate skip (edge has none).
+            # Every `remote bakeoff` on a FRESH pod therefore came up with
+            # "qwen unavailable" and measured zero engines. It went unnoticed
+            # because bake-offs are normally run with --reuse against a pod some
+            # earlier `run` had already installed qwen on; on 2026-08-09 two ICL
+            # arms provisioned their own pod and both produced empty scorecards.
+            bake_paths = [str(wd / n) for n in ("manifest.json", "vocals.wav",
+                                                "qc_ua", "bakeoff")
+                          if (wd / n).exists()]
+            _rsync_paths(rp, port, bake_paths, up)
         else:
             rsync(rp, port, "./", up, extra_excludes=("input", "output"))
         # 2. install + verify CUDA (fails fast if CUDA is unavailable).
@@ -809,44 +963,21 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # certain re-runs setup.
         setup_ok = False
         if alive:
-            probe_engines = list(dict.fromkeys(
-                cfg.get("bakeoff", {}).get("engines", [])
-                if task == "bakeoff" else []))
-            setup_ok = _verify_ready(rp, host, port, remote, probe_engines)
+            setup_ok = _verify_ready(rp, host, port, remote, needed)
             if setup_ok:
                 log.info("reused pod already provisioned (venv + %s import + "
                          "CUDA all verified) — skipping setup and engine install",
-                         "/".join(probe_engines) or "engines")
-        # chatterbox only if something actually routes to it
-        tc = cfg.get("tts", {})
-        routed = {(tc.get("engine_by_lang") or {}).get(lg, tc.get("engine"))
-                  for lg in langs}
-        clone = ("pip install --progress-bar off chatterbox-tts==0.1.7 && "
-                 if "chatterbox" in routed else "")
-        if clone:
-            log.info("a language routes to chatterbox — installing the clone extra")
+                         "/".join(needed) or "engines")
         if not setup_ok and ssh_exec(
-                rp, host, port,
-                REMOTE_SETUP.format(dir=remote, clone=clone),
+                rp, host, port, REMOTE_SETUP.format(dir=remote),
                 timeout=1800) != 0:
             raise RuntimeError("remote setup failed: dependency install error "
                                "OR CUDA unavailable (check the log's CUDA: line)")
         # 2.5 the git-clone engine (qwen) must be installed on the pod before
-        # the task runs. The bake-off lists it explicitly; run and autopilot
-        # need whatever engine_by_lang routes the requested langs to.
-        # chatterbox/edge need no
-        # snippet and are skipped. A failure is non-fatal: the bake-off marks the
-        # engine unavailable, and for a run s4 raises an actionable error for the
-        # langs that needed it.
-        if task == "bakeoff":
-            needed = list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
-        else:
-            tc = cfg.get("tts", {})
-            ebl = tc.get("engine_by_lang", {})
-            needed = list(dict.fromkeys(ebl.get(lg, tc.get("engine")) for lg in langs))
-        # each challenger installs into its own venv, so a collision with the
-        # chatterbox baseline is impossible by construction — no post-install
-        # baseline check needed (REMOTE_SETUP already verified the main venv).
+        # the task runs (`needed`, computed once above and shared with the reuse
+        # probe). edge needs no snippet and is skipped. A failure is non-fatal:
+        # the bake-off marks the engine unavailable, and for a run s4 raises an
+        # actionable error for the langs that needed it.
         if not setup_ok:
             _install_engines(rp, host, port, remote, needed,
                              "bake-off will mark it unavailable"
@@ -863,7 +994,10 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # already safe: it passes a list to subprocess, never a shell.
         cmd = REMOTE_TASK[task].format(
             video=shlex.quote(video), langs=",".join(langs),
-            stages=stages or "--to s7_subtitles")
+            # s5, not s7 — see dub._remote_stages. Only s4 needs the GPU; s6/s7
+            # are CPU work on already-synced files, and s6 needs the [master]
+            # extra that pods do not install (it failed a full run 2026-08-09).
+            stages=stages or "--to s5_fit")
         # extras AFTER the hardcoded config.gpu.yaml so they win, matching the
         # local merge order. The files themselves ship with the project rsync.
         for ov in extra_overlays:
@@ -906,6 +1040,29 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         log.info("remote task %s exited rc=%d; results synced back", task, rc)
         return rc == 0
     finally:
+        # RECORD WHAT THIS COST, before anything can throw. Written on every
+        # path including failure — a run that died after 30 min of bootstrap is
+        # exactly the data point that never survives in a log file. See
+        # runlog.py for why this is not hand-maintained.
+        try:
+            from . import runlog
+            man_p = M.manifest_path(cfg, video)
+            vid_min = segs = None
+            if man_p.exists():
+                _m = json.loads(man_p.read_text(encoding="utf-8"))
+                vid_min = round(float(_m.get("duration") or 0) / 60, 3) or None
+                segs = len(_m.get("utterances") or []) or None
+            runlog.append({
+                "video": Path(video).stem, "task": task, "langs": list(langs),
+                "stages": stages or None, "reuse": bool(reuse),
+                "ok": rc == 0, "rc": rc,
+                "wall_s": round(time.time() - _t0, 1),
+                "video_minutes": vid_min, "utterances": segs,
+                "engines": needed,
+                **{k: v for k, v in _LAST_POD.items()},
+            })
+        except Exception as e:                               # noqa: BLE001
+            log.debug("run ledger skipped (%s)", e)
         # keep_alive: leave the pod UP so an install recipe can be debugged IN
         # PLACE. Without it every attempt paid ~4 min of bootstrap (apt, rsync,
         # the torch install the qc metrics need) just to learn one error message,
@@ -997,27 +1154,24 @@ def _require_something_to_validate(engines: list, probe_engines: list) -> None:
 
 
 def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
-    """Dry-run the bake-off's install path on ONE cheap pod, then report which
-    engines actually import — WITHOUT running a comparison. Provisions, installs
-    the same base deps + every engine_setup snippet a `remote bakeoff` would
-    (each challenger into its OWN venv), probes each engine inside its venv
-    (module + engine_worker + torch/CUDA, one line per engine), and terminates.
-    ~$0.30 and ~15 min to surface unpinned-repo drift, a wrong checkpoint id, or
-    a broken install BEFORE a full billing bake-off hits them. Returns True iff
-    the incumbent (chatterbox, main venv) imports at the end.
+    """Dry-run the install path on ONE cheap pod, then report which engines
+    actually import — WITHOUT running a comparison. Provisions, installs the
+    same base deps + every engine_setup snippet a real run would (into the ONE
+    shared .venv since 2026-08-02), probes torch/CUDA and each engine module,
+    and terminates. ~$0.30 and ~15 min to surface unpinned-repo drift, a wrong
+    checkpoint id, or a dependency conflict BEFORE a full billing run hits them.
+    Returns True iff CUDA is available AND every snippet-backed engine imports.
     Terminates on every path (state-file driven)."""
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
     budget = float(budget_usd if budget_usd is not None else rp["budget_usd"])
-    # config.gpu.yaml is already in REMOTE_TASK; forward only the extras, in
-    # the caller's order, so "later overlay wins" holds on the pod as locally.
-    extra_overlays = [o for o in (overlays or [])
-                      if Path(o).name != "config.gpu.yaml"]
+    # No overlay forwarding here (remote_run has it): setup-check builds no
+    # pod-side dub command — it runs REMOTE_SETUP + an import probe, both driven
+    # by the LOCAL merged cfg. It read an undefined `overlays` until 2026-08-02.
     engines = list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
-    # challengers are probed INSIDE their own venvs (venvs/<engine>) — each via
-    # its venv python, importing the engine module AND pipeline.engine_worker
-    # (the exact combination a real synth call needs). (engine, module, has_snippet)
+    # engines are probed by importing their module in the venv — the exact
+    # thing a real synth call needs. (engine, module, has_snippet)
     probe_engines = [(e, ENGINE_MODULE[e], bool(rp.get("engine_setup", {}).get(e)))
-                     for e in engines if e != "chatterbox" and e in ENGINE_MODULE]
+                     for e in engines if e in ENGINE_MODULE]
     _require_something_to_validate(engines, probe_engines)
     sweep_orphans()
     remote = ("/workspace/dubadabidu" if rp.get("network_volume_id")
@@ -1033,57 +1187,42 @@ def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
         # code + ref only — no work/ needed for an install check (skip the upload)
         rsync(rp, port, "./", f"{rp['ssh_user']}@{host}:{remote}/",
               extra_excludes=("input", "output", "work"))
-        # setup-check validates ENGINE installs; it never synthesizes with
-        # chatterbox, so it does not need the clone extra either
-        if ssh_exec(rp, host, port, REMOTE_SETUP.format(dir=remote, clone=""),
+        if ssh_exec(rp, host, port, REMOTE_SETUP.format(dir=remote),
                     timeout=1800) != 0:
             raise RuntimeError("remote setup failed: dependency install error OR "
                                "CUDA unavailable (check the log's CUDA: line)")
         _install_engines(rp, host, port, remote, engines,
                          "will report FAIL in the probe below")
         # import probe: one line per engine so the scorecard is skimmable.
-        # Runs in the MAIN venv; each challenger is probed by subprocessing
-        # into ITS venv python (import errors there can't hide the others).
-        # The chatterbox check sets the exit code — the challengers can't
-        # poison the main venv anymore, but its own install can still fail.
+        # ONE VENV since 2026-08-02 — engines install into .venv, so this
+        # imports them directly instead of subprocessing into venvs/<engine>.
+        # The chatterbox branch went with chatterbox; the exit code now comes
+        # from CUDA plus every snippet-backed engine importing.
         probe = (
-            "import subprocess, sys\n"
+            "import sys\n"
             "import torch\n"
-            "print('[probe] main venv: torch', torch.__version__, '| cuda', "
+            "print('[probe] venv: torch', torch.__version__, '| cuda', "
             "torch.cuda.is_available())\n"
-            "try:\n"
-            "    import chatterbox; ok = True\n"
-            "    print('[probe] OK   chatterbox (main venv)')\n"
-            "except Exception as e:\n"
-            "    ok = False\n"
-            "    print('[probe] FAIL chatterbox ->', repr(e)[:100])\n"
+            "ok = torch.cuda.is_available()\n"
+            "if not ok:\n"
+            "    print('[probe] FAIL torch has no CUDA — the silent failure "
+            "that cost a week of 126 s/take runs')\n"
             f"for eng, mod, has_snip in {probe_engines!r}:\n"
             "    if not has_snip:\n"
             "        print('[probe] SKIP', eng, '(no engine_setup snippet)')\n"
             "        continue\n"
-            "    code = ('import ' + mod + ', pipeline.engine_worker, torch; '\n"
-            "            'print(torch.__version__, torch.cuda.is_available())')\n"
             "    try:\n"
-            "        r = subprocess.run(['venvs/' + eng + '/bin/python', '-c',\n"
-            "                            code], capture_output=True, text=True)\n"
-            "    except FileNotFoundError:\n"
-            "        print('[probe] FAIL', eng, '-> venvs/' + eng + ' missing "
-            "(install snippet failed?)')\n"
-            "        continue\n"
-            "    if r.returncode == 0:\n"
-            "        v, cuda = r.stdout.split()\n"
-            "        print('[probe] OK  ', eng, '(venv torch', v, '| cuda', "
-            "cuda + ')')\n"
-            "    else:\n"
-            "        tail = (r.stderr or r.stdout).strip().splitlines()\n"
-            "        print('[probe] FAIL', eng, '->', "
-            "(tail[-1] if tail else '?')[:120])\n"
-            "sys.exit(0 if ok else 1)\n")
+            "        __import__(mod)\n"
+            "        print('[probe] OK  ', eng)\n"
+            "    except Exception as e:\n"
+            "        ok = False\n"
+            "        print('[probe] FAIL', eng, '->', repr(e)[:140])\n"
+            "sys.exit(0 if ok else 1)")
         cmd = (f"cd {remote}; . .venv/bin/activate; "
                f"python3 - <<'PYEOF'\n{probe}\nPYEOF")
         rc = ssh_exec(rp, host, port, cmd, timeout=600)
         print(f"[setup-check] probe rc={rc} "
-              f"({'chatterbox baseline OK' if rc == 0 else 'BASELINE BROKEN'})")
+              f"({'all engines import + CUDA OK' if rc == 0 else 'BROKEN'})")
         print("[setup-check] read the [probe] lines above: an engine marked FAIL "
               "would be skipped (unavailable) in a real bake-off.")
         return rc == 0

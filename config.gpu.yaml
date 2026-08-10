@@ -65,7 +65,26 @@ tts:
   # whole set, so the widely-repeated "use an expressive reference" advice is
   # false for this voice; ref_03's edge is more likely its clean, continuous
   # phonation (voiced 0.629, ref mos 4.59 — both the best we have).
-  reference_wav: ref/sketch60_ref_03.wav
+  # CHANGED 2026-08-04 by BLIND EAR TEST, which overruled everything above.
+  # Same 3 sentences, 3 references, unlabelled: sketch_ref_08.trim12s won 2 of 3
+  # and was never marked unusable; sketch_ref_07 won 1 (1 unusable); and
+  # sketch60_ref_03 — the previous default, chosen by the sweeps described above
+  # — won ZERO and was marked unusable TWICE.
+  #
+  # It also settles a disagreement between the metrics and the listener that ran
+  # all day. R1 over all 11 references ranked identity sketch_ref_07 0.678 >
+  # sketch60_ref_03 0.630 > sketch_ref_08.trim12s 0.586, and I argued for
+  # ref_07 on that basis. The ear picked the LOWEST-sim of the three. That is
+  # the fourth time in a day that sim→real failed to predict his rating, and it
+  # matches qc/refit measuring the shipped objective at Spearman +0.022 against
+  # 112 of his ratings, with sim weighted 0.0 in the best fit for BOTH languages.
+  #
+  # n=3 sentences, so treat the ORDER as provisional — but "the incumbent was
+  # never once preferred" is the part that does not need a big sample.
+  # The reference is a CURATED asset, not a per-video by-product (FINDINGS 2.2):
+  # this default applies to every lesson, and a lesson's own audio only enters
+  # the pool via `prep`, to be judged against these.
+  reference_wav: ref/sketch_ref_08.trim12s.wav
   # reference_max_s: DELIBERATELY UNSET. It was 12 on upstream's claim that
   # cloning quality "plateaus and degrades" past ~15 s. Our own data does not
   # reproduce that: 18 s beat 12 s on average in all THREE sweeps (en 0.5003 vs
@@ -76,22 +95,6 @@ tts:
   # sweepable axis (bakeoff.grids) rather than a global default. The trim
   # MECHANISM stays: it is also the guard against over-long references, the
   # documented trigger for the decoder's never-emits-EOS failure.
-  # PARALLEL TAKES. best_of rolls the same text N times sharing no state, but
-  # they were generated strictly one after another — which is why the card sat
-  # at ~7% utilisation while synthesis was still 60% of wall clock. Each worker
-  # is a separate process holding its OWN model copy (~4 GB for 1.7B plus its
-  # own CUDA-graph capture), spawned lazily, so a pool that never sees
-  # concurrent demand costs one model rather than three.
-  # DEFAULT 1 AFTER AN OOM (2026-08-01). Shipping this at 2 alongside
-  # bakeoff.scoring_workers: 3 AND a move to a cheaper, smaller card raised
-  # three variables at once, none measured — the first experiment died in
-  # faster-whisper with "CUDA failed with error out of memory". VRAM is shared
-  # by everything: N synth workers x ~4 GB, plus Distill-MOS and faster-whisper
-  # allocating per concurrent scorer.
-  # Raise ONLY with the card's VRAM in hand (the provisioning log prints $/h,
-  # vCPU and RAM; REST v1 does not expose the GPU model) and ONE axis at a time.
-  # An OOM costs a whole experiment; the saving is a fraction of one.
-  synth_workers: 1
   # EARLY-ACCEPT BAR, engine-relative. config.yaml sets 3.6, which was
   # calibrated when chatterbox was the engine. Distill-MOS scores qwen lower:
   # measured 2026-08-01 over 60 takes, qwen's worst-3s-window MOS spans
@@ -106,8 +109,8 @@ tts:
   # lower — 16 segment-runs cannot resolve a small quality cost.
   early_accept_mos: 2.8
   qwen_max_audio_s: 60                 # reject a take longer than this as a
-                                       # runaway generation (engine_client has
-                                       # no per-call timeout, so an unbounded
+                                       # runaway generation (there is no
+                                       # per-call timeout, so an unbounded
                                        # loop otherwise burns pod time and, worse,
                                        # a merely-long babble take ships silently)
   # qwen_flash_attn: true              # enable only if flash-attn is installed
@@ -244,7 +247,26 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
                  "NVIDIA GeForce RTX 3090 Ti",
                  "NVIDIA GeForce RTX 4080", "NVIDIA GeForce RTX 4080 SUPER",
                  "NVIDIA GeForce RTX 4090"]
-  image: runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04
+  # UPGRADED 2026-08-02 from runpod/pytorch:2.2.0-py3.10-cuda12.1.1-ubuntu22.04,
+  # which was ~2 years old and the root of two separate ceilings:
+  #   py3.10  -> numpy capped at 2.2.6 (3.12 reaches 2.5.1)
+  #   cu12.1  -> hosts with a CUDA 12.4 driver, which caps torch at 2.6.0
+  # ubuntu2404 = python3.12; cu1290 = CUDA 12.9. Stable tag (NOT an -rc), verified
+  # on Docker Hub 2026-08-02.
+  # VERIFY THE CONTENTS, NEVER THE TAG: runpod/containers#114 shipped a
+  # "torch280" image that actually contained torch 2.4.1, because pip silently
+  # fell back when cu128 wheels were missing — and users were billed for GPUs
+  # that torch could not drive. `remote setup-check` prints the resolved torch
+  # and CUDA for ~$0.015; run it after ANY image change.
+  image: runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404
+  # Filters to hosts whose DRIVER supports one of these (REST `allowedCudaVersions`,
+  # enum 11.8..13.0). Without it the scheduler gave us a 12.4 driver and torch
+  # 2.11 reported "NVIDIA driver ... too old (found version 12040)", CUDA: False.
+  # MUST move together with the torch pin in runpod_infra.REMOTE_SETUP: empty
+  # this list and torch has to go back to 2.6.0.
+  # Widen it (add "12.7", "12.6") if provisioning starts failing on capacity —
+  # every entry removed shrinks the host pool.
+  allowed_cuda_versions: ["12.8", "12.9", "13.0"]
   # 150 GB, up from the 30 GB default. THIS was the real cause of the bootstrap
   # failures on 2026-07-30: per-engine venv isolation multiplies torch by the
   # number of challengers, and nobody sized the disk for it. Measured/estimated:
@@ -259,7 +281,7 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   # so this is nearly free; a too-small value costs an entire run.
   # SIZE THIS TO len(bakeoff.engines). MEASURED, not estimated: three qwen-only
   # runs on 2026-07-31/08-01 all reported "disk 43% used" at their peak, i.e.
-  # ~26 GB of the 60 provisioned — base image + main .venv + venvs/qwen +
+  # ~26 GB of the 60 provisioned — base image + .venv (now holding qwen too) +
   # weights + HF/pip caches. 40 GB keeps ~14 GB of headroom over that peak.
   # DO NOT cut this to ~30 GB. That was the value that broke seven consecutive
   # runs on 2026-07-30: a container that exhausts its disk is killed, which
@@ -278,9 +300,26 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   # one host points at reclamation / an unhealthy box. On-demand removes that
   # variable. Cost is irrelevant here: max_runtime_hours caps a run at 3 h, so
   # worst case moves from ~$0.75 to ~$1.50.
-  # Flip back to true once a run completes end-to-end — spot is genuinely fine
-  # for the batch, where the manifest cache makes a preempted run resumable.
-  interruptible: false         # on-demand; diagnostic (see above)
+  # SPOT TRIED AGAIN AND REFUTED AGAIN, 2026-08-09. Flipped to true on the
+  # reasoning that the 2026-07-30 deaths were COMMUNITY capacity plus one
+  # unhealthy host, and that SECURE would be a different pool. It is not a
+  # different outcome:
+  #   attempt 1 — EXITED before SSH came up, ~2 min
+  #   attempt 2 — RUNNING, bootstrapped for ~11 min, then `closed by remote
+  #               host` at the END of the pip install; EXITED
+  # That is 6 spot pods across two days (62s / 7m27s / 8m32s / 8m53s / ~2m /
+  # ~11m) and not one has ever reached synthesis. Disk is ruled out this time:
+  # container_disk_gb is 40 with ~14 GB measured headroom, and the identical
+  # install completes on on-demand pods routinely.
+  # THE CACHE ARGUMENT DOES NOT SAVE IT. "A preempted run resumes from the take
+  # cache" is true only for work already DONE, and every death so far has been
+  # during the ~11 min bootstrap — which caches nothing and must be paid in full
+  # again. Spot does not make a short run cheaper; it makes it never finish.
+  # Cost of learning this twice: ~13 min of billing for zero output.
+  # DO NOT FLIP THIS AGAIN without a mechanism that survives a mid-bootstrap
+  # kill — a network volume holding .venv would be the honest prerequisite,
+  # and its own trade-offs are written up under network_volume_id below.
+  interruptible: false         # on-demand; spot measured, twice (see above)
   budget_usd: 10.0             # HARD cap -> auto-terminate; override with --budget
   assumed_price_per_hr: 0.70   # MEASURED: the 4090 pods actually billed $0.69/h,
                                # so the old 0.60 made every budget estimate ~13%
@@ -290,7 +329,24 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
                                # buys a longer run than the budget really allows.
                                # deadline = min(budget/this, max_runtime_hours).
                                # Cheaper cards simply finish under budget.
-  max_runtime_hours: 3.0       # absolute ceiling regardless of budget
+  # Absolute ceiling regardless of budget — the pod-side watchdog self-destructs
+  # here even if the client dies, so it is the last line of defence against a
+  # runaway bill. It is NOT a target: a run that finishes in 40 min is billed
+  # for 40 min.
+  #
+  # RAISED 3.0 -> 6.0 on 2026-08-02, from measurement rather than caution.
+  # MEASURED on the first production lesson: 8.13 min of video, 5 languages,
+  # 38.8 min of pod wall (30.9 min synthesis + 7.8 min bootstrap, the bootstrap
+  # being fixed cost). Scaling the synthesis to a 1-HOUR lesson gives
+  # 3.81 h + 0.13 h = ~3.94 h — which would have hit the old 3.0 h watchdog and
+  # killed the pod at roughly 76% done, after paying for all of it.
+  # 6.0 h covers a 1-hour lesson at 5 languages with ~50% headroom for a slower
+  # host or a higher best_of. Raise it further only against a fresh measurement.
+  # Note the budget still binds independently: the deadline is
+  # min(budget/assumed_price_per_hr, max_runtime_hours), so at the default
+  # $10 budget and $0.25/h assumed price the budget allows 40 h and THIS is the
+  # binding cap. Lower --budget for a tighter leash on a single run.
+  max_runtime_hours: 6.0
   ssh_key: ~/.ssh/id_ed25519_runpod
   # OPTIONAL and NOT recommended by default: a RunPod network-volume id to
   # persist .venv/venvs across runs, so the per-venv torch install happens once.
@@ -306,18 +362,15 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
   # Enable it for WALL-CLOCK and install-flakiness reasons if you end up
   # iterating heavily in a short window — not as a cost measure.
   # network_volume_id: ""
-  # Per-engine install snippets for `remote bakeoff` (chatterbox is always
-  # installed by REMOTE_SETUP into the MAIN .venv). Each snippet runs on the
-  # pod inside that engine's OWN venv — venvs/<engine>, created and activated
-  # by engine_install_cmd before the snippet — so its resolver may pick
-  # whatever torch/numpy it wants: the chatterbox baseline is untouchable BY
-  # CONSTRUCTION (this per-engine isolation replaced the old best-effort
-  # torch-pin guard tails). s4/bakeoff automatically route an engine through
-  # a worker subprocess in its venv whenever venvs/<engine> exists
-  # (pipeline/engine_client.py); the snippet MUST leave the engine importable
-  # in ITS venv with no PYTHONPATH — pip install -e the clone, or drop a .pth
-  # into site-packages. An empty/failing snippet => that engine is marked
-  # unavailable and skipped, so a partial bake-off still runs.
+  # Install snippets for `remote bakeoff`. Each runs on the pod in the MAIN
+  # .venv (engine_install_cmd activates it) — per-engine venvs were merged
+  # 2026-08-02 once qwen was the only cloning engine, because isolation was
+  # costing a second ~2.5 GB torch download to prevent a collision that can no
+  # longer happen. The snippet MUST leave the engine importable with no
+  # PYTHONPATH — pip install -e the clone, or drop a .pth into site-packages.
+  # An empty/failing snippet => that engine is marked unavailable and skipped,
+  # so a partial bake-off still runs. It must NOT install torch: REMOTE_SETUP
+  # already pinned it and a second resolve is exactly what was cut.
   #
   # STATUS: VALIDATED and PINNED 2026-07-31. qwen runs at 2.36 s/take on a 4090
   # with tts.qwen_fast. Clones are guarded with `[ -d ... ] ||` so a re-run does
@@ -332,18 +385,46 @@ runpod:                        # M2 infra agent — `dubadabidu remote <task> <v
     # would fail at synthesis. Install its requirements.txt when the repo ships
     # one, else fall back to the minimum the adapter needs (torch/torchaudio/
     # transformers). flash-attn stays opt-in (tts.qwen_flash_attn).
-    # CUDA torch FIRST, from the cu121 index, before anything else can drag in a
-    # CPU-only wheel as a transitive dep. Measured 2026-07-30: qwen ran at a
-    # median 126 s/take vs voxcpm's 2.9 s on the SAME pod — the suspected cause
-    # is exactly this, a CPU torch in venvs/qwen degrading silently to fp32 on
-    # CPU. pipeline/device.py:require_gpu now refuses that fallback loudly.
-    # The final `import torch; assert torch.cuda.is_available()` makes the
-    # install fail here rather than 10 minutes later at synthesis time.
-    # faster-qwen3-tts is installed ALONGSIDE the stock clone so tts.qwen_fast
-    # can be flipped either way on the same pod without a reinstall (the A/B is
-    # the point). It needs torch>=2.5.1, which the cu121 line above provides.
-    qwen: "pip install -q --index-url https://download.pytorch.org/whl/cu121 torch torchaudio && { [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && git -C third_party/Qwen3-TTS checkout 022e286b98fbec7e1e916cb940cdf532cd9f488e && { [ -f third_party/Qwen3-TTS/requirements.txt ] && pip install -q -r third_party/Qwen3-TTS/requirements.txt || pip install -q transformers; } && pip install -q -e third_party/Qwen3-TTS && pip install -q faster-qwen3-tts==0.3.2 && python -c 'import qwen_tts, faster_qwen3_tts, torch; assert torch.cuda.is_available(), \"CPU-only torch in venvs/qwen: \"+torch.__version__; print(\"qwen ok, torch\", torch.__version__)'"
+    # ONE VENV since 2026-08-02: this installs into .venv, not venvs/qwen.
+    # NO torch line here any more — REMOTE_SETUP already installed torch (2.11.0;
+    # the pod resolves the bundled CUDA variant, measured +cu124 on 2026-08-02,
+    # NOT the cu121 an earlier comment here claimed) and re-installing from an
+    # explicit CUDA index is what pulled a SECOND ~2.5 GB copy on every fresh
+    # pod. faster-qwen3-tts needs >=2.5.1, so the bootstrap's pin serves.
+    # huggingface-hub is pinned <1.0 FIRST because faster-qwen3-tts requires it
+    # and the base may carry a 1.x left by an older resolve; speechbrain (>=0.8)
+    # and faster-whisper (>=0.21) are happy either side of 1.0.
+    # qwen-tts pins transformers==4.57.3 exactly. Nothing in the qc stack
+    # requires transformers at runtime (only dev/conversion extras), so that pin
+    # is free to take — the assert prints the resolved version so a future
+    # conflict shows up in the log instead of at synthesis time.
+    # The `import ... assert torch.cuda.is_available()` makes a CPU-only torch
+    # fail HERE rather than 10 minutes later: that exact silent fallback cost a
+    # week of 126 s/take runs.
+    qwen: "pip install -q -U 'huggingface-hub<1.0' && { [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && git -C third_party/Qwen3-TTS checkout 022e286b98fbec7e1e916cb940cdf532cd9f488e && pip install -q -e third_party/Qwen3-TTS && pip install -q faster-qwen3-tts==0.3.2 && python -c 'import qwen_tts, faster_qwen3_tts, torch; assert torch.cuda.is_available(), \"CPU-only torch: \"+torch.__version__; print(\"qwen ok, torch\", torch.__version__, \"transformers\", __import__(\"transformers\").__version__)'"
   # SAFETY: pod id persisted to work/.runpod_active.json on create; terminate
   # retries+verifies and only clears state on confirmation; an independent
   # pod-side watchdog self-destructs at the deadline even if this process dies;
   # `remote kill`/next call sweeps orphans. .env (RunPod key) never reaches pod.
+
+qc:
+  # VALIDATED 2026-08-09, on the pod, exactly as set_device()'s docstring asks:
+  # the same 24 real takes scored twice in one process, device switched between
+  # passes, nothing else changed.
+  #   ECAPA embeddings: cosine cpu-vs-cuda 1.000000 (min AND mean) — identical
+  #   Distill-MOS:      max |delta| 0.000412, mean 0.000122, against a measured
+  #                     noise floor of 0.007 — 17x inside it
+  #   wall clock:       33.9 s -> 2.8 s, a 12.3x speedup
+  # So this is free: scores stay comparable with every manifest, ratings row and
+  # scorecard already on disk, which was the whole reason it defaulted to cpu.
+  # SCOPE, so the saving is not oversold: set_device moves the two TORCH models
+  # only. Of the bake-off's measured phase totals (sim 3% + mos 11% + f0 6% +
+  # wer 16%), this touches the 14% that is sim+mos. f0 is librosa pyin and wer
+  # is faster-whisper — both still CPU, both still worth their own look.
+  # It lives HERE and not in config.yaml on purpose: cuda is a property of the
+  # pod profile. A Mac run of the same config falls back (set_device returns the
+  # device it actually selected), so local scores stay on cpu and comparable.
+  # WART, harmless: speechbrain logs "Could not parse CUDA device string 'cuda'
+  # ... Falling back to device 0" — it wants 'cuda:0'. Device 0 is what we want
+  # anyway, and the embeddings above prove it landed correctly.
+  metrics_device: cuda

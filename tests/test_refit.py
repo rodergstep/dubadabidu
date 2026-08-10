@@ -166,9 +166,9 @@ def test_permutation_p_is_small_for_real_signal():
 
 def test_legacy_ratings_format_is_refused_not_silently_skipped(tmp_path,
                                                                monkeypatch):
-    """ratings_test_en.json (2026-07-08) is {key, ratings:{id:stars}} with no
-    qc metrics per row — unusable, and silently skipping it would understate
-    how much evidence exists."""
+    """The pre-flywheel export was {key, ratings:{id:stars}} — stars with no
+    qc metrics per row, unusable for a fit. Silently skipping such a file would
+    understate how much evidence exists, so it must raise."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "ratings_en.json").write_text(
         json.dumps({"key": "test_en", "ratings": {"u0001": 3}}))

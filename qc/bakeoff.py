@@ -30,7 +30,7 @@ incumbent" would have looked like evidence. Grids are config-driven
 is reported as such, so the comparison stays auditable either way.
 
 Decision gate (inherited invariant): a challenger wins a language only if it
-beats the incumbent (chatterbox) on sim-to-real AND MOS, AND does not regress
+beats the incumbent (bakeoff.incumbent, now qwen) on sim-to-real AND MOS, AND does not regress
 wer (an intelligibility VETO) — or ties and wins the ear on the HTML page. pace
 is reported, not gated (s5 retimes within limits). French additionally needs a
 native-speaker listen.
@@ -101,7 +101,7 @@ def log_phase_totals(where: str) -> None:
                      for k, v in PHASE.items() if v > 0)
     log.info("phase totals [%s]: %s | accounted %.1f s", where, parts, total)
 
-INCUMBENT = "chatterbox"     # default; override with bakeoff.incumbent
+INCUMBENT = "qwen"           # default; override with bakeoff.incumbent
 
 
 def incumbent_of(bcfg: dict) -> str:
@@ -156,6 +156,12 @@ def variant_key(engine: str, t: dict, lang: str) -> str:
     # must survive for the ear to arbitrate.
     if eng == "qwen" and t.get("qwen_x_vector_only") is False:
         suffix += "+icl"
+    # RU lexical stress (RUAccent combining acutes) changes the TEXT the engine
+    # is given, so it is a different variant in every sense that matters. Without
+    # this suffix a stress run would overwrite the unaccented row AND its audio —
+    # destroying the control it is being compared against, in the same run.
+    if lang == "ru" and t.get("ru_stress"):
+        suffix += "+stress"
     # tts.variant_label — an arbitrary tag for a row that must NOT merge with an
     # identically-configured one. The use is a CONTROL run: synthesize the same
     # config twice and diff the scorecard, which is the only way to measure the
@@ -185,13 +191,8 @@ def _engine_cfg(base_tts: dict, engine: str) -> dict:
 # Ukrainian ref (see tts_engine), so sweeping it would only produce failures.
 #
 # A single-point grid means "already tuned, nothing to sweep" and costs nothing:
-#   chatterbox — cfg_weight is FIXED at the config value (0.0 is mandatory for a
-#     UA ref -> non-UA target, re-validated by tune R2), and exaggeration does
-#     not reliably move quality (measured 2026-07-14), so the incumbent enters
-#     at its tune-selected point. Widen via bakeoff.grids to re-open it.
 #   qwen — x_vector_only is forced by the UA ref; nothing left to sweep.
 ENGINE_GRIDS: dict[str, dict[str, list]] = {
-    "chatterbox": {},
     "qwen": {},
     "edge": {},
 }
@@ -349,7 +350,6 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     import statistics
     import torch
     import soundfile as sf
-    from pipeline import engine_client
     from pipeline.tts_engine import release_models, synthesize
     from pipeline.tune import _subset
     from qc import metrics as X
@@ -474,19 +474,15 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                     return w, _d
 
                 futures = []
-                # tts.synth_workers > 1 puts several TAKES in flight at once.
-                # They share no state, and each lands on its own path, so the
-                # only ordering that matters is the takes list — rebuilt from
-                # the submission order below. Serial when workers == 1, which
-                # is also the only safe mode for the in-process engine path.
-                n_workers = max(1, int(base_tts.get("synth_workers", 1)))
+                # SYNTHESIS IS SERIAL. Takes share no state, so they were run
+                # through a pool while each one went to its own worker PROCESS.
+                # With the venvs merged (2026-08-02) synthesis happens in THIS
+                # process against a single model held in module globals, which
+                # is not thread-safe — two concurrent takes would drive one
+                # model. Scoring below is still overlapped, which is where the
+                # measured 40% was anyway.
                 try:
-                    if n_workers > 1:
-                        with ThreadPoolExecutor(max_workers=n_workers,
-                                                thread_name_prefix="synth") as sp:
-                            done = list(sp.map(_synth_one, range(takes)))
-                    else:
-                        done = [_synth_one(k) for k in range(takes)]
+                    done = [_synth_one(k) for k in range(takes)]
                 except (FileNotFoundError, RuntimeError) as e:
                     # see _tune_engine: a dead worker / failed synth must
                     # disqualify THIS engine, not the whole comparison
@@ -521,11 +517,10 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                              # best_of the engine needs). 0 when takes==1.
                              "mos_sd": statistics.stdev(moss) if len(moss) > 1
                                        else 0.0})
-            # free this engine before the next loads: stop its isolated-venv
-            # worker (if any) and drop in-process singletons + CUDA cache —
-            # otherwise engines pile up in VRAM and a 16 GB card OOMs by the
-            # third challenger. qc models (ECAPA/MOS/whisper) stay resident.
-            engine_client.shutdown(engine)
+            # free this engine before the next loads: drop the in-process
+            # singletons + CUDA cache, or engines pile up in VRAM and a 16 GB
+            # card OOMs. qc models (ECAPA/MOS/whisper) stay resident. This was
+            # paired with engine_client.shutdown() until the venvs merged.
             release_models()
             if unavailable:
                 per_engine[vkey] = {"unavailable": unavailable}
@@ -731,7 +726,7 @@ def _write_reports(bo, video, lang, subset, per_engine, seg_audio, wd,
             lines.append(f"| {e} | {s['sim']} | {s['mos']} | {s['f0']} "
                          f"| {s['wer']} | {s['pace']} | {s['mos_sd']} "
                          f"| {s['s_take']} | {_verdict(e, s, inc, incumbent)} |")
-    lines += ["", "Adoption gate: a challenger must beat chatterbox on sim→real "
+    lines += ["", f"Adoption gate: a challenger must beat {incumbent} on sim→real "
               "AND mos, AND not regress wer beyond tolerance (intelligibility "
               "veto), or tie and win the ear on the .html page. pace, mos± and "
               "s/take are informational (timing feel / reliability / cost) — they "

@@ -82,11 +82,33 @@ translation:
   n_short_variants: 2         # pre-generate shorter variants for overflow retries
 
 tts:
-  engine: chatterbox          # chatterbox | qwen | edge (no cloning)
+  engine: qwen                # qwen | edge (plumbing only, no cloning)
   engine_by_lang: {}          # per-lang override, e.g. {en: qwen} — set by
                               # the GPU bake-off (IMPROVEMENT_PLAN.md Phase C)
-  reference_text: ""          # transcript of reference_wav; `dubadabidu prep`
-                              # fills refs.json. Unused by the UA-ref paths.
+  reference_text: ""        # transcript of reference_wav; `dubadabidu prep`
+                            # fills refs.json. Unused by the UA-ref paths.
+  # Russian lexical stress via RUAccent: marks the stressed vowel with a
+  # combining acute ("дере́вья") so the engine does not have to guess. Russian
+  # stress is lexical and unmarked in writing, and homographs only resolve from
+  # context — за́мок (castle) vs замо́к (lock) — so a TTS WILL get some wrong.
+  #
+  # OFF by default, and that is a real question rather than caution: chatterbox
+  # was TRAINED on combining acutes (A/B-verified 2026-07-08 that marks fix its
+  # stress), qwen was not, so marks may help, do nothing, or be read as noise.
+  # The listener reported wrong RU stress on 2026-08-03, which is what put this
+  # back — see FINDINGS.md before flipping it on trust.
+  # Salted into synth_hash, so turning it on re-synthesizes ru rather than
+  # serving unaccented cache.
+  # KEPT FALSE, and this is settled — see FINDINGS "CLOSED" and 2.1b/2.1bb.
+  # RUAccent marks destroy qwen's Russian: 97% of clips unusable by ear with
+  # x_vector, and still WER 0.621 with an ICL-grounded reference. qwen was not
+  # trained on U+0301 and reads it as content to pronounce.
+  # Russian SHIPS with ~29% of takes carrying a stress error. That is a product
+  # decision taken 2026-08-09, not an oversight: the errors are partly
+  # SYSTEMATIC (qwen is reliably wrong on certain words), so no selection rule
+  # can reach them, and four detectors failed their validation gate. Do not
+  # re-open without per-word pronunciation control in the engine.
+  ru_stress: false
   # NOTE: the take-SELECTION params in this block (best_of, rank_takes, min_f0st,
   # f0_reroll_max, retake_mos_below, best_of_early_accept, early_accept_*) are NOT
   # part of synth_hash — they pick among takes, they don't change a take's inputs.
@@ -99,7 +121,7 @@ tts:
   # monotony re-roll: if every best_of take is flatter than min_f0st (pitch std
   # in semitones), roll up to f0_reroll_max extra takes to find a livelier read.
   # Take variance is the lever that works here — exaggeration is NOT a reliable
-  # liveliness knob (measured). ~2.2-2.4 ≈ lively chatterbox narration. 0 = off.
+  # liveliness knob (measured). ~2.2-2.4 ≈ lively narration. 0 = off.
   #
   # min_f0st is measured in the DELIVERED domain since 2026-07-29: selection
   # scores each take after s6's edge trim, the same audio evaluate's qc_f0st
@@ -199,12 +221,58 @@ mix:
 mux:
   subtitle_codec: mov_text
   lang_tags: {uk: ukr, en: eng, fr: fra, de: deu, es: spa, ru: rus, pl: pol}
+  # true => ALSO write <stem>_<lang>.mp4 per language (video + that dub + its
+  # subs) alongside the multi-track file. The multi file is the better artifact
+  # — one upload, no duplicated video — but YouTube's multi-language audio is a
+  # per-channel feature with a fussier ingest, so these are the safe fallback.
+  # Video is stream-copied, so the cost is disk, not time or quality.
+  per_language: true
 
 qc:
   wer_flag_threshold: 0.15
+  # Where the model-backed metrics (ECAPA, Distill-MOS) run: cpu | cuda | auto.
+  # cpu by default so scores stay bit-comparable with every manifest, ratings
+  # row and bake-off scorecard already on disk. On a rented pod this is the
+  # largest remaining cost lever that does not touch synthesis: roughly half of
+  # s4's billed wall clock is per-take scoring on a vCPU while the GPU idles at
+  # ~7%. Flip it in config.gpu.yaml only after diffing qc_score on one video —
+  # see qc/metrics.py set_device() for the two-command validation.
+  metrics_device: cpu
   eval:                             # `dubadabidu evaluate` + tune objective
-    # calibrated vs human ratings 2026-07-08 (spearman: mos +.63 f0 +.48 sim -.30)
-    weights: {sim: 0.25, mos: 0.40, f0: 0.20, tempo: 0.15}
+    # Calibrated vs human ratings 2026-07-08 (spearman: mos +.63 f0 +.48
+    # sim -.30) — those numbers were taken under CHATTERBOX and did not survive
+    # the engine change.
+    #
+    # sim DROPPED 0.25 -> 0.0 on 2026-08-09, at the user's call, on 112 en / 114
+    # ru ratings. Permutation-tested against 5000 shuffles, sim does not predict
+    # this listener in EITHER language:
+    #     en rho -0.075 (p 0.42)    ru rho -0.136 (p 0.15)
+    # It is also weighted 0.0 in the best fit for both languages, and it has now
+    # failed to predict his judgement FIVE separate times — three reference
+    # sweeps, the ICL round (won sim by 17x the noise band, rated 15/18
+    # unusable), and the sketch_ref_08 blind test, where the ear chose the
+    # LOWEST-sim candidate. Paying 0.25 of the objective for an anti-signal.
+    #
+    # f0 RAISED 0.20 -> 0.30. It is the only feature that predicts him in BOTH
+    # languages (en rho +0.290 p 0.0016, ru +0.190 p 0.0386) and the strongest
+    # single predictor in en.
+    # NOTE THE APPARENT CONTRADICTION with qc/bakeoff.py, which deliberately
+    # EXCLUDES f0st from its score. Both are right: the bake-off ranks whole
+    # RUNS, where f0st's run-to-run band is ±0.438 and swamps any difference;
+    # this ranks TAKES inside one segment, where the ratings say it carries the
+    # signal. Same metric, different comparison, different noise.
+    #
+    # mos RAISED 0.40 -> 0.55 — significant in ru (rho +0.295, p 0.0014) though
+    # not in en (p 0.87), so it takes the remainder rather than leading.
+    # tempo unchanged at 0.15: never tested against ratings, kept as-is rather
+    # than moved on no evidence.
+    #
+    # THIS IS NOT refit's PROPOSAL. refit still says KEEP CURRENT WEIGHTS and
+    # its gates have never passed; its own best fits are unstable at this n
+    # (pooled f0 0.95 vs within-round sim 0.55 on the SAME ratings, FINDINGS
+    # 2.1d). This is a targeted removal of a feature measured to be noise, not
+    # an adopted re-fit — do not read it as the gate having cleared.
+    weights: {sim: 0.0, mos: 0.55, f0: 0.30, tempo: 0.15}
     score_flag: 0.55                # review page flags segments below this
     sim_floor_default: 0.35         # fallback if edge floor-synth is offline
   refit:                            # `dubadabidu refit` — AUTOPILOT M4.
@@ -229,9 +297,13 @@ qc:
     adopt_margin: 0.02  # ...and it must still beat the incumbent out of fold
 
 prep:                               # `dubadabidu prep` reference-clip extraction
-  min_s: 12.0                       # candidate span length band (seconds)
+  # 10.0, not 12.0: upstream measures clone quality rising to ~15 s and then
+  # plateauing/degrading, so the 10-15 s window has to be REACHABLE. prep now
+  # stratifies across this band instead of keeping the longest n, so tune R1
+  # scores short vs long instead of only ever seeing the top of the range.
+  min_s: 10.0                       # candidate span length band (seconds)
   max_s: 20.0
-  n_refs: 3                         # keep the pool WIDE — tune R1 makes the call
+  n_refs: 4                         # keep the pool WIDE — tune R1 makes the call
   max_candidates: 12                # cap gated spans (each = a cut + MOS/f0 pass)
   # quality GATE — rejects only genuinely broken spans, does NOT rank clone
   # quality (a focused tune R1 showed acoustic scores don't predict clone sim;

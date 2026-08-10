@@ -1,4 +1,16 @@
-# EXPERIMENT: ICL clone vs x_vector_only.  Stack on config.gpu.yaml:
+# EXPERIMENT: ICL + higher best_of. Stacks the ICL overlay's clone settings
+# and raises take count so SELECTION can claw back the liveliness ICL costs.
+#
+# WHY. Measured 2026-08-03: ICL wins identity decisively (en sim 0.524 -> 0.700,
+# 17x the noise band) but drops f0st ~0.9 to 1.98 — BELOW tts.min_f0st (2.2), so
+# our own monotony floor would flag every ICL take as too flat. min_f0st is a
+# SELECTION lever: it prefers takes clearing the floor but cannot invent them, so
+# it only helps if there are enough takes to choose from. best_of is measured
+# still improving at k=6 (no plateau), which is the headroom this uses.
+#
+# MEASURE THE DELIVERED TAKE, NOT THE BAKE-OFF MEAN. The scorecard averages over
+# takes, so it cannot show a selection gain by construction — run this through
+# s4 and read `evaluate`, which grades the take that actually ships.
 #   dubadabidu remote bakeoff <video> --langs en --reuse --keep-alive \
 #     --overlay config.gpu.yaml --overlay config.exp.icl.yaml
 #
@@ -20,6 +32,7 @@
 # only means "we passed the wrong text". These come from work/sketch60/refs.json.
 # EDIT BOTH LINES TOGETHER to whichever reference the sweep picked.
 tts:
+  best_of: 6            # selection headroom (measured: still rising at k=6)
   qwen_x_vector_only: false
   reference_wav: ref/Organising the colour palette and materials_ref_04.wav
   # TRIM MUST BE OFF HERE. refs.json's transcript covers the FULL 15.04 s clip;

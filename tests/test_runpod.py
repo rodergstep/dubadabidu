@@ -61,23 +61,7 @@ def test_ssh_target_not_ready():
 
 # --- per-engine venv isolation (the pod-side install command) ---
 
-def test_engine_install_cmd_isolates_per_engine():
-    cmd = engine_install_cmd("~/dubadabidu", "qwen", "pip install -q qwen")
-    # the snippet must run inside the ENGINE's venv, never the main .venv
-    assert "venvs/qwen" in cmd
-    assert ". venvs/qwen/bin/activate" in cmd
-    assert ".venv/bin/activate" not in cmd.replace("venvs/qwen/bin/activate", "")
-    assert cmd.rstrip().endswith("pip install -q qwen")
 
-
-def test_engine_install_cmd_distinct_venvs():
-    a = engine_install_cmd("~/d", "indextts", "true")
-    b = engine_install_cmd("~/d", "qwen", "true")
-    assert "venvs/indextts" in a and "venvs/indextts" not in b
-    assert "venvs/qwen" in b and "venvs/qwen" not in a
-
-
-# --- setup-check refuses a run that would validate nothing ---
 
 def _probe(engines, snippets):
     from pipeline.runpod_infra import ENGINE_MODULE
@@ -244,25 +228,6 @@ def test_config_puts_cheap_gpus_first_and_4090_last():
     assert "4090" in ids[-1]
 
 
-def test_ready_probe_checks_cuda_inside_the_ENGINE_venv(monkeypatch):
-    """Skipping setup is only safe if the probe checks what setup guarantees.
-    The base .venv cannot see a CPU-only torch in venvs/<engine> — that exact
-    blind spot cost a week of 126 s/take runs — so the probe must run inside
-    the engine's own venv."""
-    import pipeline.runpod_infra as R
-    seen = {}
-
-    def fake_exec(rp, host, port, cmd, timeout=None):
-        seen["cmd"] = cmd
-        return 0
-
-    monkeypatch.setattr(R, "ssh_exec", fake_exec)
-    assert R._verify_ready({}, "h", 22, "~/d", ["qwen"]) is True
-    cmd = seen["cmd"]
-    assert "venvs/qwen/bin/python" in cmd
-    assert "torch.cuda.is_available()" in cmd
-    assert "import qwen_tts" in cmd
-
 
 def test_ready_probe_is_conservative(monkeypatch):
     """Any doubt re-runs setup: skipping wrongly costs a whole experiment,
@@ -302,27 +267,368 @@ def test_remote_stages_reads_the_real_argparse_dests():
     narrowed = argparse.Namespace(from_stage="s4_synthesize",
                                   to_stage="s4_synthesize")
     assert _remote_stages(narrowed) == "--from s4_synthesize --to s4_synthesize"
-    # untouched flags keep the long-standing pod default: stop at s7, because
-    # the mux needs the source video and that stays local
+    # untouched flags stop the pod at s5: s4 is the only stage needing a GPU,
+    # and s6/s7 are CPU work on files that sync both ways. Was s7 until
+    # 2026-08-09, when s6's pedalboard import (the [master] extra, never
+    # installed on a pod) failed a run in which all five languages had already
+    # synthesized and fitted successfully.
     default = argparse.Namespace(from_stage="s1_extract", to_stage="s8_mux")
-    assert _remote_stages(default) == "--to s7_subtitles"
+    assert _remote_stages(default) == "--to s5_fit"
+    # an explicit --to still wins, so a pod can be made to carry further
+    further = argparse.Namespace(from_stage="s1_extract",
+                                 to_stage="s7_subtitles")
+    assert _remote_stages(further) == "--to s7_subtitles"
 
 
-def test_bootstrap_skips_chatterbox_unless_a_language_routes_to_it():
-    """chatterbox-tts is the `clone` extra, present to pin torch/torchaudio
-    2.6.0 — but it also drags diffusers, s3tokenizer, resemble-perth, conformer
-    and spacy-pkuseg, plus EXACT pins (transformers==5.2.0, diffusers==0.29.0)
-    that make pip backtrack. With qwen as the production engine none of it is
-    used, so the pin moves to us and the package goes.
+def test_pod_never_runs_a_stage_needing_an_extra_it_does_not_install():
+    """The pod installs `.[dev]`. s6's mastering chain needs `.[master]`
+    (pedalboard, GPLv3, opt-in on purpose), so a pod that reaches s6 with
+    mix.master.enabled dies AFTER all the billed GPU work is done."""
+    import argparse
+    from dub import _remote_stages, ORDER
+    from pipeline.runpod_infra import REMOTE_TASK
+    default = argparse.Namespace(from_stage="s1_extract", to_stage="s8_mux")
+    stop = _remote_stages(default).split("--to ")[1].strip()
+    assert ORDER.index(stop) < ORDER.index("s6_mix"), (
+        f"the pod stops at {stop}, which reaches s6_mix — that stage imports "
+        f"pedalboard from the [master] extra, which no pod installs")
+    # and the fallback inside remote_run must agree with it
+    fallback = REMOTE_TASK["run"].format(video="v", langs="en", stages="")
+    assert "{stages}" not in fallback
 
-    NOT a claim that this halves the bootstrap: torch itself still dominates
-    the download. This removes chatterbox's dependency tree and the resolver
-    churn, nothing more."""
+
+def test_bootstrap_pins_torch_itself_now_that_chatterbox_is_gone():
+    """torch/torchaudio used to arrive via the `clone` extra (chatterbox-tts),
+    which also dragged diffusers, s3tokenizer, resemble-perth, conformer and
+    spacy-pkuseg plus exact pins that made pip backtrack. chatterbox was removed
+    2026-08-02, so the pin has to be ours or the pod gets whatever pip picks.
+
+    2.11.0 is only safe because allowed_cuda_versions guarantees a driver that
+    supports it — see test_torch_pin_and_cuda_filter_move_together."""
     from pipeline.runpod_infra import REMOTE_SETUP
-    qwen_only = REMOTE_SETUP.format(dir="~/d", clone="")
-    assert "chatterbox-tts" not in qwen_only
-    assert "torch==2.6.0 torchaudio==2.6.0" in qwen_only, \
-        "the torch pin must be explicit once chatterbox no longer supplies it"
-    routed = REMOTE_SETUP.format(
-        dir="~/d", clone="pip install --progress-bar off chatterbox-tts==0.1.7 && ")
-    assert "chatterbox-tts==0.1.7" in routed
+    setup = REMOTE_SETUP.format(dir="~/d")
+    assert "chatterbox" not in setup
+    assert "torch==2.11.0 torchaudio==2.11.0" in setup
+
+
+def test_torch_pin_and_cuda_filter_move_together():
+    """THE coupling that a first attempt at this bump got wrong, on a pod:
+    torch 2.11's oldest build is cu126 (no 2.11+cu124 wheel exists), so on a
+    default-scheduled host with a CUDA 12.4 driver it installs fine and then
+    reports CUDA: False -- "The NVIDIA driver on your system is too old (found
+    version 12040)". A silent CPU fallback at full GPU price is this project's
+    most expensive recurring failure.
+
+    So the pin and the host filter are ONE decision. Emptying
+    allowed_cuda_versions without dropping torch back to 2.6.0 re-creates the
+    exact failure, and nothing else in the repo would catch it before a pod."""
+    import yaml
+    from pipeline.logic import deep_merge
+    from pipeline.runpod_infra import DEFAULTS, REMOTE_SETUP
+    cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
+                     yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
+    rp = {**DEFAULTS, **cfg.get("runpod", {})}
+    setup = REMOTE_SETUP.format(dir="~/d")
+    import re
+    m = re.search(r"torch==(\d+)\.(\d+)\.\d+", setup)
+    assert m, "no torch pin found in REMOTE_SETUP"
+    major, minor = int(m.group(1)), int(m.group(2))
+    allowed = [float(v) for v in rp.get("allowed_cuda_versions") or []]
+    if (major, minor) > (2, 6):
+        assert allowed, (
+            f"torch {major}.{minor} needs a CUDA>=12.6 driver, but "
+            f"allowed_cuda_versions is empty -> the scheduler may hand over a "
+            f"12.4 host and CUDA silently goes False. Pin torch 2.6.0 or set "
+            f"the filter.")
+        assert min(allowed) >= 12.6, (
+            f"allowed_cuda_versions {allowed} admits a driver older than 12.6, "
+            f"which cannot run torch {major}.{minor} (oldest build is cu126)")
+
+
+def test_torch_wheel_matches_the_oldest_allowed_driver():
+    """The wheel's CUDA build must be <= the OLDEST driver the filter admits.
+
+    Drivers are backward compatible with older CUDA runtimes but not forward:
+    a cu130 wheel needs a 13.0 driver. Plain PyPI serves torch 2.11 as +cu130,
+    so with allowed_cuda_versions ["12.8","12.9","13.0"] two thirds of the
+    permitted hosts could not run it — and the failure is the silent one
+    (installs fine, CUDA: False, synthesis crawls on CPU at full GPU price).
+    A pod on 2026-08-02 passed only because it drew a 13.0 driver.
+
+    Hence the explicit --index-url. This test is the thing that notices when
+    someone widens the filter to 12.6 and forgets the wheel."""
+    import re
+    import yaml
+    from pipeline.logic import deep_merge
+    from pipeline.runpod_infra import DEFAULTS, REMOTE_SETUP
+    cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
+                     yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
+    rp = {**DEFAULTS, **cfg.get("runpod", {})}
+    allowed = [float(v) for v in rp.get("allowed_cuda_versions") or []]
+    setup = REMOTE_SETUP.format(dir="~/d")
+    m = re.search(r"download\.pytorch\.org/whl/cu(\d)(\d+)", setup)
+    if not allowed:
+        return                      # no filter -> torch must be 2.6.0 anyway
+    assert m, (
+        f"allowed_cuda_versions is {allowed} but the torch install has no "
+        f"explicit cuXYZ --index-url, so pip picks the default wheel (cu130 for "
+        f"torch 2.11) which the oldest allowed driver may not support")
+    wheel_cuda = float(f"{m.group(1)}.{m.group(2)}")
+    assert wheel_cuda <= min(allowed), (
+        f"torch wheel is cu{m.group(1)}{m.group(2)} ({wheel_cuda}) but the filter "
+        f"admits drivers as old as {min(allowed)} — those hosts would install it "
+        f"and report CUDA: False")
+
+
+def test_pod_payload_sends_the_cuda_filter():
+    """It is only a guarantee if it reaches the API."""
+    from pipeline.runpod_infra import DEFAULTS
+    import pipeline.runpod_infra as R
+    sent = {}
+    orig = R._req
+    R._req = lambda method, path, body=None: sent.update(body or {}) or {}
+    try:
+        R.create_pod({**DEFAULTS, "allowed_cuda_versions": ["12.9"]})
+        assert sent.get("allowedCudaVersions") == ["12.9"]
+        sent.clear()
+        R.create_pod({**DEFAULTS, "allowed_cuda_versions": []})
+        assert "allowedCudaVersions" not in sent, (
+            "an empty list must be omitted, not sent — it would filter to no hosts")
+    finally:
+        R._req = orig
+
+
+def test_qc_does_not_call_torchaudio_load():
+    """torchaudio.load needs torchcodec from 2.9 on — and `hasattr(torchaudio,
+    "load")` is still True, so the break shows up only when a scoring run
+    actually reads a file, on a pod, mid-billing. Cheap to assert statically."""
+    import ast
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    # AST, not a substring: the first cut of this test flagged the comment in
+    # metrics.py that EXPLAINS the migration.
+    for py in sorted(root.glob("qc/*.py")) + sorted(root.glob("pipeline/*.py")):
+        for n in ast.walk(ast.parse(py.read_text())):
+            called = n.func if isinstance(n, ast.Call) else None
+            assert not (isinstance(called, ast.Attribute)
+                        and called.attr == "load"
+                        and getattr(called.value, "id", "") == "torchaudio"), (
+                f"{py.name}:{n.lineno} calls torchaudio.load, which requires the "
+                f"torchcodec package on torch>=2.9 — read with soundfile instead")
+
+
+def test_engine_installs_into_the_main_venv():
+    """Per-engine venvs existed for four engines with colliding pins. Three are
+    gone and chatterbox took its torch pin with it, so isolation was costing a
+    SECOND ~2.5 GB torch download per pod to prevent a collision that can no
+    longer happen. Removed 2026-08-02."""
+    from pipeline.runpod_infra import engine_install_cmd
+    cmd = engine_install_cmd("~/dubadabidu", "qwen", "pip install -q qwen")
+    assert ". .venv/bin/activate" in cmd
+    assert "venvs/" not in cmd, "no per-engine venv should be created"
+    assert cmd.rstrip().endswith("pip install -q qwen")
+
+
+def test_ready_probe_checks_cuda_in_the_main_venv():
+    """Skipping setup is only safe if the probe checks what setup guarantees.
+    A CPU-only torch is silent — it cost a week of 126 s/take runs — so the
+    probe must assert cuda availability, not merely that the module imports."""
+    import pipeline.runpod_infra as R
+    seen = {}
+    R_ssh = R.ssh_exec
+    try:
+        R.ssh_exec = lambda rp, h, p, cmd, timeout=None: (
+            seen.__setitem__("cmd", cmd) or 0)
+        assert R._verify_ready({}, "h", 22, "~/d", ["qwen"]) is True
+    finally:
+        R.ssh_exec = R_ssh
+    assert ".venv/bin/python" in seen["cmd"]
+    assert "torch.cuda.is_available()" in seen["cmd"]
+    assert "import qwen_tts" in seen["cmd"]
+
+
+def test_runtime_cap_fits_a_full_hour_lesson():
+    """max_runtime_hours is the pod-side watchdog's self-destruct, so a value
+    below the real workload kills a run mid-flight AFTER paying for it.
+
+    MEASURED 2026-08-02 on the first production lesson: 8.13 min of video x 5
+    languages took 38.8 min of pod wall — 30.9 min synthesis (scales with
+    content) + 7.8 min bootstrap (fixed). A 1-hour lesson therefore needs
+    ~3.94 h, which the old 3.0 h cap would have cut off at ~76% done."""
+    import yaml
+    from pipeline.logic import deep_merge
+    from pipeline.runpod_infra import DEFAULTS
+    cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
+                     yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
+    rp = {**DEFAULTS, **cfg.get("runpod", {})}
+    SYNTH_MIN_PER_LANG_PER_VIDEO_MIN = 30.9 / 5 / 8.13   # measured
+    BOOTSTRAP_H = 7.8 / 60
+    langs = len(cfg["languages"])
+    need = 60.0 * SYNTH_MIN_PER_LANG_PER_VIDEO_MIN * langs / 60.0 + BOOTSTRAP_H
+    assert rp["max_runtime_hours"] >= need, (
+        f"max_runtime_hours={rp['max_runtime_hours']} but a 1-hour lesson in "
+        f"{langs} languages needs ~{need:.2f} h — the watchdog would kill the "
+        f"pod mid-run, after billing for the whole thing")
+
+
+# --- pod reuse: the probe and the installer must ask the same question ---
+
+def test_reuse_probe_covers_run_tasks_not_just_bakeoff():
+    """The reuse probe was hardcoded to bakeoff.engines and saw [] for `run`,
+    and _verify_ready([]) is False by design — so `remote run --reuse` could
+    never skip setup and course.py re-bootstrapped once per video."""
+    from pipeline.runpod_infra import engines_for_task
+    cfg = {"tts": {"engine": "qwen", "engine_by_lang": {}},
+           "bakeoff": {"engines": ["qwen"]}}
+    assert engines_for_task(cfg, "run", ["en", "ru"]) == ["qwen"]
+    assert engines_for_task(cfg, "autopilot", ["en"]) == ["qwen"]
+    assert engines_for_task(cfg, "bakeoff", ["en"]) == ["qwen"]
+
+
+def test_engines_for_task_honours_per_language_routing():
+    from pipeline.runpod_infra import engines_for_task
+    cfg = {"tts": {"engine": "qwen", "engine_by_lang": {"en": "edge"}}}
+    assert engines_for_task(cfg, "run", ["en", "de"]) == ["edge", "qwen"]
+
+
+def test_remote_run_probes_with_the_engines_it_installs():
+    """Both call sites must read the SAME list, or the bug returns wearing a
+    different hat."""
+    import ast
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1]
+           / "pipeline" / "runpod_infra.py").read_text()
+    fn = next(n for n in ast.walk(ast.parse(src))
+              if isinstance(n, ast.FunctionDef) and n.name == "remote_run")
+    calls = {n.func.id: [a.id for a in n.args if isinstance(a, ast.Name)]
+             for n in ast.walk(fn)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert "needed" in calls.get("_verify_ready", []), \
+        "_verify_ready must probe the engines the task actually needs"
+    assert "needed" in calls.get("_install_engines", [])
+
+
+def test_edge_alone_still_refuses_to_skip_setup(monkeypatch):
+    """edge needs no install, so it proves nothing about the venv."""
+    import pipeline.runpod_infra as R
+    monkeypatch.setattr(R, "ssh_exec", lambda *a, **k: 0)
+    assert R._verify_ready({}, "h", 22, "~/d", ["edge"]) is False
+    assert R._verify_ready({}, "h", 22, "~/d", ["edge", "qwen"]) is True
+
+
+# --- watchdog: re-armable, or a reused pod dies on the FIRST run's clock ---
+
+def test_watchdog_kills_the_previous_sleeper_before_arming(monkeypatch):
+    import pipeline.runpod_infra as R
+    sent = []
+    monkeypatch.setattr(R, "ssh_exec",
+                        lambda rp, h, p, cmd, timeout=30: sent.append(cmd) or 0)
+    R.arm_pod_watchdog({}, "h", 22, 3600)
+    cmd = sent[0]
+    assert f"kill \"$(cat {R.WATCHDOG_PID})\"" in cmd, \
+        "re-arming must cancel the deadline the previous run set"
+    assert cmd.index("kill") < cmd.index("nohup"), "kill the old one FIRST"
+    assert f"echo $! > {R.WATCHDOG_PID}" in cmd, "record the pid to kill next time"
+    assert "sleep 3600" in cmd
+
+
+def test_reuse_path_rearms_the_watchdog():
+    """course.py attaches ONE pod for twenty videos; each call recomputes a
+    fresh deadline locally, so the pod must be told about it."""
+    import ast
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1]
+           / "pipeline" / "runpod_infra.py").read_text()
+    fn = next(n for n in ast.walk(ast.parse(src))
+              if isinstance(n, ast.FunctionDef) and n.name == "remote_run")
+    n_arm = sum(1 for n in ast.walk(fn) if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Name)
+                and n.func.id == "arm_pod_watchdog")
+    assert n_arm == 2, ("arm on BOTH paths: the fresh provision and the reuse "
+                        f"attach (found {n_arm})")
+
+
+def test_unknown_remote_task_is_refused_before_provisioning():
+    """remote_run already refuses an unknown task before provisioning (a check
+    added with the sweep/reuse ordering). This pins that it stays BEFORE the
+    spend: REMOTE_TASK[task] is read deep inside the try block, so without it a
+    typo would KeyError only after a pod was provisioned, bootstrapped and had
+    qwen installed."""
+    import pytest
+    import yaml
+    from pipeline.logic import deep_merge
+    from pipeline.runpod_infra import REMOTE_TASK, remote_run
+    cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
+                     yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
+    # Neutralise the two API calls that run BEFORE the guard, so this tests the
+    # guard and not whether RUNPOD_API_KEY happens to be exported: without the
+    # key, sweep_orphans() raises about credentials first and the assertion
+    # passes or fails depending on the shell.
+    import pipeline.runpod_infra as R
+    orig_sweep, orig_live = R.sweep_orphans, R._live_pod
+    R.sweep_orphans = lambda *a, **k: None
+    R._live_pod = lambda *a, **k: None
+    try:
+        with pytest.raises(SystemExit, match="unknown remote task"):
+            remote_run(cfg, "v.mp4", ["en"], "typoed-task")
+    finally:
+        R.sweep_orphans, R._live_pod = orig_sweep, orig_live
+    # and the tasks that DO exist must stay reachable
+    assert {"run", "bakeoff", "autopilot", "preamble"} <= set(REMOTE_TASK)
+
+
+def test_preamble_has_a_pod_command_because_tune_synthesizes():
+    """preamble runs tune R1, which SYNTHESIZES to score each reference by real
+    ECAPA similarity — so it cannot run on the laptop with a GPU-only engine."""
+    from pipeline.runpod_infra import REMOTE_TASK
+    cmd = REMOTE_TASK["preamble"].format(video="v.mp4", langs="en", stages="")
+    assert cmd.startswith("dubadabidu preamble ")
+    assert "--overlay config.gpu.yaml" in cmd        # engine + pod settings
+    assert "--overlay config.deepseek.yaml" in cmd   # preamble runs s3 first
+
+
+def test_bakeoff_rsync_does_not_clobber_the_engine_list():
+    """`needed` holds the ENGINE list from engines_for_task and is consumed far
+    below by _verify_ready and _install_engines. The bake-off branch reassigned
+    it to a list of rsync file paths, so _install_engines iterated over paths,
+    found no engine_setup snippet for "…/vocals.wav", and installed NOTHING —
+    silently, since a missing snippet is a legitimate skip.
+
+    Effect: every `remote bakeoff` on a FRESH pod reported "qwen unavailable"
+    and measured zero engines. Masked because bake-offs are usually run with
+    --reuse against a pod an earlier `run` had already set up. Two ICL arms
+    provisioned their own pod on 2026-08-09 and both returned empty scorecards.
+    """
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    src = (root / "pipeline" / "runpod_infra.py").read_text(encoding="utf-8")
+    body = src.split("def remote_run", 1)[1].split("\ndef ", 1)[0]
+    # the engine list is assigned exactly once in remote_run
+    assigns = re.findall(r"^\s*needed\s*=", body, re.M)
+    assert len(assigns) == 1, (
+        f"`needed` is assigned {len(assigns)}x in remote_run — the engine list "
+        f"must not be reused as a scratch variable")
+    assert "needed = engines_for_task" in body, (
+        "the single assignment must be the engine list itself")
+    # and it must still be the value handed to the installer
+    assert "_install_engines(rp, host, port, remote, needed" in body
+
+
+def test_engine_list_handed_to_the_installer_is_engine_names():
+    """Defence in depth: the silent part of the bug was that _install_engines
+    treats an unrecognised name as 'no snippet, skip'. That is correct for edge
+    and catastrophic for a file path, so nothing else may flow into it.
+
+    engines_for_task is the only source, and every name it can return for the
+    shipped config must be a known engine."""
+    import yaml
+    from pipeline.logic import deep_merge
+    from pipeline.runpod_infra import engines_for_task, ENGINE_MODULE
+    cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
+                     yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
+    for task in ("bakeoff", "run"):
+        for e in engines_for_task(cfg, task, ["en", "ru"]):
+            assert e in ENGINE_MODULE, (
+                f"{task}: {e!r} is not an engine name — if a path reaches "
+                f"_install_engines it silently installs nothing")

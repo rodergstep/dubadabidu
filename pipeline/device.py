@@ -18,11 +18,12 @@ log = logging.getLogger("dubadabidu.device")
 def cuda_host() -> bool:
     """True if the MACHINE has an NVIDIA GPU — asked of the driver, not of torch.
 
-    Every engine runs in its own venv (venvs/<engine>), so each one resolves its
-    own torch. A venv that picked up a CPU-only wheel makes torch.cuda.is_available()
+    A venv that picked up a CPU-only wheel makes torch.cuda.is_available()
     return False on a perfectly good GPU box, and torch_device() then reports
-    "cpu" with no error. The pod's CUDA preflight cannot catch this: it runs in
-    the base .venv, not in the engine's."""
+    "cpu" with no error — which cost a week of 126 s/take runs before this check
+    existed. (It was introduced when engines had their OWN venvs and the base
+    CUDA preflight could not see into them; the venvs merged 2026-08-02 but a
+    silent CPU fallback is worth refusing either way.)"""
     return (Path("/proc/driver/nvidia/version").exists()
             or shutil.which("nvidia-smi") is not None)
 
@@ -47,7 +48,7 @@ def require_gpu(engine: str, allow_cpu: bool = False) -> str:
         return dev
     msg = (f"{engine}: host has an NVIDIA GPU but this engine's venv resolved "
            f"torch {ver} -> device={dev}. That is a CPU-only wheel in "
-           f"venvs/{engine}, and synthesis would run ~40x slower at full GPU "
+           f"the venv, and synthesis would run ~40x slower at full GPU "
            f"price. Reinstall with an explicit CUDA index-url (see "
            f"runpod.engine_setup in config.gpu.yaml), or set "
            f"tts.allow_cpu_fallback: true to proceed anyway.")

@@ -39,7 +39,7 @@ def test_grid_points_are_deterministic():
 # --- default grids: parity, and UA-reference safety ---
 
 def test_every_bakeoff_engine_has_a_grid():
-    for engine in ["chatterbox", "qwen", "edge"]:
+    for engine in ["qwen", "edge"]:
         assert engine in B.ENGINE_GRIDS
 
 
@@ -261,7 +261,7 @@ def test_removed_engines_stay_removed():
     qwen+fast on speed and cost) were cut 2026-07-31. A grid reappearing would
     resurrect an engine whose adapter no longer exists — the bake-off would then
     report it unavailable every run instead of failing loudly here."""
-    for gone in ("cosyvoice", "voxcpm", "indextts"):
+    for gone in ("cosyvoice", "voxcpm", "indextts", "chatterbox"):
         assert gone not in B.ENGINE_GRIDS
 
 
@@ -315,3 +315,57 @@ def test_tune_relaxes_the_floor_when_nothing_clears_it(monkeypatch, tmp_path):
         {"z": [0, 1]}, min_f0st=2.2)
     assert unavail is None and over in ({"z": 0}, {"z": 1})
     assert all(r["under_floor"] for r in trials)
+
+
+def test_bakeoff_synthesises_takes_serially():
+    """Takes were pooled while each went to its own worker PROCESS. With the
+    venvs merged (2026-08-02) synthesis runs in-process against ONE model held
+    in module globals — not thread-safe, so two concurrent takes would drive a
+    single model. Scoring stays overlapped; that is where the measured 40% was."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "qc" / "bakeoff.py").read_text()
+    block = src[src.index("def _synth_one("):src.index("for w, _d in done:")]
+    assert "ThreadPoolExecutor" not in block, \
+        "synthesis must not be pooled while the model is a module global"
+    assert "synth_workers" not in src, "the pool setting should be gone too"
+
+
+def test_s4_pre_synthesizes_the_variants_s5_would_need():
+    """s5_fit can SYNTHESIZE: it calls seg_wav() for candidates[1:] when the
+    primary needs a hard stretch. That silently assumed an engine wherever s5
+    runs — true only while the engine was edge (a network service).
+
+    With qwen the split is s4-on-a-GPU-pod / s5-on-the-laptop, and on
+    2026-08-02 s5 died with `No module named 'faster_qwen3_tts'` AFTER four
+    languages of pod synthesis had been paid for. course.py's design (phase C
+    is local and free) depends on s5 never needing a GPU, so s4 must pre-make
+    the variants."""
+    from pathlib import Path
+    src = Path(__file__).resolve().parents[1] / "pipeline" / "s4_synthesize.py"
+    text = src.read_text()
+    assert "VARIANT_MARGIN" in text, "s4 no longer pre-makes fit variants"
+    assert 'tr.get("variants")' in text, (
+        "s4 must synthesize the variant texts s5 may pick, not just the primary")
+
+
+def test_s5_names_the_pod_when_it_cannot_synthesize():
+    """The remaining hole is llm_shorten minting a NEW variant at s5 time, which
+    s4 cannot predict. That must not resurface as a bare ImportError."""
+    from pathlib import Path
+    src = Path(__file__).resolve().parents[1] / "pipeline" / "s5_fit.py"
+    text = src.read_text()
+    assert "engine_available" in text and "remote run" in text, (
+        "s5 must check engine availability and tell the user to run the stage "
+        "on a pod, instead of dying on ModuleNotFoundError")
+
+
+def test_engine_available_is_import_only():
+    """It must not load weights or touch CUDA — s5 calls it on a laptop."""
+    from pipeline.tts_engine import engine_available
+    assert engine_available("edge") is True
+    assert engine_available("nope") is False
+    # qwen_fast lives in a DIFFERENT package than qwen itself; checking only
+    # qwen_tts would have reported "available" and failed at synthesis.
+    import importlib.util
+    if importlib.util.find_spec("qwen_tts") is None:
+        assert engine_available("qwen", {"qwen_fast": True}) is False

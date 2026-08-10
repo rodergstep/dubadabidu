@@ -1,13 +1,64 @@
 # Third-party TTS engines (bake-off candidates)
 
-Chatterbox (the incumbent) and edge install from PyPI into the main venv. The
-bake-off challengers are **git-clone installs, GPU-only**, with their own heavy
-dependencies — and each installs into its **own venv: `venvs/<engine>`**. The
-pipeline routes any engine with a `venvs/<engine>` dir through a persistent
-worker subprocess in that venv automatically (`pipeline/engine_client.py` /
-`engine_worker.py`), so a challenger's resolver can pick whatever torch it
-wants and the chatterbox pin (torch/torchaudio 2.6.0) is untouchable by
-construction. On the pod, `remote bakeoff`/`remote setup-check` create these
+Everything installs into ONE venv (`.venv`). Per-engine venvs existed while
+four engines had colliding pins — chatterbox hard-pinned torch 2.6.0 + numpy<2,
+voxcpm wanted its own torch, cosyvoice needed setuptools<80 and a `.pth` hack —
+and isolation made those collisions structurally impossible. Three engines are
+gone and chatterbox took its pin with it (2026-08-02), and the surviving
+constraint sets agree:
+
+| package | qwen needs | base needs |
+|---|---|---|
+| torch | `>=2.5.1` (faster-qwen3-tts) | 2.6.0 for the qc stack |
+| transformers | `==4.57.3` (qwen-tts) | nothing at runtime |
+| huggingface-hub | `>=0.36,<1.0` | `>=0.8` speechbrain, `>=0.21` faster-whisper |
+
+**VALIDATED on a pod 2026-08-02** (`remote setup-check`, 3m20s / ~$0.015):
+`[probe] venv: torch +cu124 | cuda True`, `[probe] OK qwen`. The three
+constraint sets resolve together for real, not just on paper.
+
+### torch stays at 2.6.0 — RunPod's HOST DRIVER is the ceiling
+
+A bump to 2.11.0 was attempted and **reverted the same day, on measurement**:
+`remote setup-check` installed it cleanly and then reported
+
+```
+UserWarning: CUDA initialization: The NVIDIA driver on your system is too old
+(found version 12040)
+CUDA: False
+```
+
+RunPod's host driver is **CUDA 12.4**. torch 2.11's oldest build is `cu126`
+(there is no `2.11+cu124` wheel); 2.6.0 ships `cu124`, which is the `+cu124` we
+actually resolve. The driver belongs to the host machine, so **no container
+image and no `--index-url` reaches it**, and the REST API has no field to
+request one. Retry only after `nvidia-smi` on a fresh pod shows >=12.6.
+
+Two things were fixed on the way and KEPT, so the retry is one line + a
+~$0.015 setup-check:
+
+- **`torchaudio.load` -> soundfile** in `qc/metrics.py` (as `qc/evaluate.py`
+  already did). From 2.9 `load` delegates to the separate `torchcodec` package;
+  `hasattr` still returns True, so it breaks only when a scoring run reads a
+  file, on a pod, mid-billing. A static AST test now forbids the call.
+  `functional.resample` is all that remains of torchaudio and is pure torch.
+- The old justification for the pin was a comment claiming `torchaudio.save` is
+  native in 2.6 — **this repo has never called `torchaudio.save`.** The concern
+  was real, the API named was wrong, and the test repeated it back as fact.
+
+Above 2.6 the NEXT ceiling is torchaudio, not torch: torch is at 2.13.0
+(2026-07-08) but torchaudio stopped at **2.11.0** (2026-03-23) and the two ship
+as version-locked pairs. Dropping that one `resample` call would open 2.12/2.13.
+
+Verified harmless for the eval harness: soundfile vs `torchaudio.load` is
+bit-identical (`max|diff| = 0.0`), and ECAPA + Distill-MOS agree to every digit
+across 2.6 and 2.11 — so a future bump will not move any historical scorecard.
+
+Isolation was therefore costing a SECOND ~2.5 GB torch download on every fresh
+pod — the largest single item in the bootstrap — to prevent a collision that can
+no longer happen. If a second cloning engine returns, REVERT that commit rather
+than reinventing it: `engine_client.py`, `engine_worker.py` and the worker pool
+are in git. On the pod, `remote bakeoff`/`remote setup-check` create these
 venvs from the `runpod.engine_setup` snippets; locally, create one by hand
 (below) and the routing kicks in the moment the venv exists. The engine venv
 needs NOTHING of the project installed — the worker runs `-m
@@ -24,12 +75,22 @@ numbers would move for reasons the scorecard cannot show — the protocol rests 
 "the eval harness decides", and an unpinned harness decides against a moving
 target.
 
-## Removed engines — cosyvoice, voxcpm, indextts (cut 2026-07-31)
+## Removed engines — cosyvoice, voxcpm, indextts, chatterbox
 
 Both adapters, install recipes, config blocks and tests were deleted. Git
 history has everything, including CosyVoice's full seven-cause failure log and
 the validated-but-unused install recipe: `git show <this commit>^:THIRD_PARTY.md`.
 
+- **Chatterbox** (removed 2026-08-02) — the original incumbent. Dropped from
+  the bake-off roster on 2026-07-30 for cost, then kept as an unused fallback
+  until it was routed around entirely. CAVEAT, and it is the significant one:
+  chatterbox and qwen were NEVER A/B'd head to head by ear. The bake-off
+  selected qwen among CHALLENGERS while the incumbent sat outside the
+  comparison, so "qwen is better than chatterbox" is not something this project
+  measured. If the shipped audio disappoints, this is the first thing to
+  revisit — `git revert` restores the adapter, and it took the RU acute-stress
+  normalisation (`normalize_for_tts`) with it, which was chatterbox-only and
+  never validated on any other engine.
 - **CosyVoice 2/3** — installed and imported cleanly after six attempts at the
   build recipe, then never produced a single take in seven runs. Removed because
   three working engines existed and it had consumed more pod time than all of
@@ -66,9 +127,9 @@ pt/it). Ukrainian is not a supported language, so:
   adapter (a full video is hundreds of segments off one ref).
 
 ```bash
-# from the project root — its OWN venv; the pipeline auto-routes through it
-python3 -m venv venvs/qwen && . venvs/qwen/bin/activate
-pip install soundfile
+# from the project root, into the MAIN venv
+. .venv/bin/activate
+pip install -U 'huggingface-hub<1.0'      # faster-qwen3-tts needs <1.0
 git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS
 git -C third_party/Qwen3-TTS checkout 022e286b98fbec7e1e916cb940cdf532cd9f488e
 pip install -e third_party/Qwen3-TTS

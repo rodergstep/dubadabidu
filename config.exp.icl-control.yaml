@@ -1,4 +1,12 @@
-# EXPERIMENT: ICL clone vs x_vector_only.  Stack on config.gpu.yaml:
+# CONTROL for the ICL experiment — IDENTICAL to config.exp.icl.yaml except
+# qwen_x_vector_only. Exists because the bake-off's own tune-lite sweep is the
+# default: run without this and it re-sweeps bakeoff.grids over ref/*.wav,
+# picks whatever it likes (measured 2026-08-03: it chose a sketch60 clip and
+# reference_max_s=12), and the "baseline" then differs from the ICL run in
+# REFERENCE as well as in ICL — two axes at once, which measures nothing.
+#
+# tune.enabled: false and the pinned reference below are what make this a
+# control. Keep the reference and transcript in lockstep with the ICL overlay.
 #   dubadabidu remote bakeoff <video> --langs en --reuse --keep-alive \
 #     --overlay config.gpu.yaml --overlay config.exp.icl.yaml
 #
@@ -20,7 +28,7 @@
 # only means "we passed the wrong text". These come from work/sketch60/refs.json.
 # EDIT BOTH LINES TOGETHER to whichever reference the sweep picked.
 tts:
-  qwen_x_vector_only: false
+  qwen_x_vector_only: true
   reference_wav: ref/Organising the colour palette and materials_ref_04.wav
   # TRIM MUST BE OFF HERE. refs.json's transcript covers the FULL 15.04 s clip;
   # trimming to 12 s would leave the last ~3 s of text describing audio that is

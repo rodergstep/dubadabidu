@@ -61,9 +61,36 @@ def _separate_roformer(sep_cfg: dict, work_dir: str, full: Path,
         output_dir=str(out_dir),
         model_file_dir=str(Path(work_dir) / ".models" / "audio-separator"),
         output_format="WAV")
-    try:
+    def _go():
         separator.load_model(model_filename=model)
-        outs = separator.separate(str(full))
+        return separator.separate(str(full))
+
+    try:
+        try:
+            outs = _go()
+        except RuntimeError as e:
+            # AUTOMATIC CPU FALLBACK. Measured on an 8-minute lesson: RoFormer
+            # asked MPS for 1.19 GB with 26.3 GB already committed against a
+            # 30.2 GB ceiling and was refused — twice, with an identical figure,
+            # so standing system pressure rather than a transient. Without this
+            # the course runner dies on the FIRST long video of every batch and
+            # needs a hand-passed overlay to continue.
+            if "out of memory" not in str(e).lower() or _restore is not None:
+                raise
+            log.warning("separation ran out of GPU memory (%s) — retrying on "
+                        "CPU. Slower, but bounded by system RAM. Set "
+                        "separation.device: cpu to skip the failed attempt.",
+                        str(e).split("(")[0].strip())
+            import torch
+            if hasattr(torch.backends, "mps"):
+                _restore = torch.backends.mps.is_available
+                torch.backends.mps.is_available = lambda: False
+            separator_cpu = Separator(
+                output_dir=str(out_dir),
+                model_file_dir=str(Path(work_dir) / ".models" / "audio-separator"),
+                output_format="WAV")
+            separator_cpu.load_model(model_filename=model)
+            outs = separator_cpu.separate(str(full))
     finally:
         if _restore is not None:
             import torch
@@ -80,6 +107,14 @@ def _separate_roformer(sep_cfg: dict, work_dir: str, full: Path,
 
 
 def _separate_demucs(sep_cfg: dict, full: Path, wd: Path) -> tuple[Path, Path]:
+    # demucs moved to the .[sep] extra on 2026-08-03 (it is s1-only, and s1
+    # never runs on a pod). Say so, instead of letting the subprocess die with
+    # a bare `No module named demucs` from `python -m`.
+    import importlib.util
+    if importlib.util.find_spec("demucs") is None:
+        raise FileNotFoundError(
+            "demucs not importable — separation.backend: demucs needs it: "
+            "pip install '.[sep]' (or switch to separation.backend: roformer).")
     model = sep_cfg["demucs_model"]
     sh(sys.executable, "-m", "demucs", "--two-stems=vocals", "-n", model,
        "-o", str(wd / "demucs"), str(full))

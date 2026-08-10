@@ -109,14 +109,14 @@ So: check names against their definitions, not against intent.
 
     print("\n=== 5. engines referenced in code vs installable ===")
     import pipeline.runpod_infra as R                          # noqa: E402
-    import pipeline.engine_worker as W                         # noqa: E402
-    # ONLY the dispatch dict — every other dict literal in that file is a protocol
-    # reply ({"ok":..., "kind":...}), which the first version happily reported as
-    # an "engine with no install recipe"
+    # the dispatch dict now lives in tts_engine.synthesize (engine_worker was
+    # deleted with the venv isolation, 2026-08-02). Only that dict maps names to
+    # _synth_* functions; every other literal in the file is something else.
     dispatch = set()
-    for n in ast.walk(ast.parse((ROOT / "pipeline/engine_worker.py").read_text())):
+    for n in ast.walk(ast.parse((ROOT / "pipeline/tts_engine.py").read_text())):
         if isinstance(n, ast.Dict) and n.values and all(
-                isinstance(v, ast.Attribute) for v in n.values):
+                isinstance(v, ast.Name) and v.id.startswith("_synth_")
+                for v in n.values):
             dispatch |= {k.value for k in n.keys if isinstance(k, ast.Constant)}
     setup = set((gpu.get("runpod") or {}).get("engine_setup", {}))
     need_install = dispatch - {"chatterbox", "edge"}
@@ -190,6 +190,143 @@ So: check names against their definitions, not against intent.
     if not any("synth_hash ignores" in f for f in FAIL):
         ok(f"all {len(OUTPUT_CHANGING)} output-changing knobs salt the cache key")
 
+    print("\n=== 9. functions reading names that are defined nowhere ===")
+    # `setup_check` read an `overlays` global copy-pasted from remote_run, which
+    # takes it as a PARAMETER. Python resolves unknown names at call time, so it
+    # imported, passed every other check, and raised NameError only once the
+    # command was actually invoked. Checks 1-8 all compare a name to its
+    # definition; this one asks whether a definition exists at all.
+    import builtins
+    import symtable
+    for py in (sorted(ROOT.glob("pipeline/*.py")) + sorted(ROOT.glob("qc/*.py"))
+               + [ROOT / "dub.py"]):
+        top = symtable.symtable(py.read_text(), str(py), "exec")
+        # module scope + builtins; a name assigned anywhere at module level
+        # (including inside `try:`/`if`) counts as defined.
+        known = {s.get_name() for s in top.get_symbols()} | set(dir(builtins))
+
+        def scan(tbl):
+            for ch in tbl.get_children():
+                if ch.get_type() == "function":
+                    for s in ch.get_symbols():
+                        # is_global + never assigned in this scope == a free
+                        # name that must resolve at module level or in builtins
+                        if (s.is_global() and not s.is_assigned()
+                                and s.get_name() not in known):
+                            bad(f"{py.name}:{ch.get_lineno()} {ch.get_name()}() "
+                                f"reads {s.get_name()!r}, which is not defined at "
+                                f"module scope, not a parameter, and not a "
+                                f"builtin -> NameError at call time "
+                                f"(this is the setup_check/overlays bug)")
+                scan(ch)
+        scan(top)
+    if not any("NameError at call time" in f for f in FAIL):
+        ok("every free name in every function resolves to a definition")
+
     print(f"\n{'='*60}\n{len(FAIL)} problem(s)" if FAIL else
           f"\n{'='*60}\nclean")
     assert not FAIL, "\n".join(FAIL)
+
+
+def test_asr_defends_against_repetition_loops():
+    """The first production lesson shipped with its tail replaced by
+    "Він практично не має запаху." seven times, over audio measuring 30-77%
+    voiced. Two real sentences and the outro were lost, translated into five
+    languages and synthesized before a human caught it.
+
+    Two settings had to be wrong at once, so both are asserted:
+      - condition_on_previous_text fed each wrong segment back as context
+      - temperature=0.0 with no ladder disabled Whisper's OWN rescue, which
+        detects a bad decode via compression_ratio_threshold and retries hotter
+    """
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "pipeline" / "asr.py").read_text()
+    assert 'condition_on_previous_text", False' in src, (
+        "condition_on_previous_text must DEFAULT to False — True propagates a "
+        "hallucination into a repetition loop across a long file")
+    assert "compression_ratio_threshold" in src, (
+        "without it Whisper cannot detect a repetitive decode")
+    assert "temperature_fallback" in src, (
+        "a single temperature disables the fallback ladder that rescues a "
+        "failed decode; healthy segments still decode greedily at 0.0")
+    for backend in ("_transcribe_faster", "_transcribe_mlx"):
+        i = src.index(f"def {backend}")
+        # slice to the NEXT top-level def, not a fixed window — the mlx branch
+        # carries a long comment and a 2000-char window cut the call in half
+        nxt = src.find("\ndef ", i + 1)
+        body = src[i:nxt if nxt != -1 else len(src)]
+        assert "temperature_fallback" in body and "condition_on_previous_text" in body, (
+            f"{backend} must carry the same guards — the bug shipped on the mlx "
+            f"path and the faster path had the identical settings")
+
+
+def test_s2_detects_repetition_in_the_transcript():
+    """The fix above prevents THIS loop. The detector catches the next one:
+    a silently wrong transcript is the worst failure here, because every later
+    stage is faithful to it and reports success."""
+    from pipeline.s2_transcribe import _warn_on_repetition
+    import logging
+    recs = []
+
+    class H(logging.Handler):
+        def emit(self, r): recs.append(r.getMessage())
+
+    log = logging.getLogger("dubadabidu.s2")
+    h = H(); log.addHandler(h)
+    try:
+        bad = [{"start": 1.0, "text": "Він практично не має запаху. "
+                                      "Він практично не має запаху."}]
+        _warn_on_repetition(bad)
+        assert any("REPETITION" in m for m in recs), "internal repeat not caught"
+        recs.clear()
+        _warn_on_repetition([{"start": i, "text": "одна і та сама фраза"}
+                             for i in range(3)])
+        assert any("REPETITION" in m for m in recs), "duplicated lines not caught"
+        recs.clear()
+        _warn_on_repetition([{"start": 0.0, "text": "перша фраза"},
+                             {"start": 1.0, "text": "друга зовсім інша фраза"}])
+        assert not recs, f"false positive on a clean transcript: {recs}"
+    finally:
+        log.removeHandler(h)
+
+
+def test_ru_stress_layer_is_wired_and_salted():
+    """RUAccent stress marking was deleted with chatterbox on 2026-08-02 because
+    its call site read `engine == "chatterbox"`. That commit recorded the risk —
+    "Whether qwen mis-stresses Russian is UNTESTED - and a ru track is about to
+    ship" — the track shipped, and the listener reported wrong stress.
+
+    Restored 2026-08-03, engine-agnostic and behind tts.ru_stress. Three things
+    have to hold together or it is worse than absent."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+
+    # 1. it must actually run at the synthesis boundary
+    tts = (root / "pipeline" / "tts_engine.py").read_text()
+    assert "normalize_for_tts(text, lang, tts_cfg)" in tts, (
+        "the stress layer is defined but never called — exactly how it became "
+        "dead code the first time")
+    # strip comments first: the restoration comment QUOTES the old gate, and a
+    # substring check on prose flagged the very note explaining the fix
+    code_only = "\n".join(ln.split("#", 1)[0] for ln in tts.splitlines())
+    assert 'engine == "chatterbox"' not in code_only, (
+        "the stress layer is gated on an engine again — that is what made it "
+        "unreachable when the engine was removed")
+
+    # 2. it must salt the cache, or accented text serves unaccented audio
+    from pipeline.manifest import synth_hash
+    base = {"engine": "qwen", "reference_wav": "r.wav", "cfg_weight": 0.0,
+            "exaggeration": 0.5}
+    assert synth_hash("привет", "ru", base) != \
+        synth_hash("привет", "ru", {**base, "ru_stress": True}), \
+        "ru_stress does not move synth_hash — cached unaccented takes would be " \
+        "served for an accented config"
+    assert synth_hash("hi", "en", base) == \
+        synth_hash("hi", "en", {**base, "ru_stress": True}), \
+        "ru_stress must not invalidate non-Russian caches"
+
+    # 3. plus notation must never reach the engine (measured 2026-07-08: it
+    #    BREAKS generation; only combining acutes work)
+    from pipeline.text_norm import plus_to_acute
+    out = plus_to_acute("дер+евья")
+    assert "+" not in out and "́" in out, f"plus notation survived: {out!r}"

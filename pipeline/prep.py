@@ -41,6 +41,25 @@ PREP_DEFAULTS = {
 }
 
 
+def _spread(items: list, n: int) -> list:
+    """Up to `n` items evenly spaced across `items`, keeping its order.
+
+    Used wherever a length-sorted list gets capped. Truncating a sorted list is
+    not a neutral cap — it silently picks one end. prep sorts spans longest-first
+    and used to do exactly that in two places (the candidate cap and the kept
+    refs), so `tune` R1 only ever scored long references and could not measure
+    the 10-15 s window upstream calls optimal. prep ranks nothing; it hands over
+    a pool that SPANS the band and lets R1 decide."""
+    if n <= 0 or not items:
+        return []
+    if len(items) <= n:
+        return items
+    if n == 1:
+        return [items[0]]
+    idx = dict.fromkeys(round(i * (len(items) - 1) / (n - 1)) for i in range(n))
+    return [items[i] for i in idx]
+
+
 def _voiced_density(path: Path, thr: float = 0.05) -> float:
     """Fraction of 30 ms frames above thr*peak — how much of the span is actual
     speech vs silence/pauses. A near-empty span is a bad ref; used as a floor,
@@ -118,7 +137,12 @@ def run(cfg: dict, video: str) -> None:
                        key=lambda u: u["end"] - u["start"], reverse=True)
         log.warning("no %d-%ds utterances; using the longest available",
                     int(min_s), int(max_s))
-    spans = spans[:p["max_candidates"]]
+    # SPREAD, don't truncate. `spans` is sorted longest-first, so
+    # `spans[:max_candidates]` gated only the longest N — on 2026-08-03 that
+    # left every candidate >= 14.5 s in a 10-20 s band, so widening min_s to
+    # reach the 10-15 s optimum changed nothing. The cap is a COST limit (each
+    # candidate is a cut plus a MOS/f0 pass), not a length preference.
+    spans = _spread(spans, p["max_candidates"])
 
     cand_dir = wd / "refcand"
     cand_dir.mkdir(parents=True, exist_ok=True)
@@ -140,9 +164,20 @@ def run(cfg: dict, video: str) -> None:
                      "peak=%.2f", u["id"], dur, q["mos"], q["voiced"],
                      q["f0st"], q["peak"])
 
-    # survivors kept in length order; if the gate rejected everything, keep the
-    # longest spans anyway (never emit zero refs — a weak ref beats no ref)
-    keep = passed[:n_refs]
+    # Survivors are STRATIFIED across the length band, not topped off from the
+    # long end. `passed` is sorted longest-first, so `passed[:n_refs]` handed
+    # tune R1 the n longest spans and nothing else — on 2026-08-03 that meant
+    # 17.6/19.5/19.8 s out of a 12-20 s band, and R1 had therefore never scored
+    # a reference in the 10-15 s range upstream documents as optimal ("quality
+    # scales roughly linearly from 3 to 15 s, then plateaus and eventually
+    # degrades"). The old comment called length a "neutral tie-break"; taking
+    # the top N of a sorted list is not a tie-break, it is a bias, and it
+    # silently decided an axis this module says belongs to tune.
+    #
+    # Evenly spaced indices give shortest / middle / longest, so R1 measures
+    # length instead of inheriting it. prep still ranks nothing — it just hands
+    # over a pool that spans the band.
+    keep = _spread(passed, n_refs)
     if not keep:
         log.warning("no span passed the quality gate — keeping the %d longest "
                     "anyway; inspect ref/ before trusting the clone", n_refs)

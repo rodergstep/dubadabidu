@@ -60,12 +60,12 @@ def doctor(cfg: dict) -> int:
                   "(~4-5x on Apple Silicon).")
     if dev != "cuda":
         print("  [i ] no CUDA: use tts.engine=edge for pipeline validation; "
-              "run the Chatterbox batch on a CUDA machine (RunPod/vast.ai).")
+              "run qwen synthesis on a CUDA machine (`dubadabidu remote run`).")
     for mod in ["faster_whisper", "pydub", "soundfile", "srt", "yaml", "openai"]:
         try:
             __import__(mod); check(f"python: {mod}", True)
         except ImportError:
-            check(f"python: {mod}", False, "pip install -r requirements.txt")
+            check(f"python: {mod}", False, "pip install -e '.[dev]'")
     sep = cfg.get("separation", {})
     if sep.get("enabled") and sep.get("backend", "roformer") == "roformer":
         try:
@@ -75,27 +75,20 @@ def doctor(cfg: dict) -> int:
                   'pip install "audio-separator[cpu]" (or separation.backend: demucs)')
     engines = {cfg["tts"]["engine"], *cfg["tts"].get("engine_by_lang", {}).values(),
                *cfg.get("bakeoff", {}).get("engines", [])}
-    # each engine is probed where synthesis would actually run it: inside
-    # venvs/<engine> when that isolated venv exists (engine_client routes
-    # through a worker there), otherwise in THIS venv (in-process).
+    # engines are probed in THIS venv — the only one, since the per-engine
+    # venvs merged on 2026-08-02. (The venvs/<engine>/bin/python fallback that
+    # used to live here went with them; it could only ever find a tree this
+    # repo no longer creates.)
     for eng, mod, hint in [
-        ("chatterbox", "chatterbox", "pip install chatterbox-tts==0.1.7"),
         ("qwen", "qwen_tts",
-         "git clone QwenLM/Qwen3-TTS + pip install -e . in its own venv "
-         "(THIRD_PARTY.md)"),
+         "git clone QwenLM/Qwen3-TTS + pip install -e . (THIRD_PARTY.md)"),
     ]:
         if eng not in engines:
             continue
-        vpy = ROOT / "venvs" / eng / "bin" / "python"
-        if vpy.exists():
-            r = subprocess.run([str(vpy), "-c", f"import {mod}"],
-                               capture_output=True)
-            check(f"python: {mod} (venvs/{eng})", r.returncode == 0, hint)
-        else:
-            try:
-                __import__(mod); check(f"python: {mod}", True)
-            except ImportError:
-                check(f"python: {mod}", False, hint)
+        try:
+            __import__(mod); check(f"python: {mod}", True)
+        except ImportError:
+            check(f"python: {mod}", False, hint)
     if engines - {"edge"}:
         check("reference_wav", Path(cfg["tts"]["reference_wav"]).exists(),
               f"put a 15-20s clean voice clip at {cfg['tts']['reference_wav']} "
@@ -141,7 +134,14 @@ def preamble(cfg: dict, video: str, langs: list[str]) -> None:
         return
     lang = langs[0]
     s3_translate.run(cfg, video, [lang])
-    tcfg = deep_merge(cfg, {"tune": {"refs_glob": f"ref/{stem}_ref_*.wav",
+    # R1 must be able to see the CURATED references, not just this lesson's own
+    # cuts. Measured 2026-08-03: scoping the pool to `ref/{stem}_ref_*.wav` made
+    # R1 pick this lesson's ref_04 (mos 4.26, the flattest f0st of all 11) while
+    # never comparing it against sketch60_ref_03 (mos 4.59) — and the listener
+    # rated audio from ref_04 12-of-18 unusable against ~3.5/5 for sketch60.
+    # Source quality varies per lesson; the reference is a curated asset, so the
+    # pool is this video's cuts PLUS whatever tune.refs_glob already names.
+    tcfg = deep_merge(cfg, {"tune": {"refs_glob": "ref/*.wav",
                                      "subset_size": 5, "rounds": ["R1"]}})
     win = tune_mod.run(tcfg, video, [lang])
     man = M.load(cfg, video)
@@ -216,9 +216,22 @@ def _remote_stages(a) -> str | None:
     if getattr(a, "from_stage", "s1_extract") != "s1_extract":
         parts.append(f"--from {a.from_stage}")
     to = getattr(a, "to_stage", "s8_mux")
-    # the pod always stops at s7: the mux needs the source video, which stays
-    # local. An explicit --to wins; otherwise keep that long-standing default.
-    parts.append(f"--to {to if to != 's8_mux' else 's7_subtitles'}")
+    # THE POD STOPS AT s5. It used to stop at s7, on the reasoning that only the
+    # MUX needs the source video — true, but it is the wrong cut. s4 is the only
+    # stage that needs a GPU. s6 (mix) and s7 (subtitles) are CPU work on files
+    # that already live in work/ and sync both ways, so running them on the pod
+    # billed rented time for something the laptop does free.
+    # It also broke a run, 2026-08-09: s6's mastering chain imports pedalboard,
+    # which is the opt-in [master] extra (GPLv3, deliberately not in the default
+    # install) and therefore absent from every pod, which installs `.[dev]`. All
+    # five languages synthesized and fitted, then the task exited rc=1 in s6 —
+    # a full GPU run reported as a failure over a stage that had no business
+    # being there. Finishing locally with `--from s6_mix` cost nothing.
+    # The alternative fix — install pedalboard on the pod — would have paid to
+    # move a GPL dependency onto rented hardware to do CPU work slower.
+    # An explicit --to still wins, so `--to s7_subtitles` reproduces the old
+    # behaviour when a pod genuinely needs to carry further.
+    parts.append(f"--to {to if to != 's8_mux' else 's5_fit'}")
     return " ".join(parts)
 
 
@@ -236,7 +249,7 @@ def main() -> None:
                     help="stop after this stage (e.g. --to s7_subtitles to "
                          "produce audio+subs but skip mux — the remote GPU path "
                          "muxes locally so the source video never uploads)")
-    ap.add_argument("--engine", default=None, choices=["chatterbox", "edge"])
+    ap.add_argument("--engine", default=None, choices=["qwen", "edge"])
     ap.add_argument("--spec", default=None,
                     help="acceptance spec for `autopilot` "
                          "(default specs/batch.yaml)")
@@ -310,6 +323,12 @@ def main() -> None:
     if a.engine:
         cfg["tts"]["engine"] = a.engine
     langs = a.langs.split(",") if a.langs else cfg["languages"]
+
+    # where ECAPA / Distill-MOS run. Default 'cpu' keeps every stored score
+    # comparable with the ones already in the manifests; 'cuda'/'auto' is the
+    # pod-cost lever (see qc.metrics.set_device for how to validate the switch).
+    from qc import metrics as _metrics
+    _metrics.set_device(cfg.get("qc", {}).get("metrics_device", "cpu"))
 
     if a.cmd == "doctor":
         sys.exit(doctor(cfg))

@@ -71,6 +71,58 @@ def _normalize_segment(seg: AudioSegment, target_dbfs: float) -> tuple[AudioSegm
     return seg.apply_gain(gain), gain
 
 
+def _assemble(placements: list[tuple[int, AudioSegment]], total_ms: int,
+              rate: int) -> AudioSegment:
+    """Lay non-overlapping segments onto one silent timeline of `rate` Hz.
+
+    NOT `track.overlay(seg, position=...)` in a loop, which is what this
+    replaced. pydub never mutates: every overlay() slices the base, spawns a
+    NEW AudioSegment and copies the WHOLE timeline. That is O(n) per segment
+    and O(n^2) over a video. A 1 h lesson at 24 kHz mono 16-bit is ~173 MB per
+    copy; at ~400 utterances the old loop moved ~35 GB through memory and
+    allocated 400 fresh 173 MB buffers to produce one track — the bulk of
+    phase C's wall clock on a real lesson, and the reason IMPROVEMENT_PLAN
+    listed s6 RAM as a scale risk.
+
+    One int32 accumulator, one clip, one spawn. Segments are summed rather
+    than pasted so the result matches overlay() exactly even if two ever touch
+    (s5's soft-anchor placement makes overlap impossible, but the mix must not
+    depend on that invariant holding); int32 headroom plus the clip reproduces
+    audioop.add's saturation.
+
+    One INTENDED behavioural difference from the loop it replaced — the output
+    is pinned to `rate` rather than promoted to the widest segment. See the
+    note at the set_frame_rate call below.
+    """
+    import numpy as np
+    need_ms = max([total_ms] + [pos + len(seg) for pos, seg in placements])
+    n = int(need_ms * rate / 1000)
+    acc = np.zeros(n, dtype=np.int32)
+    for pos, seg in placements:
+        # NOT what overlay() did, and the difference is deliberate. pydub's
+        # _sync takes the MAX of (channels, frame_rate, sample_width) across
+        # both operands, so a segment above the base rate used to drag the whole
+        # TIMELINE up to it — the output rate was decided by whichever segment
+        # happened to be widest. This pins the output to tts.sample_rate and
+        # brings segments to it instead.
+        #
+        # Identical in practice today: s4 writes every take at
+        # tts.sample_rate (verified 2026-08-03 — 24000 Hz segments against a
+        # 24000 Hz base, byte-identical output on 60 real production segments).
+        # It diverges only if an engine ever emits a higher rate, and then this
+        # behaviour is the one you want: a deterministic output rate is exactly
+        # what the 96 kHz encode bug (s6, 2026-08-02) cost a re-run to learn.
+        seg = seg.set_frame_rate(rate).set_channels(1).set_sample_width(2)
+        data = np.frombuffer(seg._data, dtype="<i2")
+        start = int(pos * rate / 1000)
+        end = min(start + len(data), n)
+        if end > start:
+            acc[start:end] += data[:end - start]
+    clipped = np.clip(acc, -32768, 32767).astype("<i2")
+    return AudioSegment(clipped.tobytes(), frame_rate=rate,
+                        sample_width=2, channels=1)
+
+
 def _master(inp: Path, out: Path, m: dict) -> None:
     """Light mastering chain on the dub vocals BEFORE the background mix
     (Spotify pedalboard). best_of takes are picked per segment, so consecutive
@@ -122,8 +174,15 @@ def _loudnorm_two_pass(premix: Path, out: Path, lufs: int) -> None:
                                     probe.stderr.rindex("}") + 1])
 
     def _encode(af: str) -> None:
+        # -ar 44100 is NOT redundant. loudnorm resamples to 192 kHz internally,
+        # and with no explicit output rate ffmpeg keeps the filter's rate —
+        # which AAC then clamps to its 96 kHz maximum. The premix is already
+        # aresample=44100, so without this every dubbed track shipped at 96 kHz:
+        # double the data for no audible gain, on a file destined for YouTube.
+        # Caught by the edge plumbing run 2026-08-02, not by any test.
         subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(premix),
-                        "-af", af, "-c:a", "aac", "-b:a", "192k", str(out)],
+                        "-af", af, "-c:a", "aac", "-b:a", "192k",
+                        "-ar", "44100", str(out)],
                        check=True)
 
     # loudnorm reports input_i = -inf (or a floor around -70) for (near-)silent
@@ -182,13 +241,11 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             placements.append(
                 (int(tr.get("placed_start", u["start"]) * 1000), seg))
         # PASS 2: build the timeline long enough for the source AND every segment,
-        # then overlay. Normally need_ms == total_ms (no change); it only grows
-        # when a late/long segment would otherwise be clipped — a fraction of a
-        # second past the video, which the ffmpeg mix (bg apad) tolerates.
-        need_ms = max([total_ms] + [pos + len(seg) for pos, seg in placements])
-        track = AudioSegment.silent(duration=need_ms, frame_rate=rate)
-        for pos, seg in placements:
-            track = track.overlay(seg, position=pos)
+        # then lay the segments down. Normally the track equals total_ms (no
+        # change); it only grows when a late/long segment would otherwise be
+        # clipped — a fraction of a second past the video, which the ffmpeg mix
+        # (bg apad) tolerates.
+        track = _assemble(placements, total_ms, rate)
         voc = wd / f"dub_{lang}_vocals.wav"
         track.export(voc, format="wav")
         if cfg["mix"].get("master", {}).get("enabled"):

@@ -1,0 +1,49 @@
+# EXPERIMENT (arm B): ICL with a STRESS-MARKED reference transcript, plus
+# stress-marked Russian target text.
+#
+#   dubadabidu remote bakeoff <video> --langs ru --reuse --keep-alive \
+#     --overlay config.gpu.yaml --overlay config.exp.ru-icl-stress.yaml \
+#     --overlay config.exp.ru-full.yaml
+#
+# WHY THIS IS NOT A RERUN OF THE REFUTED TEST. config.exp.ru-stress.yaml put
+# combining acutes in the TARGET text while running x_vector_only — i.e. the
+# model got no reference transcript at all, so it had never seen a mark paired
+# with the audio it denotes. The marks were pure noise, and the result was
+# 97% unusable by ear.
+#
+# Qwen3-TTS's generate_voice_clone DOES accept ref_text (full ICL), and upstream
+# discussion #185 reports the one thing that reportedly works: mark the
+# REFERENCE transcript, and "the system 'learns' to differentiate phonemes".
+# That is an in-context demonstration of what an acute MEANS, which is exactly
+# what the refuted test lacked. Anecdotal, unverified, and the only qwen-native
+# mechanism left after `instruct` turned out to be unavailable while cloning
+# (it exists on generate_custom_voice / generate_voice_design only).
+#
+# THE REFERENCE TRANSCRIPT is Ukrainian, because the reference audio is his
+# Ukrainian voice. Transcribed from ref/sketch_ref_08.trim12s.wav directly with
+# whisper large-v3, so it matches the TRIMMED clip by construction — that
+# sidesteps the documented mismatch hazard, where a transcript describing audio
+# that was trimmed away degrades cloning and the run reads as "ICL is worse".
+# Stress marked with lang-uk/ukrainian-word-stress (MIT), run ONCE in a throwaway
+# venv. It is deliberately NOT a project dependency: this is a static string,
+# and the last stress library we added (ruaccent) pulled transformers unpinned
+# and silently broke the qwen install for a whole run.
+#
+# KNOWN RISK, measured on a different language: ICL was REFUTED by ear for
+# ENGLISH on 2026-08-04 — 15 of 18 clips rated unusable, source-accent bleed.
+# Russian is the case where that bleed is least costly (the reference is Slavic,
+# and the accent is identity per FINDINGS 2.3), but it is a real possibility
+# that this arm loses on voice quality even if the stress improves. Arm C
+# (config.exp.ru-icl-plain.yaml) is what separates those two effects.
+tts:
+  ru_stress: true                 # marked TARGET
+  qwen_x_vector_only: false       # full ICL: ref audio + ref transcript
+  reference_wav: ref/sketch_ref_08.trim12s.wav
+  # TRIM OFF: the file above IS the trimmed clip, and the transcript covers all
+  # of it. Trimming again would strand text describing audio that is gone.
+  reference_max_s: 0
+  reference_text: "Насту́пна ста́дія присвя́чується більш дета́льній проце́сі ме́нших форм. Ме́нші фо́рми в на́шому етю́ді – це де́рево,"
+
+bakeoff:
+  tune:
+    enabled: false        # fixes the reference: this run tests ONE axis pair

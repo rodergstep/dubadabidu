@@ -62,6 +62,10 @@ def test_missing_voice_anchor_fails_with_an_actionable_message(tmp_path,
     point of a billed pod run."""
     import json
     import pytest
+    # bakeoff.run imports torch before it reaches the guard under test. CI
+    # deliberately omits the heavy ML stack, so skip rather than fail there —
+    # this test is about the reference-slice check, not about torch.
+    pytest.importorskip("torch")
     import qc.evaluate
     from qc import bakeoff
 

@@ -9,7 +9,12 @@ Two layers:
    (already a dep) with a graceful fallback to the raw token when a language
    isn't supported.
 
-2. Russian stress (`normalize_for_tts`) — CHATTERBOX-ONLY. Chatterbox was
+2. Russian stress — REMOVED 2026-08-02 with chatterbox. It was CHATTERBOX-ONLY
+   (acute marks are a quirk of its training) and was never validated on any
+   other engine, so it left with the engine rather than being pointed at qwen
+   on the assumption that marks help. OPEN QUESTION: whether qwen mis-stresses
+   Russian is UNTESTED — if the ru track sounds wrong, that is an A/B to run,
+   and git history has the RUAccent implementation. Historically: chatterbox was
    trained with combining-acute stress marks (its own optional
    russian_text_stresser dep is unmaintained and conflicts with chatterbox-tts
    — resemble-ai/chatterbox#304/#340). We mark stress with RUAccent (Apache-2.0,
@@ -32,7 +37,6 @@ log = logging.getLogger("dubadabidu.text_norm")
 # --- layer 2: chatterbox RU stress ---
 # Per-language stress-normalization version, salted into synth_hash. Version 1
 # adds no hash key, so pre-existing caches stay valid.
-NORM_VERSIONS = {"ru": 1}
 
 # --- layer 1: number/symbol localization (all engines) ---
 # Per-language number-localization version, salted into synth_hash for EVERY
@@ -41,7 +45,6 @@ NORM_VERSIONS = {"ru": 1}
 # listed is left untouched (no expansion, no key).
 NUM_VERSIONS = {"en": 2, "fr": 2, "de": 2, "es": 2, "ru": 2}
 
-_ruaccent = None
 _PLUS = re.compile(r"\+(.)")
 ACUTE = "́"
 
@@ -58,10 +61,6 @@ _SYMBOLS = {
           "ru": "градусов"},
 }
 
-
-def plus_to_acute(text: str) -> str:
-    """RUAccent plus notation -> combining acute after the stressed vowel."""
-    return _PLUS.sub("\\1" + ACUTE, text)
 
 
 def localize_numbers(text: str, lang: str) -> str:
@@ -90,8 +89,32 @@ def localize_numbers(text: str, lang: str) -> str:
             text = text.replace(sym, " " + words[lang])
     return text
 
+# --- layer 2: Russian lexical stress (RESTORED 2026-08-03) -------------------
+# Removed with chatterbox on 2026-08-02 because the call site was gated on
+# engine == "chatterbox". That commit recorded the risk verbatim: "Whether qwen
+# mis-stresses Russian is UNTESTED - and a ru track is about to ship. If it
+# sounds wrong, that is an A/B to run and git history has the RUAccent
+# implementation." It shipped, and the listener reported wrong stress on the
+# Russian track. So: back, pointed at whichever engine is configured.
+#
+# Chatterbox was TRAINED on combining acutes; qwen was not, so this is a
+# hypothesis, not a restoration of known-good behaviour — gate it on
+# tts.ru_stress and let an A/B decide. The 2026-07-08 finding that plus notation
+# BREAKS generation still stands: convert to acutes, never pass "дер+евья".
+NORM_VERSIONS = {"ru": 1}
+_ruaccent = None
+_PLUS = re.compile(r"\+(.)")
+ACUTE = "\u0301"
 
-def _accent_ru(text: str) -> str:
+
+def plus_to_acute(text: str) -> str:
+    """RUAccent plus notation -> combining acute after the stressed vowel."""
+    return _PLUS.sub("\\1" + ACUTE, text)
+
+
+def accent_ru(text: str) -> str:
+    """Mark Russian lexical stress. Never raises: an unaccented synthesis is a
+    quality regression, a crashed one is a lost pod."""
     global _ruaccent
     try:
         if _ruaccent is None:
@@ -100,14 +123,14 @@ def _accent_ru(text: str) -> str:
             _ruaccent = RUAccent()
             _ruaccent.load(omograph_model_size="turbo3.1", use_dictionary=True)
         return plus_to_acute(_ruaccent.process_all(text))
-    except Exception as e:  # never let normalization kill a synthesis run
-        log.warning("RUAccent failed (%s); synthesizing unaccented", e)
+    except Exception as e:
+        log.warning("RUAccent unavailable (%s); synthesizing unaccented", e)
         return text
 
 
-def normalize_for_tts(text: str, lang: str) -> str:
-    """Chatterbox-only stress marking (layer 2). Number localization (layer 1)
-    is applied separately in tts_engine.synthesize for every engine."""
-    if lang == "ru":
-        return _accent_ru(text)
+def normalize_for_tts(text: str, lang: str, tts_cfg: dict | None = None) -> str:
+    """Stress-mark Russian when tts.ru_stress is on. Engine-agnostic now: the
+    old version hardcoded chatterbox, which is why it became unreachable."""
+    if lang == "ru" and (tts_cfg or {}).get("ru_stress"):
+        return accent_ru(text)
     return text
