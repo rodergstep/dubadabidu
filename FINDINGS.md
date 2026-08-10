@@ -475,6 +475,57 @@ that transcribes reduction.
 **ENCODED** `qc/stress_consensus.py` + `config.exp.ru-consensus.yaml`, unwired,
 kept so the negative is reproducible.
 
+### 2.1j RU stress errors are partly SYSTEMATIC — selection cannot fix them
+
+**CLAIM** (§2.1f, which this supersedes) Errors are stochastic per take, so a
+correct take always exists and the problem is one of selection.
+**EVIDENCE** 2026-08-09, from the listener's own two rating rounds plus the
+5-take alignments.
+
+*The rate did not change; the CLUSTERING did.* He reported the latest batch as
+"much better stressing" — and at sentence level he is right, but the per-take
+rate is identical:
+
+| | earlier (2 takes) | latest (5-take pool) |
+|---|---|---|
+| takes with a stress error | **29%** | **29%** |
+| sentences fully clean | 43% | **67%** |
+| sentences with BOTH presented takes bad | **0** | **3** |
+
+Same defect rate, concentrated into fewer sentences. More fully-clean sentences
+is exactly what "sounds much better" means, and it is a clustering effect, not
+an improvement.
+
+*And the clustered ones are systematic.* All three BOTH-BAD segments had a
+ZERO-deviation take available — it was the consensus pick, and he marked it bad:
+
+```
+u0015  BOTH BAD  deviations [0, 1, 1, 2, 3]
+u0025  BOTH BAD  deviations [0, 0, 1, 1, 2]
+u0030  BOTH BAD  deviations [0, 0, 0, 2, 2]
+```
+
+**VERDICT** **§2.1f is SUPERSEDED.** Errors are not uniformly stochastic. For a
+subset of words qwen is consistently wrong, so the MAJORITY placement is wrong,
+the take matching it scores zero deviations, and consensus selects it with
+confidence — while any take that got the word RIGHT deviates from the mode and is
+flagged as the bad one.
+**CONSENSUS IS THEREFORE ANTI-CORRELATED on exactly the segments that matter**,
+which is why the blind test came back consensus 4 unusable vs most-deviant 3
+rather than a tie. It is not blind to these errors; it prefers them.
+**THE REAL SHAPE OF THE DEFECT.** Three populations: words qwen reliably gets
+right (most), words it reliably gets WRONG (the clustered failures), and a
+smaller stochastic band. `best_of` and every selection rule can only touch the
+third.
+**CONSEQUENCE** No selection-based fix exists, and that closes the last route
+that did not require changing the engine or the input. What remains:
+per-word pronunciation control (qwen has none — §2.1c), a stress-aware engine,
+or accepting that ru ships weaker than the other four languages.
+**THE EARLIER 0-of-14 WAS AN ARTEFACT OF SAMPLING TWO TAKES.** With two draws a
+systematically-wrong word usually produces two wrong takes and gets marked as one
+bad take against one unrated — it never looks like "both bad". Five takes made it
+visible. A premise measured at the smallest possible K carried four experiments.
+
 ### 2.1c No zero-shot cloning TTS handles Russian stress (survey, 2026-08-09)
 
 **CLAIM** Some other open model solves this and we can swap engines for ru via
