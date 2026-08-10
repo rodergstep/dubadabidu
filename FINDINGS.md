@@ -433,6 +433,48 @@ failed this gate before shipping; none reached take selection or cost a pod.
 reproducible and nobody rebuilds it. MFA install is a throwaway micromamba env,
 NOT a project dependency.
 
+### 2.1i Consensus take-selection: REFUTED, and a base-rate trap
+
+**CLAIM** Errors are stochastic per take (§2.1f), so across K takes the MODAL
+stress placement per word is right, and the take agreeing with it most often is
+the clean one. No oracle (RUAccent never enters, so §2.1h's cap does not apply),
+no human, and systematic MFA misreadings cancel because they hit every take
+identically.
+**EVIDENCE** 2026-08-09, one pod (~$0.20): 46 ru segments x 5 takes = 230, all
+MFA-aligned. Consensus decided 45 of 46 segments and the top take had **zero
+deviations in every one** (min 0, max 0, mean 0.00). Spread between takes was
+real, e.g. u0007 `[0, 0, 1, 2, 4]` over 15 words.
+Blind ear, consensus-pick vs the MOST deviant take, 12 sentences, stress only:
+
+| | best | unusable |
+|---|---|---|
+| consensus-pick | 0 | **4** |
+| most-deviant | **1** | 3 |
+| both unusable | | 3 of 12 |
+
+**VERDICT** **REFUTED.** The consensus pick was marked unusable MORE often than
+the take the algorithm ranked worst. MFA deviations do not correspond to the
+errors the listener hears.
+**THE TRAP, and I walked into it.** 33% of takes carried >=1 MFA deviation
+against the 29% of takes the listener marked with >=1 stress error, and I
+reported that as corroboration BEFORE the ear had spoken. **Two methods agreeing
+on a RATE say nothing about whether they flag the same INSTANCES.** They did not.
+A matching base rate is the cheapest possible coincidence — with a defect this
+common, any detector firing at roughly the right frequency will match it. Check
+per-item overlap, or claim nothing.
+**IT ALSO WEAKENS §2.1f.** 3 of 12 pairs here had BOTH takes unusable, against
+0 of 14 in the test that established "a correct take always exists". Not fatal —
+these are 2 of 5 takes chosen by a selector now known to be wrong, not 2
+arbitrary takes — but that premise carried this entire line of work and is
+softer than it looked.
+**FOUR detectors have now failed the same gate:** acoustic prominence (§2.1f),
+wav2vec2 phonemes (§2.1g), MFA variant alignment (§2.1h), consensus (here). Each
+failed for a different reason. Automated Russian stress detection is CLOSED
+until something changes upstream — a stress-aware TTS, or a Russian phoneme model
+that transcribes reduction.
+**ENCODED** `qc/stress_consensus.py` + `config.exp.ru-consensus.yaml`, unwired,
+kept so the negative is reproducible.
+
 ### 2.1c No zero-shot cloning TTS handles Russian stress (survey, 2026-08-09)
 
 **CLAIM** Some other open model solves this and we can swap engines for ru via

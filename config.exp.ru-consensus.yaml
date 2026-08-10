@@ -1,0 +1,39 @@
+# EXPERIMENT: consensus take-selection for Russian stress.
+#
+#   dubadabidu remote bakeoff <video> --langs ru --keep-alive \
+#     --overlay config.gpu.yaml --overlay config.exp.ru-consensus.yaml
+#
+# THE IDEA, and why it is not another detector. Every previous attempt asked
+# "is this stress CORRECT?", which needs RUAccent as an oracle — and §2.1h
+# measured the oracle itself erring on real words (`перед`) and unable to resolve
+# genuine ambiguity (`цвета`, valid with either stress). That caps the whole
+# family.
+#
+# This asks a question with no oracle in it. Stress errors are STOCHASTIC per
+# take (§2.1f: 8 of 14 sentences had exactly one bad take, ZERO had two), so
+# across K takes the MAJORITY stress placement for a word is almost certainly the
+# right one — two takes independently choosing the SAME wrong syllable is rare at
+# a ~2.4%/word error rate. Pick the take that agrees with the consensus most
+# often. RUAccent never enters, and any systematic MFA misreading affects every
+# take identically and therefore cancels.
+#
+# WHY takes: 5. Consensus needs at least 3 to break a tie, and the marginal cost
+# is small — ru is one language of five and synthesis is ~64% of pod wall.
+# 46 segments x 5 takes at ~2.34 s/take is ~9 min.
+#
+# variant_label: k5 keeps this out of the existing qwen+fast+control audio, which
+# is 2-take and already carries the listener's stress labels — overwriting it
+# would destroy the only ground truth this experiment can be judged against.
+#
+# THE RISK UNDER TEST: that errors are NOT independent across takes. If qwen has
+# a strong prior for the wrong stress on a particular word, all five takes agree
+# and consensus ships the error with confidence. The 0-of-8 both-bad observation
+# cannot rule this out — it was measured with two takes, not five.
+tts:
+  variant_label: k5
+
+bakeoff:
+  subset_size: 999      # every translated segment
+  takes: 5              # consensus needs >= 3; 5 gives margin on ties
+  tune:
+    enabled: false      # fix the reference — this tests ONE thing
