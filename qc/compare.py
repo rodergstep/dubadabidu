@@ -168,9 +168,16 @@ def build(wd: Path, lang: str, variants: list[str],
     # 2026-08-09 a 15x2 page came back carrying 64 marks for clips that did not
     # exist on it — the stress page's ratings, byte-identical. Silent, and it
     # would have contaminated the tally had the keys happened to line up.
+    # Hash the TRUTH map (segment + variant + take + axis), not the clip keys.
+    # The keys are g00c0, g00c1, ... — identical for ANY page with the same
+    # shape, so a 12x2 page always produced the same id no matter what audio was
+    # in it, and the previous 12x2 page's answers loaded straight into the next
+    # one. That is the bug this whole mechanism was added to prevent, shipped
+    # with a hash that could not see content. The first test only covered pages
+    # of different SHAPE, which is exactly the case that already worked.
     build_id = hashlib.sha1(
-        json.dumps([[i["key"] for i in g["items"]] for g in payload],
-                   sort_keys=True).encode()).hexdigest()[:8]
+        json.dumps({"axis": axis, "truth": truth},
+                   sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:8]
     out = bo / f"compare_{lang}.html"
     out.write_text(_HTML.replace("__LANG__", lang)
                    .replace("__BUILD__", "_" + build_id)

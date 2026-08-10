@@ -100,3 +100,37 @@ def test_skip_groups_continues_where_the_last_page_stopped(tmp_path):
     assert [g["seg"] for g in first] + [g["seg"] for g in rest] == \
         [g["seg"] for g in compare._groups(bo, "ru", ["A", "B"], 5.0)]
     assert not ({g["seg"] for g in first} & {g["seg"] for g in rest})
+
+
+def test_same_shape_different_content_gets_a_different_key(tmp_path):
+    """THE case the first version of this test missed. Clip keys are g00c0,
+    g00c1, ... so every 12x2 page hashed identically regardless of the audio in
+    it — and a page built from different variants loaded the previous page's
+    answers. Shipped 2026-08-09, caught by the listener on the next page."""
+    import re
+    bo = tmp_path / "bakeoff"
+    for v in ("A", "B", "C"):
+        _mk(bo / "seg" / v / "ru", 1)
+    one = compare.build(tmp_path, "ru", ["A", "B"], embed=False).read_text()
+    two = compare.build(tmp_path, "ru", ["A", "C"], embed=False).read_text()
+    k1 = set(re.findall(r"localStorage\.\w+Item\('([^']+)'", one))
+    k2 = set(re.findall(r"localStorage\.\w+Item\('([^']+)'", two))
+    assert k1 != k2, (
+        f"same shape, different variants, same storage key {k1} — the second "
+        f"page will load the first page's ratings")
+
+
+def test_a_different_axis_alone_gets_a_different_key(tmp_path):
+    """Same clips, different QUESTION, is a different experiment: monotony
+    answers must not prefill a stress page."""
+    import re
+    bo = tmp_path / "bakeoff"
+    for v in ("A", "B"):
+        _mk(bo / "seg" / v / "ru", 1)
+    one = compare.build(tmp_path, "ru", ["A", "B"], embed=False,
+                        axis="monotony").read_text()
+    two = compare.build(tmp_path, "ru", ["A", "B"], embed=False,
+                        axis="stress only").read_text()
+    k1 = set(re.findall(r"localStorage\.\w+Item\('([^']+)'", one))
+    k2 = set(re.findall(r"localStorage\.\w+Item\('([^']+)'", two))
+    assert k1 != k2
