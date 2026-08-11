@@ -314,3 +314,71 @@ def test_russian_ships_as_is_is_recorded_as_a_DECISION():
     assert "SYSTEMATIC" in text, (
         "the REASON must survive alongside the decision: the errors are partly "
         "systematic, so no selection rule can reach them")
+
+
+def test_no_comment_states_a_stale_runtime_cap():
+    """Comments that assert a value the code no longer has are this project's
+    most repeated bug — early_accept_mos calibrated for a dead engine, the
+    adoption gate with no incumbent, production routed to chatterbox, and three
+    comments still claiming max_runtime_hours "caps a run at 3 h" after it was
+    raised to 6.0 on 2026-08-02.
+
+    Deliberately narrow: it matches PRESENT-TENSE claims of a cap value
+    ("caps a run at N h", "capped at ... = N h"). Historical notes phrased as
+    "the old 3.0 h watchdog" are legitimate and must keep working, so they are
+    not matched.
+    """
+    import re
+    import yaml
+    text = (ROOT / "config.gpu.yaml").read_text(encoding="utf-8")
+    actual = yaml.safe_load(text)["runpod"]["max_runtime_hours"]
+    claims = re.findall(r"(?:caps? a run at|capped at[^\n]*?=)\s*([\d.]+)\s*h",
+                        text)
+    bad = [c for c in claims if abs(float(c) - float(actual)) > 1e-9]
+    assert not bad, (
+        f"comment(s) claim a runtime cap of {bad} h while "
+        f"max_runtime_hours is {actual}")
+
+
+def _doctor_lines(monkeypatch, *, device, runpod_key):
+    """Run doctor with a faked torch device / env and capture what it printed."""
+    import io
+    import contextlib
+    import dub
+    monkeypatch.setattr(dub, "torch_device", lambda: device)
+    if runpod_key:
+        monkeypatch.setenv("RUNPOD_API_KEY", "x")
+    else:
+        monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+    import yaml
+    from pipeline.logic import deep_merge
+    cfg = deep_merge(yaml.safe_load((ROOT / "config.yaml").read_text()),
+                     yaml.safe_load((ROOT / "config.gpu.yaml").read_text()))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = dub.doctor(cfg)
+    return rc, buf.getvalue()
+
+
+def test_doctor_does_not_fail_over_a_pod_side_engine_on_a_non_cuda_box(monkeypatch):
+    """qwen missing on a Mac is CORRECT: only s4 runs on the pod, which installs
+    it from runpod.engine_setup. Failing for it ended every local run in
+    "doctor: fix items above" over a thing nobody should fix — and a check that
+    reports non-problems is one people stop reading."""
+    rc, out = _doctor_lines(monkeypatch, device="mps", runpod_key=True)
+    assert "[!!] python: qwen_tts" not in out
+    assert "not installed locally" in out
+
+
+def test_doctor_still_fails_when_there_is_nowhere_to_synthesize(monkeypatch):
+    """No CUDA and no remote configured means synthesis cannot happen anywhere.
+    That is a real fault and must stay loud — otherwise this fix has just
+    replaced a false alarm with a silent one."""
+    rc, out = _doctor_lines(monkeypatch, device="mps", runpod_key=False)
+    assert "[!!] python: qwen_tts" in out and rc != 0
+
+
+def test_doctor_still_fails_on_a_cuda_box(monkeypatch):
+    """On a GPU machine the engine really is required."""
+    rc, out = _doctor_lines(monkeypatch, device="cuda", runpod_key=True)
+    assert "[!!] python: qwen_tts" in out and rc != 0

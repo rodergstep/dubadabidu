@@ -37,6 +37,7 @@ ORDER = list(STAGES)
 
 
 def doctor(cfg: dict) -> int:
+    import os
     ok = True
 
     def check(name, cond, hint=""):
@@ -88,12 +89,28 @@ def doctor(cfg: dict) -> int:
         try:
             __import__(mod); check(f"python: {mod}", True)
         except ImportError:
-            check(f"python: {mod}", False, hint)
+            # A GPU engine missing on a machine with no CUDA is CORRECT, not a
+            # fault: the remote flow runs s1/s2/s5-s8 here and only s4 on the
+            # pod, which installs qwen itself from runpod.engine_setup. Failing
+            # doctor for it made every local run end in "doctor: fix items
+            # above" over a thing nobody should fix — and a health check that
+            # reports a non-problem is one people learn to ignore, which is
+            # worse than not having it.
+            # Still a hard failure on a CUDA box, and still a failure here if
+            # the remote path is not configured, because then there is nowhere
+            # for synthesis to happen at all.
+            remote_ready = bool(os.environ.get("RUNPOD_API_KEY"))
+            if dev != "cuda" and remote_ready:
+                print(f"  [i ] python: {mod} not installed locally — fine, "
+                      f"no CUDA here; the pod installs it "
+                      f"(runpod.engine_setup). Local synthesis needs "
+                      f"tts.engine=edge.")
+            else:
+                check(f"python: {mod}", False, hint)
     if engines - {"edge"}:
         check("reference_wav", Path(cfg["tts"]["reference_wav"]).exists(),
               f"put a 15-20s clean voice clip at {cfg['tts']['reference_wav']} "
               f"or run `dubadabidu prep <video>`")
-    import os
     check(f"env {cfg['translation']['api_key_env']}",
           os.environ.get(cfg["translation"]["api_key_env"]),
           "export it, or point translation.base_url at a local Ollama")
