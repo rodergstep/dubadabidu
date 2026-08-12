@@ -33,6 +33,7 @@ import logging
 import re
 
 log = logging.getLogger("dubadabidu.text_norm")
+_WARNED_NO_NUM2WORDS = False
 
 # --- layer 2: chatterbox RU stress ---
 # Per-language stress-normalization version, salted into synth_hash. Version 1
@@ -123,6 +124,18 @@ def localize_numbers(text: str, lang: str) -> str:
     try:
         from num2words import num2words
     except ImportError:
+        # SAY SO. This used to return the text unchanged and silently: digits
+        # would then reach the engine raw and be read in the wrong language,
+        # which is the defect this function exists to prevent, on a paid pod,
+        # with nothing in the log. num2words is a core dependency, so reaching
+        # here means a broken install rather than a supported configuration.
+        global _WARNED_NO_NUM2WORDS
+        if not _WARNED_NO_NUM2WORDS:
+            _WARNED_NO_NUM2WORDS = True
+            log.warning(
+                "num2words is not importable — digits and %%/° are being sent "
+                "to the engine RAW and will be read in the wrong language. "
+                "It is a core dependency: pip install -e '.[dev]'")
         return text
 
     def _repl(m: "re.Match[str]") -> str:

@@ -198,8 +198,10 @@ def test_whisper_writing_digits_back_still_matches():
     ("Ещё у меня есть краска.", "Еще у меня есть краска."),
 ])
 def test_yo_spelling_is_not_a_transcription_error(asked, heard):
-    from jiwer import wer
-    assert wer(_norm(asked, "ru"), _norm(heard, "ru")) == 0.0, (
+    """Asserted as string equality, not WER==0. Same guarantee — jiwer computes
+    its distance over these normalised strings — with one less dependency, and
+    a failure prints the two forms instead of a float."""
+    assert _norm(asked, "ru") == _norm(heard, "ru"), (
         "ё/е spelling scored as a substitution — a five-word line needs only "
         "one of these to cross the 0.15 flag threshold")
 
