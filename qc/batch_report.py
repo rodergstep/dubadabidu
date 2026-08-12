@@ -3,7 +3,10 @@ video — per video x language means (score/sim/mos), flagged-segment counts,
 and links to review pages. The worst-first table the human review loop starts
 from: read the worst row, open its review page, fix, re-run, regenerate.
 
-Reads only manifests — run it anytime, costs nothing.
+Reads manifests plus a content hash of each scored wav (the staleness
+check). Those hashes are memoized on (size, mtime) in
+work/<video>/.audio_sig.json, so a repeat run is manifest-only — but the
+FIRST run after a synthesis or an rsync pays a read per scored segment.
 """
 from __future__ import annotations
 import json

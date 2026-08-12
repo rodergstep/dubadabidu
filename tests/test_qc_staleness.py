@@ -118,3 +118,64 @@ def test_mix_encode_pins_the_output_sample_rate():
     enc = src[src.index("def _encode("):]
     enc = enc[:enc.index("check=True)")]
     assert '"-ar", "44100"' in enc, "s6 must pin the encoder sample rate"
+
+
+# --- audio_sig memoization ----------------------------------------------------
+
+def test_audio_sig_is_memoized_on_size_and_mtime(tmp_path, monkeypatch):
+    """batch_report calls stale_qc per video x language and its docstring
+    promised it "costs nothing". It does not: on a 20-video course that is
+    ~40k sha1 passes, and the autopilot runs it after every batch.
+
+    The CONTENT hash is still what is stored and compared — the cache only
+    skips re-reading a file whose size and mtime are both unchanged."""
+    from pipeline import manifest as M
+    p = tmp_path / "a.wav"
+    p.write_bytes(b"x" * 4096)
+    first = M.audio_sig(p)
+    assert (tmp_path / ".audio_sig.json").exists()
+
+    reads = {"n": 0}
+    real_open = Path.open
+
+    def counting_open(self, *a, **kw):
+        if self.suffix == ".wav":
+            reads["n"] += 1
+        return real_open(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "open", counting_open)
+    assert M.audio_sig(p) == first
+    assert reads["n"] == 0, "cache hit still read the wav"
+
+
+def test_changed_content_misses_the_cache(tmp_path):
+    """Every writer here (s4/s5/s6, rsync) moves mtime, so a changed file must
+    always re-hash. Getting this wrong is a stale score reading as current."""
+    from pipeline import manifest as M
+    p = tmp_path / "a.wav"
+    p.write_bytes(b"x" * 4096)
+    first = M.audio_sig(p)
+    p.write_bytes(b"y" * 4096)          # same size, new mtime
+    second = M.audio_sig(p)
+    assert second != first, "a rewritten take kept its old signature"
+    assert M.audio_sig(p) == second
+
+
+def test_a_corrupt_cache_is_ignored_not_fatal(tmp_path):
+    from pipeline import manifest as M
+    p = tmp_path / "a.wav"
+    p.write_bytes(b"x" * 512)
+    (tmp_path / ".audio_sig.json").write_text("{not json", encoding="utf-8")
+    assert len(M.audio_sig(p)) == 12
+
+
+def test_the_cache_does_not_grow_without_bound(tmp_path):
+    """A segment re-rolled fifty times must not leave fifty entries behind."""
+    from pipeline import manifest as M
+    import json as _json
+    p = tmp_path / "a.wav"
+    for i in range(5):
+        p.write_bytes(bytes([i]) * (512 + i))
+        M.audio_sig(p)
+    cache = _json.loads((tmp_path / ".audio_sig.json").read_text(encoding="utf-8"))
+    assert len([k for k in cache if k.startswith("a.wav:")]) == 1
