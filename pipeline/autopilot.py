@@ -185,6 +185,16 @@ def _reroll(cfg: dict, video: str, lang: str, ids: list[str],
         tr = u["tr"][lang]
         if tr.get("qc_wer", 0) > wer_thr:
             tr["reroll_wer"] = True
+        # EVERY take for this segment, not just the three paths recorded above.
+        # tr["synth"] names the PRIMARY hash-file; a fit=shortened segment ships
+        # a VARIANT, which lives under a different hash and used to survive the
+        # re-roll untouched. s4 then re-rolled the primary, s5's ladder picked
+        # the same cached variant, and the mixed audio came out byte-identical —
+        # so `_stuck_after` correctly reported "no progress" after a round that
+        # could not have made any. The whole point of a re-roll is fresh dice for
+        # whatever actually ships.
+        for stale in (wd / "seg" / lang).glob(f"{u['id']}_*.wav"):
+            stale.unlink(missing_ok=True)
         for key in ("synth", "fitted", "placed"):
             if tr.get(key):
                 (wd / tr[key]).unlink(missing_ok=True)
@@ -197,7 +207,19 @@ def _reroll(cfg: dict, video: str, lang: str, ids: list[str],
         tr.pop("human_verdict", None)
         tr.pop("human_rating", None)
     M.save(cfg, video, man)
-    for mod in (s4_synthesize, s5_fit, s6_mix, s7_subtitles):
+    # s4 MUST lead, and this is an assertion rather than a comment because the
+    # sweep above now deletes the pre-made fit VARIANTS too. s4 is what
+    # re-creates them (VARIANT_MARGIN); s5's ladder would otherwise have to
+    # synthesize on demand, and s5 runs on the laptop where the GPU engine is
+    # not installed — it raises SystemExit and strands course.py phase C after
+    # the pod has already been paid for. Reordering this tuple is the one edit
+    # that turns a local re-roll into a dead run.
+    stages = (s4_synthesize, s5_fit, s6_mix, s7_subtitles)
+    assert stages[0] is s4_synthesize, (
+        "_reroll deletes every cached take for the re-rolled segments, so s4 "
+        "must run before s5 to re-make the fit variants s5 cannot synthesize "
+        "without a GPU")
+    for mod in stages:
         mod.run(cfg, video, [lang])
     if mux:
         s8_mux.run(cfg, video, [lang])

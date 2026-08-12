@@ -26,3 +26,6 @@ scratch_*.log
 
 # M2 runpod state (never commit a live pod id)
 work/.runpod_active.json
+
+# per-video audio-hash memo (derived; work/ is ignored anyway)
+.audio_sig.json

@@ -109,6 +109,17 @@ def run(cfg: dict, video: str, langs: list[str],
                 continue
             tr = u["tr"][lang]
             wav = M.scored_path(wd, tr)
+            # scored_path is None until s5 has placed the segment (and the file
+            # can be missing after a re-roll deleted it). Without this the None
+            # reached soundfile inside ecapa_embed and surfaced as a TypeError
+            # from three frames down, which reads like a metrics bug rather than
+            # "you have not run s5 yet".
+            if wav is None or not wav.exists():
+                raise SystemExit(
+                    f"{u['id']} ({lang}): nothing to score — no placed or "
+                    f"fitted audio. Run s5_fit (and s6_mix) for this language "
+                    f"first:\n  dubadabidu run <video> --langs {lang} "
+                    f"--from s5_fit")
             raw = X.cosine(ref_emb, X.ecapa_embed(wav))
             sim_cal = X.calibrate_sim(raw, cal["floor"], cal["ceiling"])
             m = X.mos(wav)

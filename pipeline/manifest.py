@@ -123,14 +123,56 @@ def scored_path(wd: Path, tr: dict) -> Path | None:
     return (wd / rel) if rel else None
 
 
+_SIG_CACHE = ".audio_sig.json"
+
+
 def audio_sig(path: Path) -> str:
     """Content hash of a scored wav. Content, not mtime: work/ is rsync'd to and
-    from the GPU pod, and timestamps do not survive that reliably."""
+    from the GPU pod, and timestamps do not survive that reliably.
+
+    Memoized on (size, mtime) in work/<video>/.audio_sig.json. The CONTENT hash
+    is still what gets stored and compared — the cache only avoids re-reading a
+    file whose size and mtime are both unchanged since it was last hashed.
+
+    That is safe in the direction that matters. Every writer here (s4 takes, s5
+    _fit wavs, s6 _placed exports, rsync) moves mtime, so a changed file always
+    misses the cache and is re-hashed; the only way to fool it is to rewrite a
+    file to the same byte length while preserving mtime, which nothing in this
+    pipeline does. Getting it wrong the other way — re-hashing after an rsync
+    that only touched timestamps — costs a read, not a wrong answer.
+
+    Why it is worth caching at all: batch_report calls stale_qc for every
+    video x language and its docstring promises it "costs nothing". On a
+    20-video course that is ~40k sha1 passes over ~100 KB each, and the
+    autopilot runs it at the end of every batch.
+    """
+    st = path.stat()
+    key = f"{path.name}:{st.st_size}:{int(st.st_mtime_ns)}"
+    cache_path = path.parent / _SIG_CACHE
+    cache: dict = {}
+    if cache_path.exists():
+        try:
+            cache = json.loads(cache_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            cache = {}
+    hit = cache.get(key)
+    if isinstance(hit, str):
+        return hit
     h = hashlib.sha1()
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
-    return h.hexdigest()[:12]
+    sig = h.hexdigest()[:12]
+    # keep only this file's current entry plus other files' — stale (size,mtime)
+    # keys for THIS file are dead weight once it has been rewritten
+    stem = path.name + ":"
+    cache = {k: v for k, v in cache.items() if not k.startswith(stem)}
+    cache[key] = sig
+    try:
+        cache_path.write_text(json.dumps(cache), encoding="utf-8")
+    except OSError:      # a read-only or racing work dir must not fail scoring
+        pass
+    return sig
 
 
 def stamp_qc(wd: Path, tr: dict, kind: str) -> None:

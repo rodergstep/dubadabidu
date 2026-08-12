@@ -244,12 +244,95 @@ def test_eval_weights_sum_to_one_and_sim_stays_out():
         encoding="utf-8"))["qc"]["eval"]["weights"]
     assert abs(sum(w.values()) - 1.0) < 1e-9, f"weights must sum to 1: {w}"
     assert w["sim"] == 0.0, (
-        "sim is back in the take-selection objective — it does not predict the "
-        "listener in either language")
+        "sim is back in the TAKE-SELECTION objective — it does not predict the "
+        "listener in either language. (Reference SELECTION is a different "
+        "question and now has its own block: see the consumer tests below.)")
     assert w["f0"] > 0, (
         "f0st is the only feature significant in BOTH languages (en p 0.0016, "
         "ru p 0.0386); bakeoff excludes it for RUN-level ranking, which is a "
         "different comparison with a different noise floor")
+
+
+def test_each_weight_block_has_exactly_one_consumer():
+    """WHICH CONSUMER READS WHICH KEY — the assertion the sim==0.0 guard above
+    cannot make on its own.
+
+    That guard pins a VALUE. It passed unchanged through the whole failure it
+    was written to prevent: dropping sim to 0.0 was right for take ranking and
+    silently rewired REFERENCE selection, because tune._score_trial read the
+    same block. A reference that sounds nothing like the speaker then beat one
+    that does (0.715 vs 0.662, on six tenths of a semitone of f0), and preamble
+    wrote it into the manifest unattended.
+
+    This is the third instance of one config key driving two consumers with
+    different meanings — after `tts.engine` (bakeoff.engines vs the production
+    path) and `qc.eval.weights` itself (tune vs a hardcoded copy in
+    _take_rank). Pinning the WIRING is what closes the class instead of the
+    instance.
+    """
+    tune_src = (ROOT / "pipeline" / "tune.py").read_text(encoding="utf-8")
+    assert '"r1_weights"' in tune_src, "tune lost its own objective block"
+    assert 'get("eval", {}).get("weights"' not in tune_src, (
+        "tune is reading qc.eval.weights again — that block ranks TAKES of one "
+        "segment; tune R1 picks the CLONE SOURCE, where similarity is the "
+        "whole question")
+
+    import yaml
+    cfg = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
+    from pipeline.tune import DEFAULTS as TUNE_DEFAULTS
+    r1 = {**TUNE_DEFAULTS["r1_weights"], **(cfg.get("tune", {})
+                                            .get("r1_weights") or {})}
+    assert r1.get("sim", 0.0) > 0, (
+        "reference selection has no identity term — R1 would rank clone "
+        "sources without measuring whether they sound like the speaker")
+
+
+def test_tempo_means_the_same_thing_wherever_it_is_read():
+    """`tempo` is a PENALTY in composite_score and a REWARD in _take_rank.
+
+    composite_score subtracts it (a stretched segment scores lower);
+    _take_rank uses it as a positive weight on a pace-MATCH term inside a
+    renormalised average. refit fits the key through composite_score only, so
+    an adopted value silently re-weights something it never measured.
+
+    Measured, with the shipped weights:
+        composite_score  unstretched 0.578 -> stretched 0.428   (subtracted)
+        _take_rank       on-pace     0.700 -> rushed    0.550   (rewarded)
+
+    Until they are split, this test documents the collision so nobody "tidies"
+    one of them into agreement with the other by accident.
+    """
+    from pipeline.tts_engine import _take_rank
+    from qc.metrics import composite_score
+    w = {"sim": 0.0, "mos": 0.55, "f0": 0.30, "tempo": 0.15}
+    # penalty direction: more stretch -> lower score
+    assert composite_score(0.5, 4.0, 1.0, w, 2.2) < \
+        composite_score(0.5, 4.0, 0.0, w, 2.2)
+    # reward direction: closer to the source pace -> higher rank
+    on_pace = {"mos_min": 3.8, "f0st": 2.2, "sim": 0.5, "dur": 4.0}
+    rushed = {"mos_min": 3.8, "f0st": 2.2, "sim": 0.5, "dur": 2.6}
+    assert _take_rank(on_pace, 4.0, w) > _take_rank(rushed, 4.0, w), (
+        "the pace term stopped rewarding on-pace takes — if `tempo` was "
+        "unified into a single penalty, update this test deliberately rather "
+        "than deleting it")
+
+
+def test_per_video_reference_override_matches_the_findings_verdict():
+    """FINDINGS 2.2 records "ENCODED — the reference is now a config default,
+    not a per-video override". Only the root cause was fixed; preamble kept
+    writing man["tts_overrides"] on every video and s4/s5/evaluate/bakeoff all
+    merge it, so the refuted mechanism stayed live. The code says it now."""
+    from pipeline.tune import DEFAULTS as TUNE_DEFAULTS
+    import yaml
+    cfg = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
+    enabled = (cfg.get("tune", {})
+               .get("per_video_ref_override",
+                    TUNE_DEFAULTS["per_video_ref_override"]))
+    assert enabled is False, (
+        "per-video reference overrides are back on. FINDINGS 2.2 refuted them: "
+        "source quality varies per lesson, and that lesson's own ref_04 was "
+        "rated 12-of-18 unusable. Re-enable only with a margin over the "
+        "curated default AND an ear check.")
 
 
 def test_take_ranking_actually_reads_the_configured_weights():

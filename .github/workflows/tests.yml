@@ -31,10 +31,20 @@ jobs:
       # s6_mix imports pydub. Without them this workflow failed on collection
       # from the day it was added — it was never green. Tests that genuinely
       # need torch skip themselves (pytest.importorskip).
+      # num2words is NOT part of the heavy stack the note above excludes: it is
+      # pure Python and about a megabyte. It is here because the text
+      # normalisation corpus (tests/test_text_norm.py) is the only automated
+      # guard on a layer that shipped THREE undetected bugs — "1,000 ml" spoken
+      # as "one ml", % and ° expanded at synthesis but stripped at QC, and ё
+      # scored as a substitution on 15 of 46 real ru segments. Without the
+      # package `localize_numbers` silently returns its input unchanged, so
+      # every one of those tests would pass vacuously or fail for the wrong
+      # reason. Skipping them would make the corpus decorative exactly where it
+      # runs unattended.
       - name: install
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pyyaml soundfile numpy pydub srt
+          pip install pytest pyyaml soundfile numpy pydub srt num2words
 
       - name: audit (config wiring, stage graph, cache keys, shadowed imports)
         run: pytest -q tests/test_audit.py -s

@@ -77,6 +77,31 @@ translation:
                               # pass every AUDIO metric. Flagged on the report.
   adequacy_flag: 3            # score below this is flagged for review
   # adequacy_model: deepseek-v4   # optional stronger judge (defaults to `model`)
+  # Route translations around words the TTS mis-stresses (ru/uk only; the other
+  # three languages have no equivalent defect). Reads the words a native
+  # listener marked on the review page, accumulated in stress_lexicon_<lang>.json.
+  #
+  # This is the ONE remediation for Russian stress that needs no new capability
+  # anywhere: detection is closed (FINDINGS 2.1f-2.1h, four failed detectors)
+  # and so is selection (2.1i/2.1j — consensus prefers the systematic error), so
+  # what is left is per-word control, and the cheapest form is not saying the
+  # word. On the first real review pass, avoidance had a plausible synonym for
+  # 6-7 of 9 marked words; respelling reached 4 and the `ё` lever reached 0.
+  #
+  # A PREFERENCE, not a ban — a word with no natural synonym is kept, and
+  # mandatory terminology always wins. UNMEASURED trade: nobody has yet checked
+  # whether the listener prefers a correctly-stressed synonym to a mis-stressed
+  # exact word. Judge it by ear on the first video that uses this.
+  #
+  # Affects NEW translations only; s3 skips segments that already have text.
+  # Re-translate with `stage s3_translate --force` to apply it to a done video.
+  avoid_mis_stressed: true
+  avoid_min_marks: 1          # words marked at least this often. 1 = trust the
+                              # ear; a single mark may be the stochastic band
+                              # (2.1f) rather than a systematic error, but
+                              # over-inclusion is cheap because the prompt only
+                              # asks for a synonym where a natural one exists.
+                              # Raise this if translations start drifting.
   isometric_tolerance: 0.10   # secondary char bound; primary constraint is the
                               # per-segment "seconds" slot (duration-targeted)
   n_short_variants: 2         # pre-generate shorter variants for overflow retries
@@ -319,3 +344,26 @@ tune:                               # `dubadabidu tune` search space
   cfg_weights: [0.0, 0.2, 0.3]
   exaggerations: [0.4, 0.55, 0.7]
   best_of: 3
+  # R1's OWN objective — deliberately NOT qc.eval.weights. That block ranks
+  # TAKES of one segment and carries sim: 0.0 because similarity does not
+  # predict this listener's per-take judgement. R1 picks the CLONE SOURCE,
+  # where similarity is the entire question, and it read the same block until
+  # 2026-08-11: with the shipped weights a reference at sim_cal 0.10 beat one
+  # at 0.80 (0.715 vs 0.662) on six tenths of a semitone of f0.
+  #
+  # UNVALIDATED against the ear, and that is not a placeholder. The one blind
+  # test picked the LOWEST-sim reference and the 42-judgement comparison came
+  # back 21-21 (FINDINGS 2.2). R1 makes a shortlist; the ear decides.
+  r1_weights: {sim: 0.6, mos: 0.4, f0: 0.0}
+  # Rolls averaged per reference per segment. One roll ranks the dice: measured
+  # take-to-take spread is mos +/-0.24-0.49 and f0st +/-0.438 (qc/listen.py).
+  # Cost is refs x subset_size x this.
+  r1_takes: 3
+  # Per-video reference override (manifest tts_overrides). OFF, matching the
+  # FINDINGS 2.2 verdict "the reference is now a config default, not a
+  # per-video override" — which was recorded but never actually enforced:
+  # preamble kept writing the override and s4/s5/evaluate/bakeoff kept merging
+  # it. Turning this on re-enables it, gated on override_margin AND on the
+  # curated tts.reference_wav being present in the sweep to beat.
+  per_video_ref_override: false
+  override_margin: 0.05

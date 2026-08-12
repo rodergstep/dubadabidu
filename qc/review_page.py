@@ -34,6 +34,15 @@ audio{height:2rem;max-width:260px} .txt{color:#aaa;margin:.3rem 0}
   border-radius:4px;padding:.1rem .5rem;cursor:pointer}
 .verdict button.acc.on{background:#365;color:#fff}
 .verdict button.rej.on{background:#a53;color:#fff}
+.w{cursor:pointer;border-bottom:1px dotted #555;padding:0 1px}
+.w:hover{background:#333}
+.w.bad{background:#a53;color:#fff;border-radius:3px;border-bottom:none}
+.axis{color:#cdd;background:#1a1f24;border-left:3px solid #365;
+  padding:.7rem 1rem;margin:.8rem 0;font-size:.94rem}
+.axis ol{margin:.4rem 0 .6rem 0;padding-left:1.2rem}
+.axis li{margin:.25rem 0}
+.axis .k{color:#8fb;font-weight:bold}
+.axis .note{color:#8ab;margin-top:.5rem}
 #export{position:fixed;top:1rem;right:1rem;background:#365;color:#fff;
   border:none;border-radius:6px;padding:.4rem .8rem;cursor:pointer}
 """
@@ -43,7 +52,9 @@ const KEY='dubadabidu_ratings_'+document.body.dataset.key;
 const store=JSON.parse(localStorage.getItem(KEY)||'{}');
 const ratings=store.ratings||store;        // legacy flat {id:stars} migrates
 const verdicts=store.verdicts||{};
-const save=()=>localStorage.setItem(KEY,JSON.stringify({ratings,verdicts}));
+const words=store.words||{};               // {uid:[{i,w}]} mis-stressed words
+const save=()=>localStorage.setItem(KEY,
+  JSON.stringify({ratings,verdicts,words}));
 document.querySelectorAll('.stars').forEach(w=>{
   const id=w.dataset.id;
   w.querySelectorAll('button').forEach(b=>{
@@ -64,12 +75,55 @@ document.querySelectorAll('.verdict').forEach(w=>{
       save();};
   });
 });
+// Word marking: click a word you heard stressed on the WRONG syllable.
+// Independent of the stars — see the axis note on the page. Marks carry BOTH
+// the index and the surface form so the ingest can tell a valid mark from one
+// whose text was hand-edited in between (qc.stress_words.verify).
+document.querySelectorAll('.words').forEach(box=>{
+  const id=box.dataset.id;
+  const marked=new Set((words[id]||[]).map(x=>x.i));
+  box.querySelectorAll('.w').forEach(el=>{
+    const i=+el.dataset.i;
+    if(marked.has(i))el.classList.add('bad');
+    el.onclick=()=>{
+      const cur=words[id]||[];
+      const at=cur.findIndex(x=>x.i===i);
+      if(at>=0){cur.splice(at,1);el.classList.remove('bad');}
+      else{cur.push({i:i,w:el.dataset.w});el.classList.add('bad');}
+      if(cur.length)words[id]=cur; else delete words[id];
+      save();};
+  });
+});
 document.getElementById('export').onclick=()=>{
   const blob=new Blob([JSON.stringify({key:document.body.dataset.key,
-    ratings,verdicts},null,2)],{type:'application/json'});
+    ratings,verdicts,words},null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
   a.download='ratings_'+document.body.dataset.key+'.json';a.click();};
 """
+
+
+def _dub_html(text: str, uid: str, mark_words: bool) -> str:
+    """The spoken line, with every word clickable when `mark_words`.
+
+    Plain escaped text otherwise. The clickable UI is restricted to
+    stress_words.STRESS_LANGS deliberately: the other four languages have no
+    equivalent defect (FINDINGS 2.1j), and offering a second rating axis where
+    there is nothing to mark invites noise on the one axis that already feeds
+    refit.
+    """
+    if not mark_words:
+        return html.escape(text)
+    from qc.stress_words import spans
+    out = [f'<span class="words" data-id="{html.escape(uid)}">']
+    for frag, i in spans(text):
+        if i < 0:
+            out.append(html.escape(frag))
+        else:
+            out.append(f'<span class="w" data-i="{i}" '
+                       f'data-w="{html.escape(frag, quote=True)}">'
+                       f'{html.escape(frag)}</span>')
+    out.append("</span>")
+    return "".join(out)
 
 
 def _ua_slice(wd: Path, u: dict) -> Path:
@@ -92,8 +146,11 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     wd = M.video_workdir(cfg, video)
     flag_score = cfg["qc"].get("eval", {}).get("score_flag", 0.55)
 
+    from qc.stress_words import STRESS_LANGS
     for lang in langs:
         edge = bool(M.edge_langs(man, [lang]))
+        # word marking only where stress is lexical and the engine can be wrong
+        mark_words = lang in STRESS_LANGS
         # scores computed on audio s5/s6 has since rewritten: the badges would
         # describe a different take than the one the player plays, and any
         # verdict taken here would be refused at ingest. Say so up front rather
@@ -125,7 +182,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
    {badges}
    <span class="stars" data-id="{u['id']}">rate: {stars}</span>
    <span class="verdict" data-id="{u['id']}"><button class="acc">✓ accept</button><button class="rej">✗ reject</button></span></div>
- <div class="txt">dub: {html.escape(tr.get('fitted_text', tr.get('text', '')))}</div>
+ <div class="txt">dub: {_dub_html(tr.get('fitted_text', tr.get('text', '')), u['id'], mark_words)}</div>
  <div class="txt">uk:&nbsp; {html.escape(u['text_uk'])}</div>
  <div class="row">
    <label>dub <audio controls preload="none" src="{tr.get('placed', tr['fitted'])}"></audio></label>
@@ -135,9 +192,15 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         cal_line = (f'floor {cal["floor"]} / ceiling {cal["ceiling"]} (ref {cal["ref"]})'
                     if cal else "run `dubadabidu evaluate` for metrics")
         # ratings key includes a segmentation hash: re-segmenting the video must
-        # not resurrect ratings that belonged to different utterance boundaries
+        # not resurrect ratings that belonged to different utterance boundaries.
+        # Hashed over ID-SORTED utterances, NOT the worst-first display order of
+        # `us` — otherwise re-scoring reshuffles the order, the key changes, and
+        # a valid export is rejected as a "re-segmentation". Must stay identical
+        # to qc.verdicts._seg_hash; tests/test_seg_hash.py pins the pair.
         seg_hash = hashlib.sha1(
-            ",".join(u["id"] + str(u["start"]) for u in us).encode()).hexdigest()[:6]
+            ",".join(u["id"] + str(u["start"])
+                     for u in sorted(us, key=lambda u: u["id"])).encode()
+        ).hexdigest()[:6]
         page = (f"<!doctype html><meta charset='utf-8'>"
                 f"<title>review {Path(video).stem} {lang}</title>"
                 f"<style>{CSS}</style><body data-key="
@@ -155,6 +218,38 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                    f"be refused at ingest. Run <code>dubadabidu qc "
                    f"{Path(video).stem}</code>, then regenerate this page."
                    f"</div>" if stale else "")
+                # THE AXES, STATED IN PLAIN TERMS. The listener rated STRESS
+                # instead of overall quality on at least one past round while
+                # every page said "the one you would ship" (FINDINGS 2.1d), so
+                # the page has to say which control means what. The FIRST
+                # version of this text failed for the opposite reason — it was
+                # written for someone who had read FINDINGS ("the per-word
+                # table", "2.1", "the only labeller") and the reviewer said he
+                # could not tell what to do. Instructions the rater cannot
+                # follow produce noisy labels just as surely as no
+                # instructions, so this reads as a task, not as a rationale.
+                + ("<div class='axis'><b>Three things, and they are "
+                   "separate:</b>"
+                   "<ol>"
+                   "<li><span class='k'>rate 1–5</span> — how good does this "
+                   "line <i>sound</i>? (voice, naturalness, delivery)</li>"
+                   "<li><span class='k'>✓ accept / ✗ reject</span> — accept = "
+                   "ship it as is. reject = make a new attempt at this line.</li>"
+                   "<li><span class='k'>click a word</span> — that one word has "
+                   "the stress on the wrong syllable</li>"
+                   "</ol>"
+                   "They do not affect each other. A line can sound great — "
+                   "<b>5 stars, accept</b> — <b>and</b> have one word stressed "
+                   "wrong. That is normal: give it 5 stars <i>and</i> click the "
+                   "word."
+                   "<div class='note'>Clicking a word is not a complaint about "
+                   "the take — it is a note about the <i>word</i>. The same word "
+                   "comes out wrong in every video, so marking it once here lets "
+                   "it be fixed in all of them. No software can hear stress "
+                   "errors, so this is the one thing only you can do."
+                   "<br><b>Short version:</b> rate and accept/reject as usual, "
+                   "then click any word that sounded wrong.</div>"
+                   "</div>" if mark_words else "")
                 + f"<div class='cal'>calibration: {cal_line}</div>"
                 f"{''.join(segs)}<script>{JS}</script>")
         out = wd / f"review_{lang}.html"
