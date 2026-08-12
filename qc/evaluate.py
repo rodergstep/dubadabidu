@@ -123,14 +123,26 @@ def run(cfg: dict, video: str, langs: list[str],
             raw = X.cosine(ref_emb, X.ecapa_embed(wav))
             sim_cal = X.calibrate_sim(raw, cal["floor"], cal["ceiling"])
             m = X.mos(wav)
+            m_min = X.mos_min_window(wav)
             pen = X.tempo_penalty(tr.get("tempo", 1.0), max_tempo)
             f0st = X.f0_semitone_std(wav)
             tr["qc_sim2"] = round(raw, 3)
             tr["qc_sim_cal"] = round(sim_cal, 3)
             tr["qc_mos"] = round(m, 2)
-            tr["qc_mos_min"] = round(X.mos_min_window(wav), 2)
+            tr["qc_mos_min"] = round(m_min, 2)
             tr["qc_f0st"] = round(f0st, 2)
-            tr["qc_score"] = X.composite_score(sim_cal, m, pen, weights, f0st)
+            # THE WINDOWED MINIMUM, not the whole-take mean, since 2026-08-11.
+            # Measured against 140 human-rated rows: qc_mos_min correlates
+            # +0.226 with the listener and qc_mos +0.005. On this video's 46
+            # accept/reject verdicts the difference is starker still — the old
+            # composite was ANTI-correlated at -0.205 (rejects averaged 0.681
+            # against 0.644 for accepts), the new one is +0.364 the right way
+            # round. A mean hides the 0.3 s of garble the ear actually objects
+            # to; the worst 3 s window is what he is grading.
+            #
+            # Both are still stored. qc_mos stays as a diagnostic and as the
+            # thing to compare against if this is ever revisited.
+            tr["qc_score"] = X.composite_score(sim_cal, m_min, pen, weights, f0st)
             # stamp WHICH audio these scores describe, so a later s5/s6 re-run
             # (which rewrites the placed wav) is detectable instead of silent
             M.stamp_qc(wd, tr, "score")

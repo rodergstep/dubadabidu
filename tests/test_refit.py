@@ -24,7 +24,7 @@ def _rows(n, seed, weights=None, noise=0.25):
     for i in range(n):
         r = {"video": "v", "id": f"u{i:04d}",
              "qc_sim_cal": rnd.uniform(0.2, 1.0),
-             "qc_mos": rnd.uniform(2.5, 4.9),
+             "qc_mos_min": rnd.uniform(2.5, 4.9),
              "qc_f0st": rnd.uniform(0.5, 4.0),
              "tempo": rnd.uniform(1.0, 1.12)}
         r["rating"] = (rnd.randint(1, 5) if weights is None else
@@ -84,10 +84,10 @@ def test_simplex_is_deterministic():
 def test_usable_drops_unrated_and_incomplete_rows():
     rows = [
         {"video": "v", "id": "a", "rating": 4, "qc_sim_cal": .8,
-         "qc_mos": 4.0, "qc_f0st": 2.0},                    # keep
+         "qc_mos_min": 4.0, "qc_f0st": 2.0},               # keep
         {"video": "v", "id": "b", "verdict": "accept", "qc_sim_cal": .8,
-         "qc_mos": 4.0, "qc_f0st": 2.0},                    # no rating
-        {"video": "v", "id": "c", "rating": 3, "qc_mos": 4.0},   # no sim/f0
+         "qc_mos_min": 4.0, "qc_f0st": 2.0},               # no rating
+        {"video": "v", "id": "c", "rating": 3, "qc_mos_min": 4.0},  # no sim/f0
     ]
     assert [r["id"] for r in R.usable(rows)] == ["a"]
 
@@ -95,7 +95,7 @@ def test_usable_drops_unrated_and_incomplete_rows():
 def test_usable_order_is_deterministic():
     """Folds are assigned by index, so a stable order makes CV reproducible."""
     rows = [{"video": v, "id": i, "rating": 3, "qc_sim_cal": .5,
-             "qc_mos": 4.0, "qc_f0st": 2.0}
+             "qc_mos_min": 4.0, "qc_f0st": 2.0}
             for v, i in [("b", "u2"), ("a", "u9"), ("a", "u1")]]
     assert [(r["video"], r["id"]) for r in R.usable(rows)] == [
         ("a", "u1"), ("a", "u9"), ("b", "u2")]
@@ -103,7 +103,7 @@ def test_usable_order_is_deterministic():
 
 def test_predict_goes_through_the_production_composite():
     """A proposal must mean in production exactly what it means here."""
-    row = {"qc_sim_cal": 0.8, "qc_mos": 4.2, "qc_f0st": 2.5, "tempo": 1.05}
+    row = {"qc_sim_cal": 0.8, "qc_mos_min": 4.2, "qc_f0st": 2.5, "tempo": 1.05}
     assert R.predict(row, CUR, MAX_TEMPO) == X.composite_score(
         0.8, 4.2, X.tempo_penalty(1.05, MAX_TEMPO), CUR, 2.5)
 
@@ -221,13 +221,13 @@ def test_a_constant_term_is_reported_as_unidentifiable():
     `tempo` is ALSO the pace-match reward in tts_engine._take_rank, so take
     selection would move on no evidence."""
     from qc.refit import constant_terms
-    rows = [{"qc_sim_cal": 0.5 + i * 0.01, "qc_mos": 4.0 + i * 0.01,
+    rows = [{"qc_sim_cal": 0.5 + i * 0.01, "qc_mos_min": 4.0 + i * 0.01,
              "qc_f0st": 2.0 + i * 0.01, "tempo": 1.0} for i in range(10)]
     assert constant_terms(rows, 1.12) == ["tempo"]
 
 
 def test_a_varying_term_is_identifiable():
     from qc.refit import constant_terms
-    rows = [{"qc_sim_cal": 0.5, "qc_mos": 4.0, "qc_f0st": 2.0,
+    rows = [{"qc_sim_cal": 0.5, "qc_mos_min": 4.0, "qc_f0st": 2.0,
              "tempo": 1.0 + i * 0.01} for i in range(10)]
     assert "tempo" not in constant_terms(rows, 1.12)

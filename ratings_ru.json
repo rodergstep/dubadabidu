@@ -14,8 +14,7 @@
     "qc_f0st": 1.92,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -38,7 +37,7 @@
     "rating": 3,
     "verdict": "accept",
     "text": "Принципы компоновки красок по цвету на палитре и основные сведения о масляных красках, необходимых для работы, и других материалах.",
-    "qc_score": 0.7242,
+    "qc_score": 0.3712,
     "qc_sim2": 0.696,
     "qc_sim_cal": 0.905,
     "qc_mos": 4.73,
@@ -46,8 +45,7 @@
     "qc_f0st": 2.82,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -70,7 +68,7 @@
     "rating": 3,
     "verdict": "accept",
     "text": "Вы получите необходимые знания об организации рабочего пространства на палитре и о свойствах материалов при практическом применении.",
-    "qc_score": 0.6824,
+    "qc_score": 0.5355,
     "qc_sim2": 0.676,
     "qc_sim_cal": 0.872,
     "qc_mos": 4.68,
@@ -78,8 +76,7 @@
     "qc_f0st": 2.36,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -102,7 +99,7 @@
     "rating": 3,
     "verdict": "accept",
     "text": "Перед вами небольшая палитра, сейчас я буду заполнять её цветом и выдавливать краски. Вы видите, что для работы кистью здесь остаётся немного места.",
-    "qc_score": 0.7472,
+    "qc_score": 0.3828,
     "qc_sim2": 0.691,
     "qc_sim_cal": 0.897,
     "qc_mos": 4.72,
@@ -110,8 +107,7 @@
     "qc_f0st": 3.14,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -134,7 +130,7 @@
     "rating": 3,
     "verdict": "accept",
     "text": "Поэтому нужно рационально разместить краски на этой палитре, чтобы можно было работать. Я предлагаю именно такую компоновку красок, в основе которой — разделение на тёплые и холодные.",
-    "qc_score": 0.7046,
+    "qc_score": 0.3908,
     "qc_sim2": 0.699,
     "qc_sim_cal": 0.91,
     "qc_mos": 4.64,
@@ -142,8 +138,7 @@
     "qc_f0st": 2.72,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -166,7 +161,7 @@
     "rating": 2,
     "verdict": "reject",
     "text": "Между тёплыми и холодными цветами я предлагаю разместить самые светлые цвета. Это белый ахроматический цвет.",
-    "qc_score": 0.7898,
+    "qc_score": 0.4235,
     "qc_sim2": 0.667,
     "qc_sim_cal": 0.859,
     "qc_mos": 4.73,
@@ -174,8 +169,7 @@
     "qc_f0st": 3.69,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -198,7 +192,7 @@
     "rating": 1,
     "verdict": "reject",
     "text": "Жёлтые цвета — стронциановая жёлтая, средняя жёлтая, потом охра. С левой стороны будут холодные, самые светлые, голубые. А дальше к самым тёмным идут и холодные, и тёплые цвета — вплоть до самых тёмных тёплых.",
-    "qc_score": 0.6926,
+    "qc_score": 0.3234,
     "qc_sim2": 0.706,
     "qc_sim_cal": 0.92,
     "qc_mos": 4.68,
@@ -206,8 +200,7 @@
     "qc_f0st": 2.49,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -314,7 +307,7 @@
     "rating": 3,
     "verdict": "accept",
     "text": "Итак, начнём компоновку палитры с белой краски.",
-    "qc_score": 0.5715,
+    "qc_score": 0.5271,
     "qc_sim2": 0.646,
     "qc_sim_cal": 0.825,
     "qc_mos": 3.86,
@@ -322,8 +315,7 @@
     "qc_f0st": 2.37,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -346,7 +338,7 @@
     "rating": 3,
     "verdict": "accept",
     "text": "Вот я выдавливаю определённое количество краски, нужное для работы.",
-    "qc_score": 0.6234,
+    "qc_score": 0.3711,
     "qc_sim2": 0.682,
     "qc_sim_cal": 0.881,
     "qc_mos": 4.36,
@@ -354,8 +346,7 @@
     "qc_f0st": 2.16,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -378,7 +369,7 @@
     "rating": 2,
     "verdict": "accept",
     "text": "Нужно примерно понимать, сколько краски потребуется.",
-    "qc_score": 0.6995,
+    "qc_score": 0.6731,
     "qc_sim2": 0.658,
     "qc_sim_cal": 0.844,
     "qc_mos": 4.5,
@@ -386,8 +377,7 @@
     "qc_f0st": 2.91,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -494,7 +484,7 @@
     "rating": 3,
     "verdict": "accept",
     "text": "И, например, если нам нужен средний серый цвет.",
-    "qc_score": 0.588,
+    "qc_score": 0.5891,
     "qc_sim2": 0.621,
     "qc_sim_cal": 0.785,
     "qc_mos": 4.24,
@@ -502,8 +492,7 @@
     "qc_f0st": 1.9,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -526,7 +515,7 @@
     "rating": 3,
     "verdict": "accept",
     "text": "Серая Пейна из палитры красок фирмы ROSA.",
-    "qc_score": 0.6511,
+    "qc_score": 0.6237,
     "qc_sim2": 0.655,
     "qc_sim_cal": 0.839,
     "qc_mos": 4.33,
@@ -534,8 +523,7 @@
     "qc_f0st": 2.57,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -566,8 +554,7 @@
     "qc_f0st": 2.59,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -590,7 +577,7 @@
     "rating": 3,
     "verdict": "accept",
     "text": "Жёлтая краска будет лимонная, яркая лимонная, потому что я буду писать бананы, и она как раз понадобится для смесей, которые нужны в работе.",
-    "qc_score": 0.7236,
+    "qc_score": 0.3899,
     "qc_sim2": 0.707,
     "qc_sim_cal": 0.922,
     "qc_mos": 4.63,
@@ -598,8 +585,7 @@
     "qc_f0st": 2.99,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -622,7 +608,7 @@
     "rating": 2,
     "verdict": "reject",
     "text": "То есть спектр тёплых цветов нужно немного расширить. На натюрморте у нас есть солнечные пятна. Обязательно понадобится оранжевая краска.",
-    "qc_score": 0.6777,
+    "qc_score": 0.3579,
     "qc_sim2": 0.702,
     "qc_sim_cal": 0.914,
     "qc_mos": 4.66,
@@ -630,8 +616,7 @@
     "qc_f0st": 2.33,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -662,8 +647,7 @@
     "qc_f0st": 2.88,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -686,7 +670,7 @@
     "rating": 3,
     "verdict": "accept",
     "text": "Обязательно для написания гранатов понадобится краплак.",
-    "qc_score": 0.6712,
+    "qc_score": 0.5657,
     "qc_sim2": 0.681,
     "qc_sim_cal": 0.881,
     "qc_mos": 4.28,
@@ -694,8 +678,7 @@
     "qc_f0st": 2.94,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -718,7 +701,7 @@
     "rating": 3,
     "verdict": "accept",
     "text": "Тёмно-красная, очень прозрачная и красивая краска.",
-    "qc_score": 0.5947,
+    "qc_score": 0.4674,
     "qc_sim2": 0.691,
     "qc_sim_cal": 0.896,
     "qc_mos": 3.96,
@@ -726,8 +709,7 @@
     "qc_f0st": 2.5,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -750,7 +732,7 @@
     "rating": 4,
     "verdict": "accept",
     "text": "Вы видите, что красный кадмий я пока что не выдавливаю.",
-    "qc_score": 0.7144,
+    "qc_score": 0.6925,
     "qc_sim2": 0.591,
     "qc_sim_cal": 0.737,
     "qc_mos": 4.44,
@@ -758,8 +740,7 @@
     "qc_f0st": 3.22,
     "qc_wer": 0.2,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -782,7 +763,7 @@
     "rating": 3,
     "verdict": "reject",
     "text": "И, пожалуй, для того, чтобы цвета были чуть глубже, я буду использовать умбру.",
-    "qc_score": 0.6524,
+    "qc_score": 0.5134,
     "qc_sim2": 0.585,
     "qc_sim_cal": 0.728,
     "qc_mos": 4.57,
@@ -790,8 +771,7 @@
     "qc_f0st": 2.16,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -822,8 +802,7 @@
     "qc_f0st": 3.46,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -930,7 +909,7 @@
     "rating": 1,
     "verdict": "reject",
     "text": "Пока этот набор красок совсем скромный, чтобы палитра стала удобнее для работы и, так сказать, сместить саму живописную поверхность в тёплую сторону спектра.",
-    "qc_score": 0.6453,
+    "qc_score": 0.4107,
     "qc_sim2": 0.694,
     "qc_sim_cal": 0.901,
     "qc_mos": 4.67,
@@ -938,8 +917,7 @@
     "qc_f0st": 1.87,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -962,7 +940,7 @@
     "rating": 2,
     "verdict": null,
     "text": "Первым делом я выдавливаю ультрамарин — он нужен для холодных участков в натюрморте.",
-    "qc_score": 0.7232,
+    "qc_score": 0.4409,
     "qc_sim2": 0.714,
     "qc_sim_cal": 0.932,
     "qc_mos": 4.61,
@@ -970,8 +948,7 @@
     "qc_f0st": 3.02,
     "qc_wer": 0.083,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -994,7 +971,7 @@
     "rating": 3,
     "verdict": "accept",
     "text": "Мне очень нравится ультрамарин фирмы Talens. Он довольно прозрачный, красивого цвета.",
-    "qc_score": 0.6839,
+    "qc_score": 0.4039,
     "qc_sim2": 0.727,
     "qc_sim_cal": 0.954,
     "qc_mos": 4.61,
@@ -1002,8 +979,7 @@
     "qc_f0st": 2.51,
     "qc_wer": 0.091,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1110,7 +1086,7 @@
     "rating": 3,
     "verdict": "accept",
     "text": "Итак, сейчас у нас практически все краски. И ещё я хотел сказать: в этом спектре, где есть холодные краски, я иногда кладу вот такую зелёную краску.",
-    "qc_score": 0.6732,
+    "qc_score": 0.304,
     "qc_sim2": 0.705,
     "qc_sim_cal": 0.919,
     "qc_mos": 4.64,
@@ -1118,8 +1094,7 @@
     "qc_f0st": 2.31,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1142,7 +1117,7 @@
     "rating": 4,
     "verdict": "accept",
     "text": "Это краска хром-кобальт, сине-зелёная. Интересная краска. Она хорошо смешивается с тёплыми и белыми, даёт интересные оттенки.",
-    "qc_score": 0.7906,
+    "qc_score": 0.4304,
     "qc_sim2": 0.716,
     "qc_sim_cal": 0.936,
     "qc_mos": 4.74,
@@ -1150,8 +1125,7 @@
     "qc_f0st": 3.68,
     "qc_wer": 0.111,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1258,7 +1232,7 @@
     "rating": 2,
     "verdict": "reject",
     "text": "В принципе, холодных красок для этого натюрморта хватит. Итак, у нас есть три краски холодного спектра и семь из тёплого спектра.",
-    "qc_score": 0.6587,
+    "qc_score": 0.4171,
     "qc_sim2": 0.681,
     "qc_sim_cal": 0.88,
     "qc_mos": 4.67,
@@ -1266,8 +1240,7 @@
     "qc_f0st": 2.05,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1290,7 +1263,7 @@
     "rating": 3,
     "verdict": "accept",
     "text": "Вместе с белым это почти десять цветов, и этого достаточно для натюрморта.",
-    "qc_score": 0.7547,
+    "qc_score": 0.6294,
     "qc_sim2": 0.63,
     "qc_sim_cal": 0.8,
     "qc_mos": 4.67,
@@ -1298,8 +1271,7 @@
     "qc_f0st": 3.33,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1322,7 +1294,7 @@
     "rating": 2,
     "verdict": "reject",
     "text": "Так что я могу ввести в работу вот такие краски: голубую, синюю и лиловую, — чтобы работать в светотенях.",
-    "qc_score": 0.6491,
+    "qc_score": 0.3092,
     "qc_sim2": 0.654,
     "qc_sim_cal": 0.838,
     "qc_mos": 4.59,
@@ -1330,8 +1302,7 @@
     "qc_f0st": 2.08,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1354,7 +1325,7 @@
     "rating": 3,
     "verdict": "reject",
     "text": "Такие тёплые цвета нужны в холодных теневых участках. Ещё у меня есть неаполитанская краска, я могу выдавить её ближе к белилам.",
-    "qc_score": 0.6723,
+    "qc_score": 0.4694,
     "qc_sim2": 0.697,
     "qc_sim_cal": 0.906,
     "qc_mos": 4.65,
@@ -1362,8 +1333,7 @@
     "qc_f0st": 2.27,
     "qc_wer": 0.048,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1386,7 +1356,7 @@
     "rating": 3,
     "verdict": "reject",
     "text": "Неаполитанская краска интересна тем, что в светлых местах она может быть холодной и очень хорошо сочетается с холодными красками; например, отлично смешивается вот с лиловой.",
-    "qc_score": 0.6906,
+    "qc_score": 0.4138,
     "qc_sim2": 0.666,
     "qc_sim_cal": 0.857,
     "qc_mos": 4.72,
@@ -1394,8 +1364,7 @@
     "qc_f0st": 2.38,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1418,7 +1387,7 @@
     "rating": 3,
     "verdict": "accept",
     "text": "И даёт очень интересные кремовые оттенки.",
-    "qc_score": 0.6008,
+    "qc_score": 0.5975,
     "qc_sim2": 0.671,
     "qc_sim_cal": 0.864,
     "qc_mos": 4.05,
@@ -1426,8 +1395,7 @@
     "qc_f0st": 2.42,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1450,7 +1418,7 @@
     "rating": 3,
     "verdict": "accept",
     "text": "Тем более что она хорошо сочетается с красными охрами и с индийской красной. И это довольно интересная базовая краска в палитре — для написания каких-то светлых участков.",
-    "qc_score": 0.7098,
+    "qc_score": 0.4727,
     "qc_sim2": 0.68,
     "qc_sim_cal": 0.879,
     "qc_mos": 4.68,
@@ -1458,8 +1426,7 @@
     "qc_f0st": 2.71,
     "qc_wer": 0.037,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1490,8 +1457,7 @@
     "qc_f0st": 1.8,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1522,8 +1488,7 @@
     "qc_f0st": 3.21,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1546,7 +1511,7 @@
     "rating": 4,
     "verdict": "accept",
     "text": "Теперь нужно показать, чем я буду писать и разбавлять краску.",
-    "qc_score": 0.619,
+    "qc_score": 0.4268,
     "qc_sim2": 0.685,
     "qc_sim_cal": 0.886,
     "qc_mos": 4.19,
@@ -1554,8 +1519,7 @@
     "qc_f0st": 2.4,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1578,7 +1542,7 @@
     "rating": 3,
     "verdict": "accept",
     "text": "Вот здесь уже разведено: льняное масло, тройник, он очень густой.",
-    "qc_score": 0.6404,
+    "qc_score": 0.3721,
     "qc_sim2": 0.669,
     "qc_sim_cal": 0.861,
     "qc_mos": 4.33,
@@ -1586,8 +1550,7 @@
     "qc_f0st": 2.44,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1618,8 +1581,7 @@
     "qc_f0st": 2.68,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1642,7 +1604,7 @@
     "rating": 3,
     "verdict": "accept",
     "text": "Льняное масло. Довольно густая смесь.",
-    "qc_score": 0.6213,
+    "qc_score": 0.5606,
     "qc_sim2": 0.642,
     "qc_sim_cal": 0.818,
     "qc_mos": 4.1,
@@ -1650,8 +1612,7 @@
     "qc_f0st": 2.6,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1766,8 +1727,7 @@
     "qc_f0st": 3.01,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1790,7 +1750,7 @@
     "rating": 3,
     "verdict": "accept",
     "text": "Можно писать и просто разбавителем, можно писать разбавителем и маслом, их можно сочетать.",
-    "qc_score": 0.6385,
+    "qc_score": 0.3013,
     "qc_sim2": 0.657,
     "qc_sim_cal": 0.843,
     "qc_mos": 4.6,
@@ -1798,8 +1758,7 @@
     "qc_f0st": 1.91,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1830,8 +1789,7 @@
     "qc_f0st": 2.66,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1862,8 +1820,7 @@
     "qc_f0st": 1.91,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1894,8 +1851,7 @@
     "qc_f0st": 2.2,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1918,7 +1874,7 @@
     "rating": 4,
     "verdict": "accept",
     "text": "Разбавляю тройник: прописываю первый слой и имприматуру этим тройником, чтобы лучше загрунтовать поверхность.",
-    "qc_score": 0.7748,
+    "qc_score": 0.3875,
     "qc_sim2": 0.671,
     "qc_sim_cal": 0.865,
     "qc_mos": 4.67,
@@ -1926,8 +1882,7 @@
     "qc_f0st": 3.6,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1950,7 +1905,7 @@
     "rating": 4,
     "verdict": "accept",
     "text": "И последующие слои краски будут лучше держаться и соединяться с поверхностью холста.",
-    "qc_score": 0.6805,
+    "qc_score": 0.5222,
     "qc_sim2": 0.584,
     "qc_sim_cal": 0.725,
     "qc_mos": 4.66,
@@ -1958,8 +1913,7 @@
     "qc_f0st": 2.37,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok",
-    "qc_mos_kind": "whole_take"
+    "fit": "ok"
   },
   {
     "video": "Organising the colour palette and materials",

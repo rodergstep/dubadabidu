@@ -193,6 +193,17 @@ def composite_score(sim_cal: float, mos_1to5: float, tempo_pen: float,
                     weights: dict, f0st: float = 0.0) -> float:
     """Weighted 0..1 objective. weights: {sim, mos, f0, tempo} summing to ~1.
 
+    `mos_1to5` is the WORST-3s-WINDOW MOS (mos_min_window), not the whole-take
+    mean, since 2026-08-11. Callers must pass the same thing or scores stop
+    being comparable: qc.evaluate passes m_min and qc.refit fits qc_mos_min.
+    The mean scored +0.005 against 140 human ratings where the window scored
+    +0.226, and on 46 accept/reject verdicts the mean-based composite was
+    ANTI-correlated (-0.205) while the window-based one is +0.364.
+
+    NOTE the scale moved with it. The window is systematically lower than the
+    mean, so qc_score dropped ~0.17 on the same audio and every cut point had
+    to move too — see qc.eval.score_flag and specs/batch.yaml mean_score_min.
+
     Weights calibrated against human ratings (test clip, n=12, 2026-07-08):
     rating correlates with mos +0.63 and f0 variability +0.48; raw similarity
     went NEGATIVE (-0.30) — over-cloning a thin reference hurts naturalness —

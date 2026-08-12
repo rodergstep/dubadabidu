@@ -38,7 +38,12 @@ from qc import metrics as X  # noqa: E402
 log = logging.getLogger("dubadabidu.qc.refit")
 
 # Features the composite consumes, and the row keys they come from.
-NEEDED = ("qc_sim_cal", "qc_mos", "qc_f0st")
+# qc_mos_min, not qc_mos: qc.evaluate feeds the WINDOWED MINIMUM into
+# composite_score since 2026-08-11, and this module exists to fit the real
+# production objective rather than a re-derivation of it. Convenient side
+# effect — qc_mos_min was written correctly by every page all along, so the
+# provenance split that made qc_mos unfittable does not apply to it.
+NEEDED = ("qc_sim_cal", "qc_mos_min", "qc_f0st")
 KEYS = ("sim", "mos", "f0", "tempo")
 # Reported alongside the fit: the raw per-feature correlations. These are the
 # diagnostic that drove the original hand-fit (mos +.63, f0 +.48, sim -.30) and
@@ -171,7 +176,7 @@ def constant_terms(rows: list[dict], max_tempo: float) -> list[str]:
         return []
     terms = {
         "sim": [r["qc_sim_cal"] for r in rows],
-        "mos": [(r["qc_mos"] - 1.0) / 4.0 for r in rows],
+        "mos": [(r["qc_mos_min"] - 1.0) / 4.0 for r in rows],
         "f0": [min(1.0, r["qc_f0st"] / 4.0) for r in rows],
         "tempo": [X.tempo_penalty(r.get("tempo", 1.0), max_tempo) for r in rows],
     }
@@ -191,7 +196,7 @@ def predict(row: dict, w: dict, max_tempo: float) -> float:
     """qc_score for this row under weights `w` — through the production
     composite, so a proposal means in production exactly what it means here."""
     return X.composite_score(
-        row["qc_sim_cal"], row["qc_mos"],
+        row["qc_sim_cal"], row["qc_mos_min"],
         X.tempo_penalty(row.get("tempo", 1.0), max_tempo), w, row["qc_f0st"])
 
 
@@ -356,24 +361,18 @@ def run(cfg: dict, langs: list[str]) -> int:
         elif vals:
             print(f"    {f:12} {'—':>6}  ({len(rows) - len(vals)} rows lack it)")
 
+    # DIAGNOSTIC ONLY since the switch to qc_mos_min. qc_mos still carries the
+    # blind.py split, and it is worth saying so because it is printed in the
+    # per-feature table above — but the fit no longer reads that column, so it
+    # must neither gate adoption nor drop rows. qc_mos_min was written the same
+    # way by every page all along, which is why the 20 rows that could not be
+    # repaired are usable again.
+    fits_qc_mos = "qc_mos" in NEEDED
     warn = mos_provenance_warning(rows)
     if warn:
         print(f"\n  !! {warn}")
-        # Two metrics cannot be pooled, but the minority need not block the
-        # majority: when rows say which metric they carry, fit the dominant
-        # kind and SAY how many were dropped. Silently fitting all of them is
-        # what this warning exists to prevent; silently refusing forever is
-        # not better.
-        stamped = [r for r in rows if "qc_mos_kind" in r]
-        if len(stamped) == len(rows):
-            keep = [r for r in rows if r["qc_mos_kind"] == "whole_take"]
-            dropped = len(rows) - len(keep)
-            if keep and dropped:
-                print(f"     -> fitting the {len(keep)} whole_take rows only; "
-                      f"{dropped} window_min row(s) excluded (their audio is "
-                      f"gone or the rated take could not be identified).")
-                rows = keep
-                warn = mos_provenance_warning(rows)
+        print("     (diagnostic only — the fit reads qc_mos_min, which every "
+              "page wrote the same way)" if not fits_qc_mos else "")
 
     cur_rho = rho_of(rows, cur, max_tempo)
     print(f"\n  current weights {cur} -> Spearman {cur_rho:+.3f}")
@@ -429,9 +428,11 @@ def run(cfg: dict, langs: list[str]) -> int:
         # is blind to a feature column that holds two different measurements.
         # Adopting weights fitted across mixed provenance would encode "which
         # page rated this" into the production objective.
-        ("one qc_mos metric", warn is None,
-         "all rows measure qc_mos the same way" if warn is None
-         else "mixed provenance — see the warning above"),
+        ("fitted mos is one metric", warn is None or not fits_qc_mos,
+         "qc_mos_min: written identically by every page"
+         if not fits_qc_mos else
+         ("all rows measure qc_mos the same way" if warn is None
+          else "mixed provenance — see the warning above")),
         # Adopting weight on a term the data cannot identify writes a number
         # into config that was never measured — and `tempo` in particular is
         # read by BOTH composite_score (as a stretch penalty) and
