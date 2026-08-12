@@ -4,7 +4,17 @@
 # THIS file, not the pipeline. Only a human edits this file.
 
 accept:
-  mean_score_min: 0.60      # mean qc_score per video/lang
+  # 0.60 -> 0.43 on 2026-08-11, WITH THE METRIC, not as a loosening.
+  # composite_score switched from whole-take MOS to the worst-3s window
+  # (qc.metrics.composite_score) because the old objective was ANTI-correlated
+  # with the listener's accept/reject calls (-0.205; the new one is +0.364).
+  # The window is systematically lower, so the same audio that used to mean
+  # 0.653 now means 0.486 and every video/language would have failed 0.60
+  # forever — the autopilot would ESCALATE everything, on a bar that had
+  # quietly stopped describing the same thing.
+  # 0.43 preserves the old margin: ru sat +0.053 above the old bar and sits
+  # +0.056 above this one. Same strictness, new scale.
+  mean_score_min: 0.43      # mean qc_score per video/lang
   flagged_pct_max: 5        # % of segments below qc.eval.score_flag
   wer_bad_max: 0            # segments with backcheck WER above threshold
   overflow_max: 0           # segments that would not fit even at max_tempo

@@ -65,8 +65,10 @@ def test_ties_share_the_average_rank():
 # --- search space ---
 
 def test_simplex_weights_sum_to_one():
-    """score_flag (0.55) and mean_score_min (0.60) are cut points on this
-    scale — weights summing to anything else silently move every threshold."""
+    """score_flag (0.36) and mean_score_min (0.43) are cut points on this
+    scale — weights summing to anything else silently move every threshold.
+    Both moved on 2026-08-11 when composite_score switched to the windowed MOS
+    minimum; the sum-to-1 constraint is what keeps them meaningful at all."""
     pts = R.simplex(0.1)
     assert pts and all(abs(sum(w.values()) - 1.0) < 1e-9 for w in pts)
 
