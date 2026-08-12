@@ -122,7 +122,16 @@ def mos_provenance_warning(rows: list[dict]) -> str | None:
     both = [r for r in rows if "qc_mos" in r and "qc_mos_min" in r]
     if len(both) < 10:
         return None
-    collapsed = [r for r in both if abs(r["qc_mos"] - r["qc_mos_min"]) < 1e-9]
+    # Prefer the EXPLICIT stamp. Value equality is only a fallback for rows
+    # written before the stamp existed, and it over-counts: mos_min_window
+    # falls back to mos() on clips shorter than its 3 s window, so 11 correct
+    # review-page rows tie legitimately and would be misread as collapsed.
+    if any("qc_mos_kind" in r for r in both):
+        collapsed = [r for r in both if r.get("qc_mos_kind") == "window_min"]
+    else:
+        collapsed = [r for r in both if abs(r["qc_mos"] - r["qc_mos_min"]) < 1e-9]
+    if not collapsed:
+        return None
     frac = len(collapsed) / len(both)
     if not 0.05 < frac < 0.95:      # all-or-nothing is at least self-consistent
         return None
@@ -191,12 +200,25 @@ def rho_of(rows: list[dict], w: dict, max_tempo: float) -> float:
                     [r["rating"] for r in rows])
 
 
-def fit(rows: list[dict], max_tempo: float, step: float = 0.05) -> tuple:
+def fit(rows: list[dict], max_tempo: float, step: float = 0.05,
+        hold: dict | None = None) -> tuple:
     """Best weights on `rows` by Spearman. Ties break toward the SMALLEST
     change from a balanced weighting, so a flat objective (common at small n)
-    doesn't return an arbitrary extreme point."""
+    doesn't return an arbitrary extreme point.
+
+    `hold` pins weights the data cannot identify (see constant_terms) at their
+    incumbent values and searches only the rest, rescaled to the remaining
+    budget so the total still sums to 1. Searching an axis the objective is
+    flat along does not find a better fit — it finds an arbitrary point on a
+    tie, and on the real ru file that was 0.95 parked on `tempo` purely so f0
+    could take the remainder.
+    """
+    hold = hold or {}
+    free = tuple(k for k in KEYS if k not in hold)
+    budget = max(0.0, 1.0 - sum(hold.values()))
     best, best_rho = None, -2.0
-    for w in simplex(step):
+    for part in simplex(step, free):
+        w = {**hold, **{k: round(v * budget, 4) for k, v in part.items()}}
         r = rho_of(rows, w, max_tempo)
         if r > best_rho or (r == best_rho and best is not None
                             and _spread(w) < _spread(best)):
@@ -212,7 +234,8 @@ def _spread(w: dict) -> float:
 
 
 def cv_rho(rows: list[dict], max_tempo: float, k: int = 5,
-           step: float = 0.05, fixed: dict | None = None) -> float:
+           step: float = 0.05, fixed: dict | None = None,
+           hold: dict | None = None) -> float:
     """Cross-validated Spearman. Predictions from every held-out fold are
     POOLED and ranked together — per-fold correlations on 5-10 points are far
     too noisy to average.
@@ -227,7 +250,7 @@ def cv_rho(rows: list[dict], max_tempo: float, k: int = 5,
         train = [r for i, r in enumerate(rows) if i % k != f]
         if not test or (fixed is None and len(train) < 3):
             continue
-        w = fixed or fit(train, max_tempo, step)[0]
+        w = fixed or fit(train, max_tempo, step, hold)[0]
         preds += [predict(r, w, max_tempo) for r in test]
         actual += [r["rating"] for r in test]
     return spearman(preds, actual)
@@ -235,7 +258,7 @@ def cv_rho(rows: list[dict], max_tempo: float, k: int = 5,
 
 def permutation_p(rows: list[dict], max_tempo: float, observed: float,
                   k: int = 5, step: float = 0.05, n_perm: int = 50,
-                  seed: int = 0) -> float:
+                  seed: int = 0, hold: dict | None = None) -> float:
     """How often the SAME fit-and-cross-validate procedure reaches `observed`
     on shuffled ratings. This is the gate that matters at these sample sizes.
 
@@ -262,7 +285,7 @@ def permutation_p(rows: list[dict], max_tempo: float, observed: float,
         shuffled = ratings[:]
         rnd.shuffle(shuffled)
         perm = [{**r, "rating": s} for r, s in zip(rows, shuffled)]
-        if cv_rho(perm, max_tempo, k, step) >= observed:
+        if cv_rho(perm, max_tempo, k, step, hold=hold) >= observed:
             hits += 1
     return (hits + 1) / (n_perm + 1)
 
@@ -336,6 +359,21 @@ def run(cfg: dict, langs: list[str]) -> int:
     warn = mos_provenance_warning(rows)
     if warn:
         print(f"\n  !! {warn}")
+        # Two metrics cannot be pooled, but the minority need not block the
+        # majority: when rows say which metric they carry, fit the dominant
+        # kind and SAY how many were dropped. Silently fitting all of them is
+        # what this warning exists to prevent; silently refusing forever is
+        # not better.
+        stamped = [r for r in rows if "qc_mos_kind" in r]
+        if len(stamped) == len(rows):
+            keep = [r for r in rows if r["qc_mos_kind"] == "whole_take"]
+            dropped = len(rows) - len(keep)
+            if keep and dropped:
+                print(f"     -> fitting the {len(keep)} whole_take rows only; "
+                      f"{dropped} window_min row(s) excluded (their audio is "
+                      f"gone or the rated take could not be identified).")
+                rows = keep
+                warn = mos_provenance_warning(rows)
 
     cur_rho = rho_of(rows, cur, max_tempo)
     print(f"\n  current weights {cur} -> Spearman {cur_rho:+.3f}")
@@ -357,12 +395,15 @@ def run(cfg: dict, langs: list[str]) -> int:
               f"constant term is not evidence it matters; it is budget removed "
               f"from the terms that do.")
 
-    best, best_rho = fit(rows, max_tempo, step)
-    cv_new = cv_rho(rows, max_tempo, k, step)
+    hold = {kk: float(cur.get(kk, 0.0)) for kk in flat}
+    best, best_rho = fit(rows, max_tempo, step, hold)
+    cv_new = cv_rho(rows, max_tempo, k, step, hold=hold)
     cv_cur = cv_rho(rows, max_tempo, k, step, fixed=cur)
     parked = sum(best.get(kk, 0.0) for kk in flat)
-    note = (f"   <- {parked:.2f} of this sits on {'/'.join(flat)}, which cannot "
-            f"be fitted from this data" if parked > 0.05 else "")
+    moved = sum(abs(best.get(kk, 0.0) - float(cur.get(kk, 0.0))) for kk in flat)
+    note = (f"   <- {parked:.2f} of this is {'/'.join(flat)}, HELD at the "
+            f"incumbent value because this data cannot fit it"
+            if parked > 1e-9 else "")
     print(f"  best-fit weights {best} -> Spearman {best_rho:+.3f} (in-sample)"
           + note)
     print(f"\n  {k}-fold cross-validated:")
@@ -371,7 +412,7 @@ def run(cfg: dict, langs: list[str]) -> int:
 
     print(f"\n  permutation test ({n_perm} shuffles, ~{n_perm // 25 or 1}x the "
           f"time of one fit) ...", flush=True)
-    p = permutation_p(rows, max_tempo, cv_new, k, step, n_perm)
+    p = permutation_p(rows, max_tempo, cv_new, k, step, n_perm, hold=hold)
 
     # Three independent gates, ALL required. Any one alone is defeatable:
     # a high CV rho can be luck, a low p can accompany a useless-but-consistent
@@ -396,9 +437,13 @@ def run(cfg: dict, langs: list[str]) -> int:
         # read by BOTH composite_score (as a stretch penalty) and
         # tts_engine._take_rank (as a pace-match reward), so it would move take
         # selection on no evidence at all.
-        ("weights are identifiable", parked <= 0.05,
-         "no meaningful weight on a constant term" if parked <= 0.05
-         else f"{parked:.2f} parked on {'/'.join(flat)}, unfittable here"),
+        # The check is that a constant term was HELD at its incumbent value,
+        # not that it is near zero: holding is the correct treatment, and
+        # `tempo` legitimately keeps its 0.15. What must never happen is the
+        # search MOVING it, because a move there is an arbitrary point on a tie.
+        ("weights are identifiable", moved <= 1e-9,
+         "constant terms held at their incumbent values" if moved <= 1e-9
+         else f"the fit moved {'/'.join(flat)} by {moved:.2f} on flat data"),
     ]
     print("\n  adoption gates:")
     for label, ok, detail in gates:

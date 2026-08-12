@@ -14,7 +14,8 @@
     "qc_f0st": 1.92,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -27,7 +28,8 @@
     "qc_mos_min": 3.2319,
     "qc_f0st": 1.9794,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -44,7 +46,8 @@
     "qc_f0st": 2.82,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -53,11 +56,12 @@
     "rating": 4,
     "qc_sim2": 0.6773,
     "qc_sim_cal": 0.8745,
-    "qc_mos": 3.2997,
+    "qc_mos": 4.7444,
     "qc_mos_min": 3.2997,
     "qc_f0st": 3.856,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -74,7 +78,8 @@
     "qc_f0st": 2.36,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -83,11 +88,12 @@
     "rating": 4,
     "qc_sim2": 0.6221,
     "qc_sim_cal": 0.7865,
-    "qc_mos": 2.4254,
+    "qc_mos": 4.6967,
     "qc_mos_min": 2.4254,
     "qc_f0st": 2.8418,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -104,7 +110,8 @@
     "qc_f0st": 3.14,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -113,11 +120,12 @@
     "rating": 5,
     "qc_sim2": 0.5988,
     "qc_sim_cal": 0.7493,
-    "qc_mos": 2.2813,
+    "qc_mos": 4.7136,
     "qc_mos_min": 2.2813,
     "qc_f0st": 3.1795,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -134,7 +142,8 @@
     "qc_f0st": 2.72,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -143,11 +152,12 @@
     "rating": 5,
     "qc_sim2": 0.6741,
     "qc_sim_cal": 0.8694,
-    "qc_mos": 1.7551,
+    "qc_mos": 4.6347,
     "qc_mos_min": 1.7551,
     "qc_f0st": 2.7163,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -164,7 +174,8 @@
     "qc_f0st": 3.69,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -173,11 +184,12 @@
     "rating": 4,
     "qc_sim2": 0.6281,
     "qc_sim_cal": 0.796,
-    "qc_mos": 2.9605,
+    "qc_mos": 4.7593,
     "qc_mos_min": 2.9605,
     "qc_f0st": 2.3688,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -194,7 +206,8 @@
     "qc_f0st": 2.49,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -203,11 +216,12 @@
     "rating": 2,
     "qc_sim2": 0.7682,
     "qc_sim_cal": 1.0,
-    "qc_mos": 2.0775,
+    "qc_mos": 4.5861,
     "qc_mos_min": 2.0775,
     "qc_f0st": 2.9286,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -216,11 +230,12 @@
     "rating": 1,
     "qc_sim2": 0.7429,
     "qc_sim_cal": 0.979,
-    "qc_mos": 2.3039,
+    "qc_mos": 4.5918,
     "qc_mos_min": 2.3039,
     "qc_f0st": 3.6045,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -229,11 +244,12 @@
     "rating": 1,
     "qc_sim2": 0.7443,
     "qc_sim_cal": 0.9813,
-    "qc_mos": 2.3674,
+    "qc_mos": 4.547,
     "qc_mos_min": 2.3674,
     "qc_f0st": 2.3852,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -246,7 +262,8 @@
     "qc_mos_min": 2.5322,
     "qc_f0st": 2.058,
     "tempo": 1.0,
-    "variant": "qwen+fast+icl"
+    "variant": "qwen+fast+icl",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -259,7 +276,8 @@
     "qc_mos_min": 2.6087,
     "qc_f0st": 2.0226,
     "tempo": 1.0,
-    "variant": "qwen+fast+icl"
+    "variant": "qwen+fast+icl",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -268,11 +286,12 @@
     "rating": 1,
     "qc_sim2": 0.7711,
     "qc_sim_cal": 1.0,
-    "qc_mos": 2.3082,
+    "qc_mos": 4.586,
     "qc_mos_min": 2.3082,
     "qc_f0st": 1.9425,
     "tempo": 1.0,
-    "variant": "qwen+fast+icl"
+    "variant": "qwen+fast+icl",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -281,11 +300,12 @@
     "rating": 2,
     "qc_sim2": 0.6804,
     "qc_sim_cal": 0.8794,
-    "qc_mos": 1.9608,
+    "qc_mos": 4.68,
     "qc_mos_min": 1.9608,
     "qc_f0st": 2.4109,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -302,7 +322,8 @@
     "qc_f0st": 2.37,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -311,11 +332,12 @@
     "rating": 5,
     "qc_sim2": 0.6183,
     "qc_sim_cal": 0.7804,
-    "qc_mos": 2.6044,
+    "qc_mos": 3.1977,
     "qc_mos_min": 2.6044,
     "qc_f0st": 2.3874,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -332,7 +354,8 @@
     "qc_f0st": 2.16,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -341,11 +364,12 @@
     "rating": 4,
     "qc_sim2": 0.6205,
     "qc_sim_cal": 0.7838,
-    "qc_mos": 2.4071,
+    "qc_mos": 3.882,
     "qc_mos_min": 2.4071,
     "qc_f0st": 2.3107,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -362,7 +386,8 @@
     "qc_f0st": 2.91,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -371,11 +396,12 @@
     "rating": 3,
     "qc_sim2": 0.7338,
     "qc_sim_cal": 0.9646,
-    "qc_mos": 2.959,
+    "qc_mos": 3.5747,
     "qc_mos_min": 2.959,
     "qc_f0st": 2.5346,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -384,11 +410,12 @@
     "rating": 3,
     "qc_sim2": 0.6546,
     "qc_sim_cal": 0.8382,
-    "qc_mos": 2.7324,
+    "qc_mos": 4.5631,
     "qc_mos_min": 2.7324,
     "qc_f0st": 6.7546,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -397,11 +424,12 @@
     "rating": 2,
     "qc_sim2": 0.6933,
     "qc_sim_cal": 0.9,
-    "qc_mos": 2.5341,
+    "qc_mos": 4.0832,
     "qc_mos_min": 2.5341,
     "qc_f0st": 2.2277,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -414,7 +442,8 @@
     "qc_mos_min": 2.582,
     "qc_f0st": 1.5323,
     "tempo": 1.0,
-    "variant": "qwen+fast+icl"
+    "variant": "qwen+fast+icl",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -423,11 +452,12 @@
     "rating": 3,
     "qc_sim2": 0.7411,
     "qc_sim_cal": 0.9763,
-    "qc_mos": 4.2156,
+    "qc_mos": 4.2622,
     "qc_mos_min": 4.2156,
     "qc_f0st": 3.2056,
     "tempo": 1.0,
-    "variant": "qwen+fast+icl"
+    "variant": "qwen+fast+icl",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -440,7 +470,8 @@
     "qc_mos_min": 2.7141,
     "qc_f0st": 1.9363,
     "tempo": 1.0,
-    "variant": "qwen+fast+icl"
+    "variant": "qwen+fast+icl",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -449,11 +480,12 @@
     "rating": 3,
     "qc_sim2": 0.6875,
     "qc_sim_cal": 0.8908,
-    "qc_mos": 2.7875,
+    "qc_mos": 4.4018,
     "qc_mos_min": 2.7875,
     "qc_f0st": 2.8576,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -470,7 +502,8 @@
     "qc_f0st": 1.9,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -479,11 +512,12 @@
     "rating": 3,
     "qc_sim2": 0.5948,
     "qc_sim_cal": 0.7429,
-    "qc_mos": 2.1316,
+    "qc_mos": 3.5668,
     "qc_mos_min": 2.1316,
     "qc_f0st": 2.1294,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -500,7 +534,8 @@
     "qc_f0st": 2.57,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -509,11 +544,12 @@
     "rating": 4,
     "qc_sim2": 0.6606,
     "qc_sim_cal": 0.8479,
-    "qc_mos": 2.911,
+    "qc_mos": 4.0157,
     "qc_mos_min": 2.911,
     "qc_f0st": 2.424,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -530,7 +566,8 @@
     "qc_f0st": 2.59,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -543,7 +580,8 @@
     "qc_mos_min": 3.3718,
     "qc_f0st": 3.419,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -560,7 +598,8 @@
     "qc_f0st": 2.99,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -569,11 +608,12 @@
     "rating": 4,
     "qc_sim2": 0.7188,
     "qc_sim_cal": 0.9407,
-    "qc_mos": 2.0833,
+    "qc_mos": 4.6487,
     "qc_mos_min": 2.0833,
     "qc_f0st": 2.993,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -590,7 +630,8 @@
     "qc_f0st": 2.33,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -599,11 +640,12 @@
     "rating": 2,
     "qc_sim2": 0.6497,
     "qc_sim_cal": 0.8305,
-    "qc_mos": 2.6472,
+    "qc_mos": 4.6946,
     "qc_mos_min": 2.6472,
     "qc_f0st": 2.3017,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -620,7 +662,8 @@
     "qc_f0st": 2.88,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -633,7 +676,8 @@
     "qc_mos_min": 3.6021,
     "qc_f0st": 3.1257,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -650,7 +694,8 @@
     "qc_f0st": 2.94,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -659,11 +704,12 @@
     "rating": 4,
     "qc_sim2": 0.6828,
     "qc_sim_cal": 0.8833,
-    "qc_mos": 2.8113,
+    "qc_mos": 3.6765,
     "qc_mos_min": 2.8113,
     "qc_f0st": 2.99,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -680,7 +726,8 @@
     "qc_f0st": 2.5,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -689,11 +736,12 @@
     "rating": 3,
     "qc_sim2": 0.6607,
     "qc_sim_cal": 0.848,
-    "qc_mos": 1.6885,
+    "qc_mos": 3.6847,
     "qc_mos_min": 1.6885,
     "qc_f0st": 2.4981,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -710,7 +758,8 @@
     "qc_f0st": 3.22,
     "qc_wer": 0.2,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -719,11 +768,12 @@
     "rating": 5,
     "qc_sim2": 0.6178,
     "qc_sim_cal": 0.7796,
-    "qc_mos": 3.2876,
+    "qc_mos": 4.0282,
     "qc_mos_min": 3.2876,
     "qc_f0st": 3.3743,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -740,7 +790,8 @@
     "qc_f0st": 2.16,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -749,11 +800,12 @@
     "rating": 4,
     "qc_sim2": 0.5458,
     "qc_sim_cal": 0.6647,
-    "qc_mos": 2.8106,
+    "qc_mos": 4.5168,
     "qc_mos_min": 2.8106,
     "qc_f0st": 2.1758,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -770,7 +822,8 @@
     "qc_f0st": 3.46,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -783,7 +836,8 @@
     "qc_mos_min": 3.2485,
     "qc_f0st": 5.3588,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -796,7 +850,8 @@
     "qc_mos_min": 3.0365,
     "qc_f0st": 1.4221,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -809,7 +864,8 @@
     "qc_mos_min": 2.8697,
     "qc_f0st": 2.9632,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -822,7 +878,8 @@
     "qc_mos_min": 2.6808,
     "qc_f0st": 1.2389,
     "tempo": 1.0,
-    "variant": "qwen+fast+icl"
+    "variant": "qwen+fast+icl",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -835,7 +892,8 @@
     "qc_mos_min": 2.9308,
     "qc_f0st": 0.5615,
     "tempo": 1.0,
-    "variant": "qwen+fast+icl"
+    "variant": "qwen+fast+icl",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -848,7 +906,8 @@
     "qc_mos_min": 2.7276,
     "qc_f0st": 4.7817,
     "tempo": 1.0,
-    "variant": "qwen+fast+icl"
+    "variant": "qwen+fast+icl",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -861,7 +920,8 @@
     "qc_mos_min": 3.1442,
     "qc_f0st": 3.3808,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -878,7 +938,8 @@
     "qc_f0st": 1.87,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -887,11 +948,12 @@
     "rating": 3,
     "qc_sim2": 0.6917,
     "qc_sim_cal": 0.8974,
-    "qc_mos": 2.8604,
+    "qc_mos": 4.6866,
     "qc_mos_min": 2.8604,
     "qc_f0st": 1.933,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -908,7 +970,8 @@
     "qc_f0st": 3.02,
     "qc_wer": 0.083,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -917,11 +980,12 @@
     "rating": 3,
     "qc_sim2": 0.667,
     "qc_sim_cal": 0.858,
-    "qc_mos": 2.3545,
+    "qc_mos": 4.6705,
     "qc_mos_min": 2.3545,
     "qc_f0st": 3.0872,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -938,7 +1002,8 @@
     "qc_f0st": 2.51,
     "qc_wer": 0.091,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -947,11 +1012,12 @@
     "rating": 1,
     "qc_sim2": 0.6681,
     "qc_sim_cal": 0.8598,
-    "qc_mos": 2.2871,
+    "qc_mos": 4.5197,
     "qc_mos_min": 2.2871,
     "qc_f0st": 3.5039,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -960,11 +1026,12 @@
     "rating": 1,
     "qc_sim2": 0.6906,
     "qc_sim_cal": 0.8957,
-    "qc_mos": 2.2915,
+    "qc_mos": 4.5915,
     "qc_mos_min": 2.2915,
     "qc_f0st": 2.6021,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -973,11 +1040,12 @@
     "rating": 3,
     "qc_sim2": 0.7273,
     "qc_sim_cal": 0.9542,
-    "qc_mos": 2.1265,
+    "qc_mos": 4.7167,
     "qc_mos_min": 2.1265,
     "qc_f0st": 2.3893,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -986,11 +1054,12 @@
     "rating": 1,
     "qc_sim2": 0.8052,
     "qc_sim_cal": 1.0,
-    "qc_mos": 2.5306,
+    "qc_mos": 4.4359,
     "qc_mos_min": 2.5306,
     "qc_f0st": 1.9723,
     "tempo": 1.0,
-    "variant": "qwen+fast+icl"
+    "variant": "qwen+fast+icl",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1003,7 +1072,8 @@
     "qc_mos_min": 2.1164,
     "qc_f0st": 1.8772,
     "tempo": 1.0,
-    "variant": "qwen+fast+icl"
+    "variant": "qwen+fast+icl",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1016,7 +1086,8 @@
     "qc_mos_min": 2.3183,
     "qc_f0st": 1.4416,
     "tempo": 1.0,
-    "variant": "qwen+fast+icl"
+    "variant": "qwen+fast+icl",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1025,11 +1096,12 @@
     "rating": 3,
     "qc_sim2": 0.6865,
     "qc_sim_cal": 0.8892,
-    "qc_mos": 2.1333,
+    "qc_mos": 4.5558,
     "qc_mos_min": 2.1333,
     "qc_f0st": 2.4314,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1046,7 +1118,8 @@
     "qc_f0st": 2.31,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1055,11 +1128,12 @@
     "rating": 3,
     "qc_sim2": 0.6425,
     "qc_sim_cal": 0.819,
-    "qc_mos": 2.9768,
+    "qc_mos": 4.6443,
     "qc_mos_min": 2.9768,
     "qc_f0st": 1.4394,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1076,7 +1150,8 @@
     "qc_f0st": 3.68,
     "qc_wer": 0.111,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1085,11 +1160,12 @@
     "rating": 1,
     "qc_sim2": 0.6689,
     "qc_sim_cal": 0.861,
-    "qc_mos": 2.5057,
+    "qc_mos": 4.6828,
     "qc_mos_min": 2.5057,
     "qc_f0st": 3.1681,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1098,11 +1174,12 @@
     "rating": 2,
     "qc_sim2": 0.7436,
     "qc_sim_cal": 0.9803,
-    "qc_mos": 2.1013,
+    "qc_mos": 4.6498,
     "qc_mos_min": 2.1013,
     "qc_f0st": 3.6313,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1111,11 +1188,12 @@
     "rating": 1,
     "qc_sim2": 0.766,
     "qc_sim_cal": 1.0,
-    "qc_mos": 2.5589,
+    "qc_mos": 4.6472,
     "qc_mos_min": 2.5589,
     "qc_f0st": 3.1639,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1124,11 +1202,12 @@
     "rating": 2,
     "qc_sim2": 0.7849,
     "qc_sim_cal": 1.0,
-    "qc_mos": 2.2646,
+    "qc_mos": 4.4807,
     "qc_mos_min": 2.2646,
     "qc_f0st": 1.3703,
     "tempo": 1.0,
-    "variant": "qwen+fast+icl"
+    "variant": "qwen+fast+icl",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1141,7 +1220,8 @@
     "qc_mos_min": 2.6464,
     "qc_f0st": 1.6786,
     "tempo": 1.0,
-    "variant": "qwen+fast+icl"
+    "variant": "qwen+fast+icl",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1154,7 +1234,8 @@
     "qc_mos_min": 2.2302,
     "qc_f0st": 1.401,
     "tempo": 1.0,
-    "variant": "qwen+fast+icl"
+    "variant": "qwen+fast+icl",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1163,11 +1244,12 @@
     "rating": 3,
     "qc_sim2": 0.7065,
     "qc_sim_cal": 0.9211,
-    "qc_mos": 2.9171,
+    "qc_mos": 4.7542,
     "qc_mos_min": 2.9171,
     "qc_f0st": 4.2876,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1184,7 +1266,8 @@
     "qc_f0st": 2.05,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1193,11 +1276,12 @@
     "rating": 2,
     "qc_sim2": 0.6501,
     "qc_sim_cal": 0.831,
-    "qc_mos": 2.6008,
+    "qc_mos": 4.7002,
     "qc_mos_min": 2.6008,
     "qc_f0st": 3.1987,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1214,7 +1298,8 @@
     "qc_f0st": 3.33,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1223,11 +1308,12 @@
     "rating": 4,
     "qc_sim2": 0.5886,
     "qc_sim_cal": 0.7331,
-    "qc_mos": 3.3936,
+    "qc_mos": 4.5514,
     "qc_mos_min": 3.3936,
     "qc_f0st": 3.3636,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1244,7 +1330,8 @@
     "qc_f0st": 2.08,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1253,11 +1340,12 @@
     "rating": 1,
     "qc_sim2": 0.6152,
     "qc_sim_cal": 0.7754,
-    "qc_mos": 2.4672,
+    "qc_mos": 4.5768,
     "qc_mos_min": 2.4672,
     "qc_f0st": 2.1366,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1274,7 +1362,8 @@
     "qc_f0st": 2.27,
     "qc_wer": 0.048,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1283,11 +1372,12 @@
     "rating": 4,
     "qc_sim2": 0.6259,
     "qc_sim_cal": 0.7925,
-    "qc_mos": 3.0066,
+    "qc_mos": 4.6669,
     "qc_mos_min": 3.0066,
     "qc_f0st": 2.3099,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1304,7 +1394,8 @@
     "qc_f0st": 2.38,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1313,11 +1404,12 @@
     "rating": 5,
     "qc_sim2": 0.649,
     "qc_sim_cal": 0.8293,
-    "qc_mos": 2.8374,
+    "qc_mos": 4.7308,
     "qc_mos_min": 2.8374,
     "qc_f0st": 2.3857,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1334,7 +1426,8 @@
     "qc_f0st": 2.42,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1343,11 +1436,12 @@
     "rating": 5,
     "qc_sim2": 0.6801,
     "qc_sim_cal": 0.8789,
-    "qc_mos": 3.1499,
+    "qc_mos": 3.0989,
     "qc_mos_min": 3.1499,
     "qc_f0st": 2.8778,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1364,7 +1458,8 @@
     "qc_f0st": 2.71,
     "qc_wer": 0.037,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1373,11 +1468,12 @@
     "rating": 3,
     "qc_sim2": 0.6487,
     "qc_sim_cal": 0.8288,
-    "qc_mos": 2.3077,
+    "qc_mos": 4.6836,
     "qc_mos_min": 2.3077,
     "qc_f0st": 2.8492,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1394,7 +1490,8 @@
     "qc_f0st": 1.8,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1403,11 +1500,12 @@
     "rating": 4,
     "qc_sim2": 0.6274,
     "qc_sim_cal": 0.7949,
-    "qc_mos": 3.3475,
+    "qc_mos": 3.9676,
     "qc_mos_min": 3.3475,
     "qc_f0st": 2.1598,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1424,7 +1522,8 @@
     "qc_f0st": 3.21,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1433,11 +1532,12 @@
     "rating": 5,
     "qc_sim2": 0.6396,
     "qc_sim_cal": 0.8144,
-    "qc_mos": 3.6162,
+    "qc_mos": 3.5895,
     "qc_mos_min": 3.6162,
     "qc_f0st": 3.8266,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1454,7 +1554,8 @@
     "qc_f0st": 2.4,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1463,11 +1564,12 @@
     "rating": 4,
     "qc_sim2": 0.6846,
     "qc_sim_cal": 0.8862,
-    "qc_mos": 2.9803,
+    "qc_mos": 4.0461,
     "qc_mos_min": 2.9803,
     "qc_f0st": 2.1646,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1484,7 +1586,8 @@
     "qc_f0st": 2.44,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1493,11 +1596,12 @@
     "rating": 4,
     "qc_sim2": 0.605,
     "qc_sim_cal": 0.7592,
-    "qc_mos": 2.2721,
+    "qc_mos": 3.5403,
     "qc_mos_min": 2.2721,
     "qc_f0st": 2.4454,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1514,7 +1618,8 @@
     "qc_f0st": 2.68,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1523,11 +1628,12 @@
     "rating": 2,
     "qc_sim2": 0.68,
     "qc_sim_cal": 0.8787,
-    "qc_mos": 3.2231,
+    "qc_mos": 3.2192,
     "qc_mos_min": 3.2231,
     "qc_f0st": 2.9876,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1544,7 +1650,8 @@
     "qc_f0st": 2.6,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1553,11 +1660,12 @@
     "rating": 2,
     "qc_sim2": 0.6201,
     "qc_sim_cal": 0.7833,
-    "qc_mos": 2.4832,
+    "qc_mos": 2.75,
     "qc_mos_min": 2.4832,
     "qc_f0st": 1.7612,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1566,11 +1674,12 @@
     "rating": 2,
     "qc_sim2": 0.7134,
     "qc_sim_cal": 0.932,
-    "qc_mos": 2.1679,
+    "qc_mos": 3.3912,
     "qc_mos_min": 2.1679,
     "qc_f0st": 4.2154,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1579,11 +1688,12 @@
     "rating": 2,
     "qc_sim2": 0.6455,
     "qc_sim_cal": 0.8238,
-    "qc_mos": 2.2169,
+    "qc_mos": 3.2326,
     "qc_mos_min": 2.2169,
     "qc_f0st": 2.2849,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1596,7 +1706,8 @@
     "qc_mos_min": 2.9389,
     "qc_f0st": 1.6412,
     "tempo": 1.0,
-    "variant": "qwen+fast+icl"
+    "variant": "qwen+fast+icl",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1605,11 +1716,12 @@
     "rating": 2,
     "qc_sim2": 0.7237,
     "qc_sim_cal": 0.9484,
-    "qc_mos": 2.8146,
+    "qc_mos": 3.1132,
     "qc_mos_min": 2.8146,
     "qc_f0st": 3.7956,
     "tempo": 1.0,
-    "variant": "qwen+fast+icl"
+    "variant": "qwen+fast+icl",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1622,7 +1734,8 @@
     "qc_mos_min": 2.8052,
     "qc_f0st": 1.6315,
     "tempo": 1.0,
-    "variant": "qwen+fast+icl"
+    "variant": "qwen+fast+icl",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1631,11 +1744,12 @@
     "rating": 2,
     "qc_sim2": 0.644,
     "qc_sim_cal": 0.8214,
-    "qc_mos": 2.0658,
+    "qc_mos": 3.2228,
     "qc_mos_min": 2.0658,
     "qc_f0st": 2.6452,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1652,7 +1766,8 @@
     "qc_f0st": 3.01,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1665,7 +1780,8 @@
     "qc_mos_min": 2.9131,
     "qc_f0st": 3.055,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1682,7 +1798,8 @@
     "qc_f0st": 1.91,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1691,11 +1808,12 @@
     "rating": 3,
     "qc_sim2": 0.6837,
     "qc_sim_cal": 0.8847,
-    "qc_mos": 1.8007,
+    "qc_mos": 4.6837,
     "qc_mos_min": 1.8007,
     "qc_f0st": 1.8411,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1712,7 +1830,8 @@
     "qc_f0st": 2.66,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1721,11 +1840,12 @@
     "rating": 4,
     "qc_sim2": 0.5864,
     "qc_sim_cal": 0.7294,
-    "qc_mos": 3.6519,
+    "qc_mos": 3.6463,
     "qc_mos_min": 3.6519,
     "qc_f0st": 2.6013,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1742,7 +1862,8 @@
     "qc_f0st": 1.91,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1755,7 +1876,8 @@
     "qc_mos_min": 2.8799,
     "qc_f0st": 1.9418,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1772,7 +1894,8 @@
     "qc_f0st": 2.2,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1785,7 +1908,8 @@
     "qc_mos_min": 3.3474,
     "qc_f0st": 2.1786,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1802,7 +1926,8 @@
     "qc_f0st": 3.6,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1811,11 +1936,12 @@
     "rating": 5,
     "qc_sim2": 0.6239,
     "qc_sim_cal": 0.7894,
-    "qc_mos": 1.5666,
+    "qc_mos": 4.6894,
     "qc_mos_min": 1.5666,
     "qc_f0st": 3.5922,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1832,7 +1958,8 @@
     "qc_f0st": 2.37,
     "qc_wer": 0.0,
     "tempo": 1.0,
-    "fit": "ok"
+    "fit": "ok",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "Organising the colour palette and materials",
@@ -1841,11 +1968,12 @@
     "rating": 3,
     "qc_sim2": 0.554,
     "qc_sim_cal": 0.6779,
-    "qc_mos": 2.8623,
+    "qc_mos": 4.7462,
     "qc_mos_min": 2.8623,
     "qc_f0st": 2.6063,
     "tempo": 1.0,
-    "variant": "shipped"
+    "variant": "shipped",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -1854,11 +1982,12 @@
     "rating": 4,
     "qc_sim2": 0.7851,
     "qc_sim_cal": 0.8895,
-    "qc_mos": 1.9408,
+    "qc_mos": 4.3913,
     "qc_mos_min": 1.9408,
     "qc_f0st": 2.4608,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -1867,11 +1996,12 @@
     "rating": 3,
     "qc_sim2": 0.7726,
     "qc_sim_cal": 0.8718,
-    "qc_mos": 2.8162,
+    "qc_mos": 4.5375,
     "qc_mos_min": 2.8162,
     "qc_f0st": 2.686,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -1884,7 +2014,8 @@
     "qc_mos_min": 1.9852,
     "qc_f0st": 3.6147,
     "tempo": 1.0,
-    "variant": "qwen+fast+0.6B"
+    "variant": "qwen+fast+0.6B",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "sketch60",
@@ -1897,7 +2028,8 @@
     "qc_mos_min": 3.7816,
     "qc_f0st": 5.6272,
     "tempo": 1.0,
-    "variant": "qwen+fast+0.6B"
+    "variant": "qwen+fast+0.6B",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "sketch60",
@@ -1906,11 +2038,12 @@
     "rating": 4,
     "qc_sim2": 0.8351,
     "qc_sim_cal": 0.9604,
-    "qc_mos": 2.5241,
+    "qc_mos": 4.3875,
     "qc_mos_min": 2.5241,
     "qc_f0st": 3.123,
     "tempo": 1.0,
-    "variant": "qwen+fast+control"
+    "variant": "qwen+fast+control",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -1919,11 +2052,12 @@
     "rating": 3,
     "qc_sim2": 0.7829,
     "qc_sim_cal": 0.8864,
-    "qc_mos": 2.4664,
+    "qc_mos": 4.4406,
     "qc_mos_min": 2.4664,
     "qc_f0st": 1.9694,
     "tempo": 1.0,
-    "variant": "qwen+fast+control"
+    "variant": "qwen+fast+control",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -1932,11 +2066,12 @@
     "rating": 5,
     "qc_sim2": 0.7726,
     "qc_sim_cal": 0.8718,
-    "qc_mos": 2.8162,
+    "qc_mos": 4.5375,
     "qc_mos_min": 2.8162,
     "qc_f0st": 2.686,
     "tempo": 1.0,
-    "variant": "rank-best"
+    "variant": "rank-best",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -1945,11 +2080,12 @@
     "rating": 4,
     "qc_sim2": 0.7851,
     "qc_sim_cal": 0.8895,
-    "qc_mos": 1.9408,
+    "qc_mos": 4.3913,
     "qc_mos_min": 1.9408,
     "qc_f0st": 2.4608,
     "tempo": 1.0,
-    "variant": "rank-first"
+    "variant": "rank-first",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -1958,11 +2094,12 @@
     "rating": 1,
     "qc_sim2": 0.7827,
     "qc_sim_cal": 0.8861,
-    "qc_mos": 1.6694,
+    "qc_mos": 4.6073,
     "qc_mos_min": 1.6694,
     "qc_f0st": 2.0597,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -1971,11 +2108,12 @@
     "rating": 4,
     "qc_sim2": 0.7992,
     "qc_sim_cal": 0.9095,
-    "qc_mos": 2.4762,
+    "qc_mos": 4.656,
     "qc_mos_min": 2.4762,
     "qc_f0st": 2.7197,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -1988,7 +2126,8 @@
     "qc_mos_min": 2.9344,
     "qc_f0st": 3.2524,
     "tempo": 1.0,
-    "variant": "qwen+fast+0.6B"
+    "variant": "qwen+fast+0.6B",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "sketch60",
@@ -2001,7 +2140,8 @@
     "qc_mos_min": 1.9568,
     "qc_f0st": 2.628,
     "tempo": 1.0,
-    "variant": "qwen+fast+0.6B"
+    "variant": "qwen+fast+0.6B",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "sketch60",
@@ -2010,11 +2150,12 @@
     "rating": 4,
     "qc_sim2": 0.7806,
     "qc_sim_cal": 0.8831,
-    "qc_mos": 2.4971,
+    "qc_mos": 4.7128,
     "qc_mos_min": 2.4971,
     "qc_f0st": 2.4437,
     "tempo": 1.0,
-    "variant": "qwen+fast+control"
+    "variant": "qwen+fast+control",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -2023,11 +2164,12 @@
     "rating": 3,
     "qc_sim2": 0.7602,
     "qc_sim_cal": 0.8542,
-    "qc_mos": 2.3582,
+    "qc_mos": 4.7114,
     "qc_mos_min": 2.3582,
     "qc_f0st": 3.5823,
     "tempo": 1.0,
-    "variant": "qwen+fast+control"
+    "variant": "qwen+fast+control",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -2036,11 +2178,12 @@
     "rating": 4,
     "qc_sim2": 0.7992,
     "qc_sim_cal": 0.9095,
-    "qc_mos": 2.4762,
+    "qc_mos": 4.656,
     "qc_mos_min": 2.4762,
     "qc_f0st": 2.7197,
     "tempo": 1.0,
-    "variant": "rank-best"
+    "variant": "rank-best",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -2049,11 +2192,12 @@
     "rating": 4,
     "qc_sim2": 0.7641,
     "qc_sim_cal": 0.8597,
-    "qc_mos": 2.66,
+    "qc_mos": 4.6232,
     "qc_mos_min": 2.66,
     "qc_f0st": 2.0454,
     "tempo": 1.0,
-    "variant": "rank-first"
+    "variant": "rank-first",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -2062,11 +2206,12 @@
     "rating": 4,
     "qc_sim2": 0.8039,
     "qc_sim_cal": 0.9162,
-    "qc_mos": 2.2598,
+    "qc_mos": 4.6596,
     "qc_mos_min": 2.2598,
     "qc_f0st": 2.052,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -2075,11 +2220,12 @@
     "rating": 5,
     "qc_sim2": 0.7892,
     "qc_sim_cal": 0.8953,
-    "qc_mos": 2.5136,
+    "qc_mos": 4.6784,
     "qc_mos_min": 2.5136,
     "qc_f0st": 3.5458,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -2092,7 +2238,8 @@
     "qc_mos_min": 2.2661,
     "qc_f0st": 3.4664,
     "tempo": 1.0,
-    "variant": "qwen+fast+0.6B"
+    "variant": "qwen+fast+0.6B",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "sketch60",
@@ -2105,7 +2252,8 @@
     "qc_mos_min": 2.1599,
     "qc_f0st": 2.333,
     "tempo": 1.0,
-    "variant": "qwen+fast+0.6B"
+    "variant": "qwen+fast+0.6B",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "sketch60",
@@ -2114,11 +2262,12 @@
     "rating": 3,
     "qc_sim2": 0.7156,
     "qc_sim_cal": 0.7909,
-    "qc_mos": 1.7433,
+    "qc_mos": 4.6132,
     "qc_mos_min": 1.7433,
     "qc_f0st": 2.43,
     "tempo": 1.0,
-    "variant": "qwen+fast+control"
+    "variant": "qwen+fast+control",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -2127,11 +2276,12 @@
     "rating": 3,
     "qc_sim2": 0.8318,
     "qc_sim_cal": 0.9557,
-    "qc_mos": 2.0045,
+    "qc_mos": 4.6284,
     "qc_mos_min": 2.0045,
     "qc_f0st": 4.006,
     "tempo": 1.0,
-    "variant": "qwen+fast+control"
+    "variant": "qwen+fast+control",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -2140,11 +2290,12 @@
     "rating": 4,
     "qc_sim2": 0.7892,
     "qc_sim_cal": 0.8953,
-    "qc_mos": 2.5136,
+    "qc_mos": 4.6784,
     "qc_mos_min": 2.5136,
     "qc_f0st": 3.5458,
     "tempo": 1.0,
-    "variant": "rank-best"
+    "variant": "rank-best",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -2153,11 +2304,12 @@
     "rating": 4,
     "qc_sim2": 0.7765,
     "qc_sim_cal": 0.8773,
-    "qc_mos": 2.1997,
+    "qc_mos": 4.6722,
     "qc_mos_min": 2.1997,
     "qc_f0st": 4.272,
     "tempo": 1.0,
-    "variant": "rank-first"
+    "variant": "rank-first",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -2166,11 +2318,12 @@
     "rating": 4,
     "qc_sim2": 0.7788,
     "qc_sim_cal": 0.8806,
-    "qc_mos": 2.7547,
+    "qc_mos": 4.6445,
     "qc_mos_min": 2.7547,
     "qc_f0st": 2.6375,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -2179,11 +2332,12 @@
     "rating": 3,
     "qc_sim2": 0.8025,
     "qc_sim_cal": 0.9142,
-    "qc_mos": 2.2473,
+    "qc_mos": 4.7434,
     "qc_mos_min": 2.2473,
     "qc_f0st": 2.2035,
     "tempo": 1.0,
-    "variant": "qwen+fast"
+    "variant": "qwen+fast",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -2196,7 +2350,8 @@
     "qc_mos_min": 2.4886,
     "qc_f0st": 3.9807,
     "tempo": 1.0,
-    "variant": "qwen+fast+0.6B"
+    "variant": "qwen+fast+0.6B",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "sketch60",
@@ -2209,7 +2364,8 @@
     "qc_mos_min": 2.7507,
     "qc_f0st": 2.1445,
     "tempo": 1.0,
-    "variant": "qwen+fast+0.6B"
+    "variant": "qwen+fast+0.6B",
+    "qc_mos_kind": "window_min"
   },
   {
     "video": "sketch60",
@@ -2218,11 +2374,12 @@
     "rating": 2,
     "qc_sim2": 0.7549,
     "qc_sim_cal": 0.8467,
-    "qc_mos": 2.3685,
+    "qc_mos": 4.7028,
     "qc_mos_min": 2.3685,
     "qc_f0st": 3.8082,
     "tempo": 1.0,
-    "variant": "qwen+fast+control"
+    "variant": "qwen+fast+control",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -2231,11 +2388,12 @@
     "rating": 4,
     "qc_sim2": 0.7978,
     "qc_sim_cal": 0.9075,
-    "qc_mos": 2.2429,
+    "qc_mos": 4.6746,
     "qc_mos_min": 2.2429,
     "qc_f0st": 2.6516,
     "tempo": 1.0,
-    "variant": "qwen+fast+control"
+    "variant": "qwen+fast+control",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -2244,11 +2402,12 @@
     "rating": 3,
     "qc_sim2": 0.7788,
     "qc_sim_cal": 0.8806,
-    "qc_mos": 2.7547,
+    "qc_mos": 4.6445,
     "qc_mos_min": 2.7547,
     "qc_f0st": 2.6375,
     "tempo": 1.0,
-    "variant": "rank-best"
+    "variant": "rank-best",
+    "qc_mos_kind": "whole_take"
   },
   {
     "video": "sketch60",
@@ -2257,10 +2416,11 @@
     "rating": 3,
     "qc_sim2": 0.8025,
     "qc_sim_cal": 0.9142,
-    "qc_mos": 2.2473,
+    "qc_mos": 4.7434,
     "qc_mos_min": 2.2473,
     "qc_f0st": 2.2035,
     "tempo": 1.0,
-    "variant": "rank-first"
+    "variant": "rank-first",
+    "qc_mos_kind": "whole_take"
   }
 ]
