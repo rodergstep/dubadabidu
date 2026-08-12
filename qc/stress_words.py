@@ -92,12 +92,28 @@ def spans(text: str) -> list[tuple[str, int]]:
     return out
 
 
+# The combining ACUTE and GRAVE are stress NOTATION (what RUAccent emits and
+# what tts.ru_stress would add). Every other combining mark in Cyrillic is part
+# of a LETTER, and stripping those was a bug: NFD decomposes `й` into и+breve
+# and `ё` into е+diaeresis, so a blanket strip turned `лиловой` into `лиловои`
+# and `тёмным` into `темным`. The second one matters most — `ё` is always
+# stressed in Russian and is therefore one of the remediation levers, so
+# collapsing it into `е` destroys exactly the distinction the table exists to
+# record. Caught on the first real ingest, 2026-08-11.
+_STRESS_MARKS = frozenset("́̀")
+
+
 def lexicon_key(word: str) -> str:
     """Normalised table key for one marked word.
 
     Case-folded (stress is a property of the lexeme, not of sentence position)
-    and stripped of combining marks, so a stress-marked form can never open a
-    second entry for a word already in the table.
+    and stripped of stress marks ONLY, so a marked form cannot open a second
+    entry for a word already in the table while `й` and `ё` stay intact.
+
+    `е` and `ё` deliberately key SEPARATELY. Russian text often writes `е`
+    where `ё` belongs, and that difference is a remediation lever rather than
+    noise: a word appearing under both keys is itself the signal that the
+    source text is missing its `ё`.
 
     NOT lemmatised, deliberately. `молоко́` and `молока́` are different forms and
     a TTS can be right about one and wrong about the other, so the table is
@@ -106,7 +122,7 @@ def lexicon_key(word: str) -> str:
     """
     w = unicodedata.normalize("NFD", (word or "").strip().casefold())
     return unicodedata.normalize(
-        "NFC", "".join(c for c in w if not unicodedata.combining(c)))
+        "NFC", "".join(c for c in w if c not in _STRESS_MARKS))
 
 
 def verify(text: str, marks: list[dict]) -> tuple[list[dict], list[dict]]:

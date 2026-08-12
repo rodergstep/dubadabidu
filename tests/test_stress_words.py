@@ -60,8 +60,27 @@ def test_span_indices_agree_with_tokenize():
 
 def test_lexicon_key_folds_case_and_strips_stress_marks():
     assert SW.lexicon_key("Молоко") == SW.lexicon_key("молоко")
-    assert SW.lexicon_key("молоко́") == SW.lexicon_key("молоко")
+    assert SW.lexicon_key("молоко́") == SW.lexicon_key("молоко")   # U+0301
     assert SW.lexicon_key("  Охра  ") == "охра"
+
+
+@pytest.mark.parametrize("word", ["лиловой", "тёмным", "мой", "ёлка", "йод"])
+def test_lexicon_key_keeps_letters_that_decompose(word):
+    """й and ё are LETTERS. NFD decomposes them to и+breve and е+diaeresis, so
+    stripping every combining mark turned `лиловой` into `лиловои` and `тёмным`
+    into `темным` — found on the first real ingest.
+
+    The ё case is the costly one: ё is always stressed in Russian and is one of
+    the remediation levers, so folding it into е destroys the distinction the
+    table exists to record."""
+    assert SW.lexicon_key(word) == word.casefold()
+
+
+def test_e_and_yo_are_different_entries():
+    """Russian text often writes е where ё belongs. Keeping them apart makes a
+    word that appears under BOTH keys a signal in itself — the source is
+    missing its ё — rather than silently merging the two."""
+    assert SW.lexicon_key("тёмным") != SW.lexicon_key("темным")
 
 
 def test_lexicon_key_does_not_lemmatise():
@@ -286,3 +305,78 @@ def test_a_stale_mark_is_dropped_not_recorded(tmp_path, monkeypatch):
     lex_p = tmp_path / "stress_lexicon_ru.json"
     assert not lex_p.exists() or "хром-кобальт" not in json.loads(
         lex_p.read_text(encoding="utf-8"))
+
+
+# ------------------------------------------------- ratings-file preservation --
+
+def test_ingest_does_not_collapse_pre_existing_duplicate_rows(tmp_path,
+                                                              monkeypatch):
+    """verdicts must not touch rows it is not re-rating.
+
+    It used to re-key the WHOLE file into {(video, id): row}, which silently
+    collapsed every pre-existing duplicate — and qc/blind.py and qc/compare.py
+    legitimately write several rows per (video, id): the same segment rated
+    under different variants and takes, each with its own qc_mos/qc_f0st.
+
+    Measured 2026-08-11 on the real file: one ingest ate 36 of 114 accumulated
+    rows. The worst failure mode this file has — refit is starved of ratings by
+    design (qc/blind.py), the loss is silent, and the printed row count still
+    went UP because the ingest added more than it destroyed.
+    """
+    from pipeline import manifest as M
+    from qc import verdicts as V
+    monkeypatch.chdir(tmp_path)
+    cfg = {"work_dir": "work"}
+    man = {"video": "lesson.mp4", "duration": 5.0, "stages": {}, "utterances": [
+        {"id": "u0001", "start": 0.0, "end": 4.0, "text_uk": "a",
+         "tr": {"ru": {"text": "Это краска", "fitted_text": "Это краска"}}}]}
+    wd = M.video_workdir(cfg, "lesson.mp4")
+    (wd / "manifest.json").write_text(json.dumps(man), encoding="utf-8")
+
+    # two DISTINCT measurements sharing a (video, id) key, as blind/compare write
+    prior = [
+        {"video": "lesson", "id": "u0001:qwen", "rating": 3, "qc_mos": 2.93,
+         "qc_f0st": 3.25, "qc_sim_cal": 0.78},
+        {"video": "lesson", "id": "u0001:qwen", "rating": 3, "qc_mos": 1.95,
+         "qc_f0st": 2.62, "qc_sim_cal": 0.78},
+        {"video": "other", "id": "u0009", "rating": 5, "qc_mos": 4.1,
+         "qc_f0st": 2.0, "qc_sim_cal": 0.9},
+    ]
+    Path("ratings_ru.json").write_text(json.dumps(prior), encoding="utf-8")
+
+    export = {"key": f"lesson_ru_{V._seg_hash(man['utterances'], 'ru')}",
+              "ratings": {"u0001": 4}, "verdicts": {}}
+    p = tmp_path / "e.json"
+    p.write_text(json.dumps(export, ensure_ascii=False), encoding="utf-8")
+    V.run(cfg, "lesson.mp4", str(p))
+
+    after = json.loads(Path("ratings_ru.json").read_text(encoding="utf-8"))
+    kept = [r for r in after if r["id"] == "u0001:qwen"]
+    assert len(kept) == 2, "pre-existing duplicate measurements were collapsed"
+    assert {r["qc_mos"] for r in kept} == {2.93, 1.95}, "a measurement changed"
+    assert any(r["video"] == "other" for r in after), "an untouched row vanished"
+    assert len(after) == 4, f"expected 3 preserved + 1 new, got {len(after)}"
+
+
+def test_ingest_replaces_the_rows_it_re_rates(tmp_path, monkeypatch):
+    """The complement: re-reviewing a segment must update it, not duplicate it."""
+    from pipeline import manifest as M
+    from qc import verdicts as V
+    monkeypatch.chdir(tmp_path)
+    cfg = {"work_dir": "work"}
+    man = {"video": "lesson.mp4", "duration": 5.0, "stages": {}, "utterances": [
+        {"id": "u0001", "start": 0.0, "end": 4.0, "text_uk": "a",
+         "tr": {"ru": {"text": "Это краска", "fitted_text": "Это краска"}}}]}
+    wd = M.video_workdir(cfg, "lesson.mp4")
+    (wd / "manifest.json").write_text(json.dumps(man), encoding="utf-8")
+    Path("ratings_ru.json").write_text(json.dumps(
+        [{"video": "lesson", "id": "u0001", "rating": 1}]), encoding="utf-8")
+
+    export = {"key": f"lesson_ru_{V._seg_hash(man['utterances'], 'ru')}",
+              "ratings": {"u0001": 5}, "verdicts": {}}
+    p = tmp_path / "e.json"
+    p.write_text(json.dumps(export, ensure_ascii=False), encoding="utf-8")
+    V.run(cfg, "lesson.mp4", str(p))
+
+    after = json.loads(Path("ratings_ru.json").read_text(encoding="utf-8"))
+    assert len(after) == 1 and after[0]["rating"] == 5

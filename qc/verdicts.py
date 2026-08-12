@@ -114,7 +114,22 @@ def run(cfg: dict, video: str, export_file: str) -> None:
     rows_path = Path(f"ratings_{lang}.json")
     rows = (json.loads(rows_path.read_text(encoding="utf-8"))
             if rows_path.exists() else [])
-    by_key = {(r["video"], r["id"]): r for r in rows}
+    # DO NOT re-key the whole file into a dict. It used to be
+    #     by_key = {(r["video"], r["id"]): r for r in rows}
+    # which silently collapsed every PRE-EXISTING (video, id) duplicate,
+    # including rows this ingest never touches. qc/blind.py and qc/compare.py
+    # legitimately write several rows per (video, id) — the same segment rated
+    # under different variants and takes — so a single `verdicts` run deleted
+    # 36 of 114 accumulated rows, each a distinct measurement with its own
+    # qc_mos/qc_f0st. Measured 2026-08-11, recovered from git.
+    #
+    # That is the worst possible failure mode for this file: refit is starved
+    # of ratings by design (qc/blind.py), the loss is silent, and the row count
+    # printed below still went UP because the ingest added more than it ate.
+    #
+    # Replace only what this export actually re-rates; leave everything else
+    # byte-identical.
+    new_rows: dict[tuple[str, str], dict] = {}
 
     n_man = 0
     marked: list[tuple[str, dict, str]] = []   # (uid, mark, spoken text)
@@ -148,16 +163,20 @@ def run(cfg: dict, video: str, export_file: str) -> None:
                "rating": rating, "verdict": verdict,
                "text": tr.get("fitted_text", tr.get("text", ""))}
         row.update({k: tr[k] for k in QC_FEATURES if k in tr})
-        by_key[(stem, uid)] = row  # replace: latest verdict wins
+        new_rows[(stem, uid)] = row  # replace: latest verdict wins
     M.save(cfg, video, man)
 
-    rows = sorted(by_key.values(), key=lambda r: (r["video"], r["id"]))
+    n_replaced = sum(1 for r in rows if (r["video"], r["id"]) in new_rows)
+    rows = [r for r in rows if (r["video"], r["id"]) not in new_rows] \
+        + list(new_rows.values())
+    rows = sorted(rows, key=lambda r: (r["video"], r["id"]))
     rows_path.write_text(json.dumps(rows, ensure_ascii=False, indent=2),
                          encoding="utf-8")
     n_rej = sum(1 for r in rows if r.get("verdict") == "reject")
     print(f"[verdicts] {stem}/{lang}: {n_man} segments written to manifest; "
           f"{rows_path} now holds {len(rows)} rows ({n_rej} rejects) "
-          f"for the weight re-fit.")
+          f"for the weight re-fit "
+          f"({len(new_rows) - n_replaced} added, {n_replaced} replaced).")
     if marked or n_stale_marks:
         lex_path, n_words, n_new = _update_lexicon(stem, lang, marked)
         print(f"[verdicts] {len(marked)} word mark(s) -> {lex_path} "
