@@ -46,8 +46,10 @@ Qwen3-TTS language at all (THIRD_PARTY.md), so uk is an engine problem before
 it is a stress problem.
 """
 from __future__ import annotations
+import json
 import re
 import unicodedata
+from pathlib import Path
 
 # Languages whose stress is lexical, mobile and unmarked in writing — i.e.
 # where a TTS must GUESS and can be wrong. A linguistic fact, not a preference,
@@ -123,6 +125,47 @@ def lexicon_key(word: str) -> str:
     w = unicodedata.normalize("NFD", (word or "").strip().casefold())
     return unicodedata.normalize(
         "NFC", "".join(c for c in w if c not in _STRESS_MARKS))
+
+
+def lexicon_path(lang: str) -> Path:
+    return Path(f"stress_lexicon_{lang}.json")
+
+
+def load_avoid_list(lang: str, min_marks: int = 1) -> list[tuple[str, int]]:
+    """[(surface form, times marked)] for `lang`, most-marked first.
+
+    The forms, not the normalised keys: s3 has to recognise the word in running
+    text, and `тёмным` is what appears there, not a fold of it. A lexeme marked
+    in several inflections (`лиловую`, `лиловой`) contributes each form — a TTS
+    can be right about one and wrong about another, so both are worth naming.
+
+    `min_marks` defaults to 1 — every word the listener marked. A single mark
+    may be the stochastic band (FINDINGS 2.1f) rather than a systematic error,
+    but the cost of over-inclusion is low BY CONSTRUCTION: the prompt asks for
+    a synonym only where a natural one exists, so a word with no good synonym
+    survives untouched. Raise this if translations start drifting; that is the
+    lever, not removing the feature.
+    """
+    if lang not in STRESS_LANGS:
+        return []
+    p = lexicon_path(lang)
+    if not p.exists():
+        return []
+    try:
+        lex = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    out: list[tuple[str, int]] = []
+    for entry in lex.values():
+        n = int(entry.get("marked", 0))
+        if n < min_marks:
+            continue
+        for form in entry.get("forms") or []:
+            out.append((form, n))
+    # most-marked first, then alphabetical: a stable order keeps the system
+    # prompt byte-identical between runs, which is what makes the provider's
+    # context cache hit (translation costs ~2% on a cached prefix).
+    return sorted(out, key=lambda fw: (-fw[1], fw[0]))
 
 
 def verify(text: str, marks: list[dict]) -> tuple[list[dict], list[dict]]:

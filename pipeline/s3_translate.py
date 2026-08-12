@@ -116,6 +116,82 @@ def _terms(client, tcfg, cfg: dict, video: str, man: dict, lang: str) -> str:
             + "\n".join(f"  {t['uk']} -> {t['tr']}" for t in terms))
 
 
+def _avoid_block(cfg: dict, lang: str, mandatory: str) -> str:
+    """Prompt section asking the model to route around words the TTS mis-stresses.
+
+    THE ONE REMEDIATION THAT NEEDS NO NEW CAPABILITY. Automated Russian stress
+    detection is closed (FINDINGS 2.1f-2.1h: four detectors, all at or under the
+    AUC that WER already gives free) and so is selection (2.1i/2.1j: consensus
+    is ANTI-correlated, because for some words qwen is reliably wrong and the
+    majority placement is the wrong one). What is left is per-word control, and
+    the cheapest form of it is not saying the word: the translation layer is
+    ours, it already takes a mandatory glossary, and most of the marked words
+    are ordinary vocabulary with ordinary synonyms.
+
+    Measured against the first real review pass (46 ru segments, 13 marks):
+    avoidance has a plausible synonym for 6-7 of the 9 marked words, where
+    respelling reaches 4 and the `ё` lever reaches 0 (no marked word is missing
+    a `ё`; the one that has it was mis-stressed anyway).
+
+    A PREFERENCE, NOT A BAN, and the wording matters. A word with no natural
+    synonym must survive untouched — otherwise this trades a stress error for a
+    paraphrase nobody asked for, in a course where `натюрморт` is the subject.
+    That trade is unmeasured: there is no evidence yet that the listener prefers
+    a correctly-stressed synonym to a mis-stressed exact word, so the prompt is
+    written to lose gracefully.
+
+    PRECEDENCE IS STATED because the two sections contradict each other by
+    construction: the glossary and the terms base both say "mandatory", and a
+    mandatory term can also be mis-stressed. Terminology wins — consistency
+    across a 20-video course outranks one word's stress — and a collision is
+    logged rather than silently resolved.
+    """
+    tcfg = cfg["translation"]
+    if not tcfg.get("avoid_mis_stressed", True):
+        return ""
+    from qc.stress_words import load_avoid_list
+    words = load_avoid_list(lang, int(tcfg.get("avoid_min_marks", 1)))
+    if not words:
+        return ""
+    log.info("%s: avoidance list active — %d word(s) from stress_lexicon_%s.json",
+             lang, len(words), lang)
+    clash = sorted({w for w, _ in words if w.lower() in mandatory.lower()})
+    if clash:
+        log.info("%s: %d avoid-list word(s) are mandatory terminology — "
+                 "terminology wins, they will not be routed around: %s",
+                 lang, len(clash), ", ".join(clash))
+    listed = ", ".join(f"{w} ({n}x)" for w, n in words)
+    # The three clauses below are not hedging — each one is a failure mode
+    # MEASURED on a live A/B against these exact segments (2026-08-11):
+    #   - it inflected instead of substituting: `натюрморте` -> `натюрморта`,
+    #     `белилам` -> `белилами`. A different case of the same word is stressed
+    #     on the same syllable, so that is not avoidance at all, it is the same
+    #     defect wearing a different ending.
+    #   - it DELETED the noun: "разместить самые светлые цвета" came back as
+    #     "разместить самые светлые". Avoiding a word by dropping it is a
+    #     content loss the adequacy judge might well pass, since nothing was
+    #     mistranslated.
+    #   - it rewrote words that were never on the list (`участков` -> `зон`),
+    #     which is churn the reviewer has to re-read for no benefit.
+    return (
+        "Words the TTS voice mis-stresses (marked by a native listener; the "
+        "count is how often).\n"
+        "PREFER a natural synonym or rephrasing where one exists. This is a "
+        "preference, not a rule:\n"
+        "  - use a DIFFERENT WORD or restructure the phrase. Putting the same "
+        "word in another case, number or tense is NOT a substitute — it is "
+        "pronounced the same way;\n"
+        "  - never drop the word without carrying its meaning, and never "
+        "change the meaning, drop an instruction or invent terminology;\n"
+        "  - if the mandatory terminology above fixes a word, KEEP IT — "
+        "terminology wins;\n"
+        "  - if no natural alternative exists, keep the word. An exact word "
+        "beats an awkward paraphrase;\n"
+        "  - change nothing else. Words not listed here must be translated "
+        "exactly as you otherwise would.\n"
+        f"  {listed}")
+
+
 def _measured_cps(cfg: dict, lang: str, min_samples: int = 10) -> float | None:
     """Median TTS speaking rate (chars/second) measured from past synths of
     this language across all work/*/manifest.json. The prompt's char bound is
@@ -295,15 +371,23 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                     f"progressively shorter than that.")
             log.info("%s: measured TTS pace %.1f chars/s -> duration budget "
                      "in prompt", lang, cps)
+        # adequacy judge sees terminology only (built here so the avoid block
+        # can check it for collisions before the prompts are assembled)
+        adeq_shared = "\n\n".join(x for x in [_glossary(lang), terms] if x)
+        # words the TTS mis-stresses — ru/uk only, and deliberately NOT part of
+        # adeq_shared: the judge grades faithfulness, and knowing which words we
+        # would rather avoid could bias it toward approving a paraphrase.
+        avoid = _avoid_block(cfg, lang, adeq_shared)
         # pace goes BEFORE the long transcript context so it isn't buried
-        shared = "\n\n".join(x for x in [_glossary(lang), terms, pace, context]
-                             if x)
+        shared = "\n\n".join(x for x in [_glossary(lang), terms, avoid, pace,
+                                         context] if x)
         sys_draft = _prompt(lang, tol, nvar) + "\n\n" + shared
         sys_reflect = _prompt(lang, tol, nvar, "translate_reflect") + "\n\n" + shared
         sys_adapt = _prompt(lang, tol, nvar, "translate_adapt") + "\n\n" + shared
-        # adequacy judge sees terminology (glossary + terms) but not the full
-        # transcript/pace context — it grades faithfulness, not length.
-        adeq_shared = "\n\n".join(x for x in [_glossary(lang), terms] if x)
+        # (adeq_shared is built above, before the avoid block, because that
+        # block needs it to detect terminology collisions. The judge still sees
+        # terminology only — not the transcript, the pace budget or the avoid
+        # list — because it grades faithfulness, not length or word choice.)
         flag = int(tcfg.get("adequacy_flag", 3))
 
         def _ask(sysmsg, payload, schema=_JSON_SCHEMA, model=None):

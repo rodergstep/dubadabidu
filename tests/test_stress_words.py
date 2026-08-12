@@ -380,3 +380,155 @@ def test_ingest_replaces_the_rows_it_re_rates(tmp_path, monkeypatch):
 
     after = json.loads(Path("ratings_ru.json").read_text(encoding="utf-8"))
     assert len(after) == 1 and after[0]["rating"] == 5
+
+
+# ------------------------------------------------- avoidance list (lever 1) --
+
+def _write_lex(tmp_path, **words):
+    """words: name -> (marked, [forms])"""
+    lex = {k: {"marked": n, "forms": f, "occurrences": []}
+           for k, (n, f) in words.items()}
+    (tmp_path / "stress_lexicon_ru.json").write_text(
+        json.dumps(lex, ensure_ascii=False), encoding="utf-8")
+
+
+def test_avoid_list_reads_forms_most_marked_first(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_lex(tmp_path, цвета=(3, ["цвета"]), хватит=(1, ["хватит"]),
+               натюрморте=(2, ["натюрморте"]))
+    assert SW.load_avoid_list("ru") == [
+        ("цвета", 3), ("натюрморте", 2), ("хватит", 1)]
+
+
+def test_avoid_list_order_is_stable(tmp_path, monkeypatch):
+    """The system prompt must be byte-identical between runs or the provider's
+    context cache misses — cached input costs ~2% of normal."""
+    monkeypatch.chdir(tmp_path)
+    _write_lex(tmp_path, б=(1, ["б"]), а=(1, ["а"]), в=(1, ["в"]))
+    assert SW.load_avoid_list("ru") == SW.load_avoid_list("ru")
+    assert [w for w, _ in SW.load_avoid_list("ru")] == ["а", "б", "в"]
+
+
+def test_avoid_list_honours_min_marks(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_lex(tmp_path, цвета=(3, ["цвета"]), хватит=(1, ["хватит"]))
+    assert [w for w, _ in SW.load_avoid_list("ru", 2)] == ["цвета"]
+
+
+def test_every_inflected_form_is_listed(tmp_path, monkeypatch):
+    """`лиловую` and `лиловой` are one lexeme in two cases, and a TTS can be
+    right about one and wrong about the other — s3 has to recognise both."""
+    monkeypatch.chdir(tmp_path)
+    _write_lex(tmp_path, лиловыи=(2, ["лиловой", "лиловую"]))
+    assert {w for w, _ in SW.load_avoid_list("ru")} == {"лиловой", "лиловую"}
+
+
+@pytest.mark.parametrize("lang", ["en", "fr", "de", "es"])
+def test_no_avoid_list_for_languages_without_the_defect(tmp_path, monkeypatch,
+                                                        lang):
+    monkeypatch.chdir(tmp_path)
+    _write_lex(tmp_path, цвета=(3, ["цвета"]))
+    assert SW.load_avoid_list(lang) == []
+
+
+def test_missing_or_broken_lexicon_is_not_fatal(tmp_path, monkeypatch):
+    """s3 is the expensive stage; a malformed table must not abort a run."""
+    monkeypatch.chdir(tmp_path)
+    assert SW.load_avoid_list("ru") == []
+    (tmp_path / "stress_lexicon_ru.json").write_text("{not json", encoding="utf-8")
+    assert SW.load_avoid_list("ru") == []
+
+
+# --- the prompt block ---------------------------------------------------------
+
+def _cfg(**over):
+    base = {"translation": {"avoid_mis_stressed": True, "avoid_min_marks": 1}}
+    base["translation"].update(over)
+    return base
+
+
+def test_avoid_block_lists_the_words_with_counts(tmp_path, monkeypatch):
+    from pipeline.s3_translate import _avoid_block
+    monkeypatch.chdir(tmp_path)
+    _write_lex(tmp_path, цвета=(3, ["цвета"]), хватит=(1, ["хватит"]))
+    out = _avoid_block(_cfg(), "ru", "")
+    assert "цвета (3x)" in out and "хватит (1x)" in out
+
+
+def test_avoid_block_is_a_preference_not_a_ban(tmp_path, monkeypatch):
+    """A word with no natural synonym must survive. Otherwise this trades a
+    stress error for a paraphrase nobody asked for, in a course where
+    `натюрморт` is the subject matter."""
+    from pipeline.s3_translate import _avoid_block
+    monkeypatch.chdir(tmp_path)
+    _write_lex(tmp_path, цвета=(3, ["цвета"]))
+    out = _avoid_block(_cfg(), "ru", "").lower()
+    assert "prefer" in out
+    assert "not a rule" in out or "preference" in out
+    assert "keep the word" in out
+    assert "never change the meaning" in out
+
+
+def test_avoid_block_states_that_terminology_wins(tmp_path, monkeypatch):
+    """The glossary and the terms base both say "mandatory", and a mandatory
+    term can also be mis-stressed — the two sections contradict each other by
+    construction unless precedence is stated."""
+    from pipeline.s3_translate import _avoid_block
+    monkeypatch.chdir(tmp_path)
+    _write_lex(tmp_path, охра=(2, ["охра"]))
+    out = _avoid_block(_cfg(), "ru", "Mandatory terminology:\n  вохра -> охра")
+    assert "terminology wins" in out.lower()
+
+
+def test_avoid_block_is_empty_when_disabled_or_inapplicable(tmp_path,
+                                                            monkeypatch):
+    from pipeline.s3_translate import _avoid_block
+    monkeypatch.chdir(tmp_path)
+    _write_lex(tmp_path, цвета=(3, ["цвета"]))
+    assert _avoid_block(_cfg(avoid_mis_stressed=False), "ru", "") == ""
+    assert _avoid_block(_cfg(), "en", "") == ""
+    (tmp_path / "stress_lexicon_ru.json").unlink()
+    assert _avoid_block(_cfg(), "ru", "") == ""
+
+
+def test_the_adequacy_judge_does_not_see_the_avoid_list():
+    """The judge grades FAITHFULNESS. Telling it which words we would rather
+    avoid could bias it toward approving a paraphrase — which is exactly the
+    failure this feature could cause and the judge is meant to catch."""
+    src = (ROOT / "pipeline" / "s3_translate.py").read_text(encoding="utf-8")
+    shared = src[src.index("shared = \"\\n\\n\".join"):]
+    shared = shared[:shared.index("sys_draft")]
+    assert "avoid" in shared, "the avoid block never reaches the translation prompts"
+    adeq = src[src.index("adeq_shared = "):]
+    adeq = adeq[:adeq.index("\n", adeq.index("if x)"))]
+    assert "avoid" not in adeq, "the adequacy judge can see the avoid list"
+
+
+def test_avoid_block_forbids_the_failure_modes_measured_on_a_live_ab():
+    """Three clauses earned by an A/B against the real endpoint, 2026-08-11.
+
+    Without them the model:
+      - INFLECTED instead of substituting (`натюрморте` -> `натюрморта`,
+        `белилам` -> `белилами`). Another case of the same word carries the
+        same stress, so that is the defect wearing a different ending;
+      - DELETED the noun ("разместить самые светлые цвета" -> "разместить
+        самые светлые"), a content loss the adequacy judge could well pass
+        since nothing was mistranslated;
+      - rewrote words never on the list (`участков` -> `зон`), churn the
+        reviewer has to re-read for nothing.
+    """
+    from pipeline.s3_translate import _avoid_block
+    import tempfile, os
+    d = tempfile.mkdtemp()
+    cwd = os.getcwd()
+    try:
+        os.chdir(d)
+        Path("stress_lexicon_ru.json").write_text(json.dumps(
+            {"цвета": {"marked": 3, "forms": ["цвета"], "occurrences": []}}),
+            encoding="utf-8")
+        out = _avoid_block(_cfg(), "ru", "").lower()
+    finally:
+        os.chdir(cwd)
+    assert "not a substitute" in out, "inflection is still allowed as avoidance"
+    assert "never drop the word" in out, "deletion is still allowed"
+    assert "change nothing else" in out, "collateral rewrites still allowed"
