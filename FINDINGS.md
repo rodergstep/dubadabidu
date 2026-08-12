@@ -41,14 +41,24 @@ below was tried and failed, each for a different reason:
 | Detector: wav2vec2 phonemes | model does not transcribe vowel reduction | 2.1g |
 | Detector: MFA variant alignment | AUC 0.641, and the RUAccent oracle itself errs | 2.1h |
 | Selection: 5-take consensus | ANTI-correlated — prefers the systematic error | 2.1i, 2.1j |
+| Lexical avoidance from a human-marked table | **PARTIAL WIN** — 2-3 of 9 marked words | 2.1k |
 
 **The reason it is closed, and it is structural (§2.1j):** the errors are partly
 SYSTEMATIC. For some words qwen is reliably wrong, so the majority placement is
 wrong and no selection rule can reach them. `best_of`, vetoes and consensus can
 only touch the smaller stochastic band.
-**What would reopen it:** per-word pronunciation control in Qwen3-TTS (open
-upstream request, no roadmap), or a cloning TTS with a stress-aware frontend.
-Neither is a thing we can build.
+**PARTIALLY REOPENED 2026-08-11 (§2.1k), and only partially.** Systematic also
+means ENUMERABLE, so per-word control can be built OUTSIDE the engine: the
+listener marks the word on the review page, it accumulates in
+`stress_lexicon_ru.json`, and s3 is asked to prefer a synonym. Measured on the
+first real pass it reaches **2-3 of 9** marked words — real, free, and not a
+route to a clean ru track. **ru still ships with the defect.**
+**What would reopen it fully:** per-word pronunciation control in Qwen3-TTS
+(open upstream request, no roadmap), or a cloning TTS with a stress-aware
+frontend. Neither is a thing we can build — but note §2.1k: "we cannot build
+per-word control" was too strong, because the INPUT is ours to change.
+**Untested and next in line:** reduction respelling in ordinary Cyrillic, which
+would reach 4 of 9 (§2.1k.6). Not the refuted U+0301 route (§2.1b/2.1bb).
 
 ### Also closed
 | question | verdict | § |
@@ -588,6 +598,74 @@ or accepting that ru ships weaker than the other four languages.
 systematically-wrong word usually produces two wrong takes and gets marked as one
 bad take against one unrated — it never looks like "both bad". Five takes made it
 visible. A premise measured at the smallest possible K carried four experiments.
+
+### 2.1k Per-word avoidance from a human-marked table — WORKS, and is small
+
+**CLAIM** §2.1j treats "partly SYSTEMATIC" as terminal. It is the opposite:
+systematic means deterministic, and deterministic means ENUMERABLE. Every
+attempt above tried to solve stress IN GENERAL — a detector that works on any
+word, conditioning that works on any word. A painting course has a bounded
+lexicon, so the words qwen reliably mis-stresses are a finite set, and a word
+that is reliably wrong needs fixing ONCE rather than detecting every take. The
+listener is the only labeller that ever worked; the review page rated SEGMENTS
+and discarded WHICH WORD every time it was used.
+
+**EVIDENCE** First real word-marking pass, 2026-08-11, no pod.
+1. **The label is cheap and the rate matches.** 46 ru segments, 13 marks over
+   10 segments (22%) — consistent with the 29%-of-takes rate in §2.1j. 9
+   distinct words: `цвета` 3x, `выдавливаю` 2x, `натюрморте` 2x, then
+   `белилам`, `лиловой`, `лиловую`, `стронциановая`, `тёмным`, `хватит`.
+   Marginal cost is one click on audio already playing.
+2. **Two of the three BOTH-BAD segments from §2.1j are in it** — u0015
+   (`натюрморте`) and u0030 (`цвета`, `белилам`). The systematic population is
+   now named rather than inferred.
+3. **Avoidance works, and covers less than estimated.** Live A/B on the real
+   endpoint, four segments, same prompt with and without the block. I predicted
+   synonyms for 6-7 of 9; measured **2-3**. `цвета` -> `тона`/`оттенки` (3/3
+   occurrences) and `выдавливаю` -> `выжимаю` are reliable. `натюрморте`,
+   `лиловую`, `белилам`, `стронциановая` are KEPT, correctly, under the "no
+   natural alternative" clause — a still-life course cannot route around
+   `натюрморт` and `белила` is a specific pigment.
+4. **Three failure modes on the first pass, all now forbidden in the prompt.**
+   It INFLECTED instead of substituting (`натюрморте` -> `натюрморта`,
+   `белилам` -> `белилами`) — another case of the same word carries the same
+   stress, so that is the defect wearing a different ending. It DELETED the
+   noun ("разместить самые светлые цвета" -> "разместить самые светлые"), a
+   content loss the adequacy judge could pass because nothing was
+   mistranslated. It rewrote words never on the list (`участков` -> `зон`).
+5. **The `ё` lever has ZERO applicable cases.** Only `тёмным` contains `ё`, it
+   already has it, and it was marked anyway — so `ё` is not a reliable cue AND
+   no marked word is missing one. (`Жёлтые` and `тёмных` in the same sentence
+   went unmarked, so it is honoured sometimes.)
+6. **Reduction respelling would reach 4 of 9** — only words with an unstressed
+   о/е to reduce: `цвета`, `натюрморте`, `белилам`, `стронциановая`.
+   `выдавливаю`, `лиловую`, `лиловой`, `тёмным`, `хватит` have nothing to
+   respell. UNTESTED; needs the same gate the four detectors got.
+
+**VERDICT** **CONFIRMED, and smaller than claimed.** Avoidance is real, free
+and needs no capability from anyone — but it is a partial fix reaching roughly
+a quarter of marked words, not the route to a clean ru track. §2.1j's "no fix
+exists without changing the engine or the input" is now wrong in its second
+half: the INPUT is ours to change, and changing it helps a little.
+
+**STILL OPEN, and it gates everything downstream:** nobody has checked by ear
+whether the listener prefers a correctly-stressed synonym to a mis-stressed
+exact word. Avoidance trades a known defect for an unrequested word choice, and
+that trade is assumed, not measured. Judge it on the first video that ships
+with the block active.
+
+**WHAT IT DOES NOT REACH** the four words with no natural alternative. Those
+need respelling (4 of 9, untested) or per-word engine control (§2.1c, absent).
+
+**PROCESS NOTE** the coverage estimate was wrong by 2-3x and only an A/B caught
+it — the same shape as the four detectors, where the gate ran before anything
+was wired in. The estimate cost nothing because it was measured before the
+feature was trusted, not after it shipped.
+
+**ENCODED** `qc/stress_words.py` (tokenizer, lexicon key, avoid-list loader),
+word marking on the review page for `STRESS_LANGS`, ingest into
+`stress_lexicon_<lang>.json` via `dubadabidu verdicts`, and
+`translation.avoid_mis_stressed` / `avoid_min_marks` in `config.yaml`.
 
 ### 2.1c No zero-shot cloning TTS handles Russian stress (survey, 2026-08-09)
 
