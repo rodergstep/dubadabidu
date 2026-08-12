@@ -31,8 +31,27 @@ QC_FEATURES = ("qc_score", "qc_sim2", "qc_sim_cal", "qc_mos", "qc_mos_min",
 
 
 def _seg_hash(utterances: list[dict], lang: str) -> str:
-    """Must mirror review_page.py: hash over worst-first-sorted ids+starts."""
-    us = sorted(utterances, key=lambda u: u["tr"][lang].get("qc_score", 1.0))
+    """Must mirror review_page.py: hash over ID-sorted ids+starts.
+
+    SORTED BY ID, NOT BY SCORE, and the difference is the whole point. Both
+    sides used to hash the worst-first DISPLAY order, so the key changed
+    whenever any qc_score moved — re-running `evaluate`, re-rolling one
+    segment, or editing qc.eval.weights. The ingest then rejected a perfectly
+    good export with "the video was re-segmented", which is not what happened
+    and sends the reviewer looking in the wrong place. Worse, the review page
+    and the stale-metrics error both TELL the user to run `dubadabidu qc` and
+    re-review — the exact action that invalidated their ratings.
+
+    Sorting by id makes this what it claims to be: a hash of the utterance
+    BOUNDARIES. The genuinely dangerous case — ratings taken against audio that
+    has since changed — is caught separately and precisely by M.stale_qc below,
+    which compares a content hash of the graded wav.
+
+    `lang` is unused now; kept in the signature because review_page calls the
+    same shape and one of the two silently not taking it is how these two
+    drifted apart the first time.
+    """
+    us = sorted(utterances, key=lambda u: u["id"])
     return hashlib.sha1(
         ",".join(u["id"] + str(u["start"]) for u in us).encode()).hexdigest()[:6]
 

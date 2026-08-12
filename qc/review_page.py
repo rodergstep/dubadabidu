@@ -135,9 +135,15 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         cal_line = (f'floor {cal["floor"]} / ceiling {cal["ceiling"]} (ref {cal["ref"]})'
                     if cal else "run `dubadabidu evaluate` for metrics")
         # ratings key includes a segmentation hash: re-segmenting the video must
-        # not resurrect ratings that belonged to different utterance boundaries
+        # not resurrect ratings that belonged to different utterance boundaries.
+        # Hashed over ID-SORTED utterances, NOT the worst-first display order of
+        # `us` — otherwise re-scoring reshuffles the order, the key changes, and
+        # a valid export is rejected as a "re-segmentation". Must stay identical
+        # to qc.verdicts._seg_hash; tests/test_seg_hash.py pins the pair.
         seg_hash = hashlib.sha1(
-            ",".join(u["id"] + str(u["start"]) for u in us).encode()).hexdigest()[:6]
+            ",".join(u["id"] + str(u["start"])
+                     for u in sorted(us, key=lambda u: u["id"])).encode()
+        ).hexdigest()[:6]
         page = (f"<!doctype html><meta charset='utf-8'>"
                 f"<title>review {Path(video).stem} {lang}</title>"
                 f"<style>{CSS}</style><body data-key="
