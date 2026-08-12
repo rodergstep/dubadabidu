@@ -162,17 +162,76 @@ def preamble(cfg: dict, video: str, langs: list[str]) -> None:
                                      "subset_size": 5, "rounds": ["R1"]}})
     win = tune_mod.run(tcfg, video, [lang])
     man = M.load(cfg, video)
-    over = {"reference_wav": win["reference_wav"]}
-    refs = json.loads((wd / "refs.json").read_text(encoding="utf-8"))
-    rt = refs.get(Path(win["reference_wav"]).name, {}).get("text_uk", "")
-    if rt:  # ref transcript (prep fills refs.json; UA-ref paths skip it)
-        over["reference_text"] = rt
-    man["tts_overrides"] = over
+    ref = _pick_reference(cfg, win)
+    if ref is None:
+        man.pop("tts_overrides", None)
+    else:
+        over = {"reference_wav": ref}
+        refs = json.loads((wd / "refs.json").read_text(encoding="utf-8"))
+        rt = refs.get(Path(ref).name, {}).get("text_uk", "")
+        if rt:  # ref transcript (prep fills refs.json; UA-ref paths skip it)
+            over["reference_text"] = rt
+        man["tts_overrides"] = over
     M.save(cfg, video, man)
-    print(f"\n[preamble] done — this video's ref: {win['reference_wav']} "
-          f"(stored in manifest tts_overrides)."
-          f"\nNext: skim {wd}/terms_{lang}.json, then:"
+    used = ref or cfg["tts"]["reference_wav"]
+    print(f"\n[preamble] done — reference for this video: {used}"
+          + ("  (per-video override)" if ref else "  (curated default)")
+          + f"\nNext: skim {wd}/terms_{lang}.json, then:"
           f"\n  dubadabidu run {video} --from s3_translate")
+
+
+def _pick_reference(cfg: dict, win: dict) -> str | None:
+    """R1's winner, or None to keep the curated `tts.reference_wav`.
+
+    FINDINGS 2.2 refuted the per-video reference and recorded the verdict as
+    "ENCODED — the reference is now a config default, not a per-video
+    override". Only the ROOT CAUSE was actually fixed (refs_glob was widened so
+    R1 can see the curated pool at all). `preamble` still wrote
+    man["tts_overrides"] unconditionally, and s4, s5, evaluate and bakeoff all
+    merge it — so the refuted mechanism stayed live and regenerated itself on
+    every new video, including on a pod (REMOTE_TASK["preamble"]).
+
+    Two gates now stand between R1 and the manifest:
+
+      1. tune.per_video_ref_override (default FALSE) — the code finally says
+         what FINDINGS says. The machinery is intact behind the flag rather
+         than deleted, because the ROOT CAUSE fix means a future sweep is at
+         least measuring the right pool.
+      2. tune.override_margin — even when enabled, the winner must beat the
+         CURATED DEFAULT by a real margin, and the default must have been IN
+         the sweep. A sweep that cannot see the incumbent cannot rank against
+         it; that is exactly how this lesson's ref_04 (rated 12-of-18 unusable)
+         won in the first place.
+
+    Both gates are about trust, not arithmetic: R1's objective is labelled
+    UNVALIDATED in tune.DEFAULTS because the ear has contradicted it every time
+    it has been checked.
+    """
+    tn = cfg.get("tune", {})
+    ref, default = win["reference_wav"], cfg["tts"]["reference_wav"]
+    if not tn.get("per_video_ref_override", False):
+        logging.info(
+            "per-video reference override is OFF (tune.per_video_ref_override) "
+            "— keeping the curated %s. R1's pick was %s; see its report for the "
+            "ranking.", default, ref)
+        return None
+    scores = win.get("r1_scores") or {}
+    if default not in scores:
+        logging.warning(
+            "REFUSING the per-video reference: the curated default %s was not "
+            "in this sweep, so there is nothing to beat. Widen tune.refs_glob "
+            "to include it.", default)
+        return None
+    margin = float(tn.get("override_margin", 0.05))
+    gain = scores[ref] - scores[default]
+    if gain < margin:
+        logging.info("keeping the curated %s — R1 gave %s only %+.3f "
+                     "(needs >= %.3f)", default, ref, gain, margin)
+        return None
+    logging.warning("per-video reference override: %s beats the curated %s by "
+                    "%+.3f on an UNVALIDATED objective — confirm by ear before "
+                    "trusting the batch", ref, default, gain)
+    return ref
 
 
 def report(cfg: dict, video: str) -> None:
@@ -339,7 +398,8 @@ def main() -> None:
         cfg = deep_merge(cfg, yaml.safe_load(open(overlay_path, encoding="utf-8")))
     if a.engine:
         cfg["tts"]["engine"] = a.engine
-    langs = a.langs.split(",") if a.langs else cfg["languages"]
+    langs = ([x.strip() for x in a.langs.split(",") if x.strip()]
+             if a.langs else cfg["languages"])
 
     # where ECAPA / Distill-MOS run. Default 'cpu' keeps every stored score
     # comparable with the ones already in the manifests; 'cuda'/'auto' is the

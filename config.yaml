@@ -319,3 +319,26 @@ tune:                               # `dubadabidu tune` search space
   cfg_weights: [0.0, 0.2, 0.3]
   exaggerations: [0.4, 0.55, 0.7]
   best_of: 3
+  # R1's OWN objective — deliberately NOT qc.eval.weights. That block ranks
+  # TAKES of one segment and carries sim: 0.0 because similarity does not
+  # predict this listener's per-take judgement. R1 picks the CLONE SOURCE,
+  # where similarity is the entire question, and it read the same block until
+  # 2026-08-11: with the shipped weights a reference at sim_cal 0.10 beat one
+  # at 0.80 (0.715 vs 0.662) on six tenths of a semitone of f0.
+  #
+  # UNVALIDATED against the ear, and that is not a placeholder. The one blind
+  # test picked the LOWEST-sim reference and the 42-judgement comparison came
+  # back 21-21 (FINDINGS 2.2). R1 makes a shortlist; the ear decides.
+  r1_weights: {sim: 0.6, mos: 0.4, f0: 0.0}
+  # Rolls averaged per reference per segment. One roll ranks the dice: measured
+  # take-to-take spread is mos +/-0.24-0.49 and f0st +/-0.438 (qc/listen.py).
+  # Cost is refs x subset_size x this.
+  r1_takes: 3
+  # Per-video reference override (manifest tts_overrides). OFF, matching the
+  # FINDINGS 2.2 verdict "the reference is now a config default, not a
+  # per-video override" — which was recorded but never actually enforced:
+  # preamble kept writing the override and s4/s5/evaluate/bakeoff kept merging
+  # it. Turning this on re-enables it, gated on override_margin AND on the
+  # curated tts.reference_wav being present in the sweep to beat.
+  per_video_ref_override: false
+  override_margin: 0.05
