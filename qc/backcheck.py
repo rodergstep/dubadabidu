@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pipeline import manifest as M  # noqa: E402
 from pipeline.device import whisper_device  # noqa: E402
+from pipeline.text_norm import localize_numbers  # noqa: E402
 
 log = logging.getLogger("dubadabidu.qc.backcheck")
 _model = None
@@ -63,8 +64,44 @@ def _expand_numbers(s: str, lang: str) -> str:
         return re.sub(r"\d+", " ", s)
 
 
+# A hyphen JOINS words here, it does not separate them. num2words emits
+# "twenty-five" / "fifty-six", and the old `[^\w\s]` strip glued those into
+# "twentyfive" — so a Whisper hypothesis writing "twenty five" scored a
+# substitution against a perfectly correct take, for EVERY English number above
+# twenty. Ranges ("3-5 layers" -> "three-five") had the same problem.
+_HYPHEN = re.compile(r"[-‐-―−]")
+# Whisper is inconsistent about the case of unit letters ("20°C" vs "20°c").
+# Fold it before symbol expansion or the two sides disagree on a real match.
+_DEG_C = re.compile(r"°\s*c\b", re.IGNORECASE)
+
+
 def _norm(s: str, lang: str) -> str:
+    """Put text into the domain the AUDIO is in, so WER compares like with like.
+
+    THE REFERENCE MUST GO THROUGH THE SAME EXPANSION THE VOICE DID. tts_engine
+    .synthesize applies pipeline.text_norm.localize_numbers before handing text
+    to the engine, so the voice says "fifty percent" while the manifest says
+    "50%" — and this function used to strip "%" as punctuation, leaving "fifty"
+    against a hypothesis of "fifty percent". WER 1.00 on a 0.15 threshold, for
+    audio that was exactly right.
+
+    That is not a display bug. The autopilot re-rolls WER-flagged segments, and
+    the re-roll runs a per-take back-transcription veto (tts_engine._measure),
+    so a false flag costs a Whisper pass per take on a good segment until
+    `_stuck_after` gives up and ESCALATEs.
+
+    Fixed HERE rather than in backcheck.run because segment_wer has four
+    callers — run(), the per-take veto, qc/bakeoff.py and qc/stress_wer.py —
+    and a fix at one call site is a fix the next caller forgets. _norm is the
+    single point both sides of every comparison pass through.
+    """
+    s = _DEG_C.sub("°C", s)
+    # same function the engine saw: digits, %, ° -> target-language words
+    s = localize_numbers(s, lang)
+    # mop up anything localize_numbers left: languages outside NUM_VERSIONS, and
+    # tokens it deliberately refused as ambiguous (both sides refuse alike)
     s = _expand_numbers(s.lower(), lang)
+    s = _HYPHEN.sub(" ", s)
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", "", s)).strip()
 
 
