@@ -180,3 +180,54 @@ def test_missing_ratings_file_is_not_an_error(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     rows, per_lang = R._load(["en", "fr"])
     assert rows == [] and per_lang == {"en": 0, "fr": 0}
+
+
+# --- data-integrity gates ------------------------------------------------------
+
+def test_mixed_qc_mos_provenance_is_detected():
+    """qc/blind.py wrote mos_min_window into BOTH qc_mos and qc_mos_min until
+    2026-08-11, while qc/evaluate writes whole-take MOS into the first. A
+    pooled file then holds two different measurements under one column, and
+    refit fits on that column. Measured on the real ru file: those rows
+    averaged 2.69 against 4.51 for the rest, a 1.82 gap on a pooled sd of 0.91
+    — so a correlation across both was substantially measuring WHICH PAGE
+    produced the row.
+
+    The permutation test cannot price this in: it shuffles RATINGS, not
+    features, so a corrupted feature column survives it untouched."""
+    from qc.refit import mos_provenance_warning
+    collapsed = [{"rating": 3, "qc_mos": 2.5, "qc_mos_min": 2.5} for _ in range(40)]
+    proper = [{"rating": 3, "qc_mos": 4.5, "qc_mos_min": 2.8} for _ in range(40)]
+    assert mos_provenance_warning(collapsed + proper) is not None
+
+
+def test_a_self_consistent_file_is_not_flagged():
+    """All-or-nothing is at least one metric. Only a MIX is unfittable."""
+    from qc.refit import mos_provenance_warning
+    all_old = [{"rating": 3, "qc_mos": 2.5, "qc_mos_min": 2.5} for _ in range(40)]
+    all_new = [{"rating": 3, "qc_mos": 4.5, "qc_mos_min": 2.8} for _ in range(40)]
+    assert mos_provenance_warning(all_old) is None
+    assert mos_provenance_warning(all_new) is None
+
+
+def test_a_constant_term_is_reported_as_unidentifiable():
+    """Every row on the real file has tempo 1.0, so tempo_penalty is 0
+    everywhere and the grid returned {f0: 0.05, tempo: 0.95}. That is not
+    "tempo matters most" — it is 0.95 parked where it cannot change any
+    ranking, so f0 could have the rest. Spearman is scale-invariant, so it ties
+    with {f0: 1.0}.
+
+    Adopting it would write a real 0.95 stretch penalty into config, and
+    `tempo` is ALSO the pace-match reward in tts_engine._take_rank, so take
+    selection would move on no evidence."""
+    from qc.refit import constant_terms
+    rows = [{"qc_sim_cal": 0.5 + i * 0.01, "qc_mos": 4.0 + i * 0.01,
+             "qc_f0st": 2.0 + i * 0.01, "tempo": 1.0} for i in range(10)]
+    assert constant_terms(rows, 1.12) == ["tempo"]
+
+
+def test_a_varying_term_is_identifiable():
+    from qc.refit import constant_terms
+    rows = [{"qc_sim_cal": 0.5, "qc_mos": 4.0, "qc_f0st": 2.0,
+             "tempo": 1.0 + i * 0.01} for i in range(10)]
+    assert "tempo" not in constant_terms(rows, 1.12)

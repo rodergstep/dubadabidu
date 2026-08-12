@@ -206,7 +206,23 @@ def ingest(wd: Path, lang: str, export: Path, cfg: dict) -> Path:
             "rating": int(stars),
             "qc_sim2": round(raw, 4),
             "qc_sim_cal": round(X.calibrate_sim(raw, floor, ceiling), 4),
-            "qc_mos": round(X.mos_min_window(str(w)), 4),
+            # TWO DIFFERENT METRICS, and they were the same call until
+            # 2026-08-11. qc.evaluate writes whole-take MOS into `qc_mos` and
+            # the worst-3s window into `qc_mos_min`; this wrote the WINDOW into
+            # both, so every row from this page carried a `qc_mos` that meant
+            # something else than the same key on every review-page row.
+            #
+            # refit fits on `qc_mos`. Pooled over the real file that feature
+            # came out bimodal BY PROVENANCE — review-page mean 4.33 against
+            # variant-page 2.59, a 1.74 gap on a pooled sd of 0.91 — so a
+            # correlation computed across both was substantially measuring
+            # WHICH PAGE produced the row. It also silently destroyed the
+            # comparison verdicts.py says the flywheel exists to make:
+            # "the synth gate uses windowed MOS while the composite uses
+            # whole-take MOS, and the re-fit is where that disagreement gets
+            # reconciled with data". It cannot be reconciled if both columns
+            # hold the same number.
+            "qc_mos": round(X.mos(str(w)), 4),
             "qc_mos_min": round(X.mos_min_window(str(w)), 4),
             "qc_f0st": round(X.f0_semitone_std(str(w)), 4),
             "tempo": 1.0,     # bake-off takes are unstretched by construction

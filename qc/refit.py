@@ -102,6 +102,73 @@ def simplex(step: float = 0.05, keys: tuple = KEYS) -> list[dict]:
 
 # ---------- fitting ----------
 
+def mos_provenance_warning(rows: list[dict]) -> str | None:
+    """Detect rows whose `qc_mos` is not the same METRIC as everyone else's.
+
+    qc/blind.py wrote `mos_min_window` into BOTH `qc_mos` and `qc_mos_min`
+    until 2026-08-11, while qc/evaluate writes whole-take MOS into the first
+    and the worst-3s window into the second. So a pooled file can hold two
+    different measurements under one column name, and refit fits on that
+    column. Measured on ratings_ru.json: review-page rows averaged 4.33 and
+    variant-page rows 2.59 — a 1.74 gap on a pooled sd of 0.91, entirely an
+    artefact of which page produced the row.
+
+    A fit across that is partly fitting PROVENANCE, which is the kind of
+    confound the permutation test cannot price in because it shuffles ratings,
+    not features. Cheap, structural tell: a row where qc_mos == qc_mos_min
+    exactly is almost certainly one of the collapsed ones (a genuine tie needs
+    the worst window to equal the whole-take mean).
+    """
+    both = [r for r in rows if "qc_mos" in r and "qc_mos_min" in r]
+    if len(both) < 10:
+        return None
+    collapsed = [r for r in both if abs(r["qc_mos"] - r["qc_mos_min"]) < 1e-9]
+    frac = len(collapsed) / len(both)
+    if not 0.05 < frac < 0.95:      # all-or-nothing is at least self-consistent
+        return None
+    import statistics as st
+    a = [r["qc_mos"] for r in collapsed]
+    b = [r["qc_mos"] for r in both if r not in collapsed]
+    gap = abs(st.mean(a) - st.mean(b))
+    sd = st.pstdev([r["qc_mos"] for r in both]) or 1e-9
+    return (
+        f"MIXED qc_mos PROVENANCE: {len(collapsed)}/{len(both)} rows have "
+        f"qc_mos == qc_mos_min exactly, which is how qc/blind.py wrote rows "
+        f"before 2026-08-11 (the windowed minimum in both columns). Their "
+        f"qc_mos averages {st.mean(a):.2f} against {st.mean(b):.2f} for the "
+        f"rest — a {gap:.2f} gap on a pooled sd of {sd:.2f}. Fitting across "
+        f"them fits WHICH PAGE produced the row. Re-ingest those rows with a "
+        f"current qc/blind.py, or fit the two groups separately.")
+
+
+def constant_terms(rows: list[dict], max_tempo: float) -> list[str]:
+    """Weight keys whose TERM has no variance across `rows`.
+
+    A weight on such a term is UNIDENTIFIABLE: it cannot change any row's
+    ranking, so Spearman is flat along that axis and the search returns an
+    arbitrary point on a tie. It is not harmless. On the real ru file every row
+    has tempo 1.0, so tempo_penalty is 0 everywhere and the grid happily
+    returned `{sim: 0, mos: 0, f0: 0.05, tempo: 0.95}` — which is not "tempo
+    matters most", it is "0.95 of the budget parked where it does nothing so f0
+    can have the rest". Spearman is scale-invariant, so that ties with
+    `{f0: 1.0}` and the tie-break picked whichever looked least committed.
+
+    Pasting that into config would set a REAL 0.95 stretch penalty for the
+    first segment that ever gets time-stretched — and, because `tempo` is also
+    read as the pace-match reward in tts_engine._take_rank, would silently
+    re-weight take selection too.
+    """
+    if len(rows) < 3:
+        return []
+    terms = {
+        "sim": [r["qc_sim_cal"] for r in rows],
+        "mos": [(r["qc_mos"] - 1.0) / 4.0 for r in rows],
+        "f0": [min(1.0, r["qc_f0st"] / 4.0) for r in rows],
+        "tempo": [X.tempo_penalty(r.get("tempo", 1.0), max_tempo) for r in rows],
+    }
+    return [k for k, v in terms.items() if max(v) - min(v) < 1e-9]
+
+
 def usable(rows: list[dict]) -> list[dict]:
     """Rows that can train: a human rating plus every feature the composite
     needs. Sorted deterministically so folds (and reruns) are reproducible."""
@@ -266,6 +333,10 @@ def run(cfg: dict, langs: list[str]) -> int:
         elif vals:
             print(f"    {f:12} {'—':>6}  ({len(rows) - len(vals)} rows lack it)")
 
+    warn = mos_provenance_warning(rows)
+    if warn:
+        print(f"\n  !! {warn}")
+
     cur_rho = rho_of(rows, cur, max_tempo)
     print(f"\n  current weights {cur} -> Spearman {cur_rho:+.3f}")
 
@@ -277,10 +348,23 @@ def run(cfg: dict, langs: list[str]) -> int:
               f"still informative — keep rating segments and re-run.")
         return 1
 
+    flat = constant_terms(rows, max_tempo)
+    if flat:
+        print(f"\n  !! UNIDENTIFIABLE TERMS: {', '.join(flat)} — every row has "
+              f"the same value, so the objective is FLAT along "
+              f"{'those axes' if len(flat) > 1 else 'that axis'} and any weight "
+              f"there is an arbitrary point on a tie. Weight parked on a "
+              f"constant term is not evidence it matters; it is budget removed "
+              f"from the terms that do.")
+
     best, best_rho = fit(rows, max_tempo, step)
     cv_new = cv_rho(rows, max_tempo, k, step)
     cv_cur = cv_rho(rows, max_tempo, k, step, fixed=cur)
-    print(f"  best-fit weights {best} -> Spearman {best_rho:+.3f} (in-sample)")
+    parked = sum(best.get(kk, 0.0) for kk in flat)
+    note = (f"   <- {parked:.2f} of this sits on {'/'.join(flat)}, which cannot "
+            f"be fitted from this data" if parked > 0.05 else "")
+    print(f"  best-fit weights {best} -> Spearman {best_rho:+.3f} (in-sample)"
+          + note)
     print(f"\n  {k}-fold cross-validated:")
     print(f"    current  {cv_cur:+.3f}")
     print(f"    proposed {cv_new:+.3f}   (delta {cv_new - cv_cur:+.3f})")
@@ -299,6 +383,22 @@ def run(cfg: dict, langs: list[str]) -> int:
          f"permutation p {p:.3f} <= {max_p} ({n_perm} shuffles)"),
         ("beats incumbent", cv_new - cv_cur >= margin,
          f"delta {cv_new - cv_cur:+.3f} >= {margin}"),
+        # A FOURTH GATE, and it is not optional. The permutation test shuffles
+        # RATINGS, so it prices in a spurious rating-feature relationship but
+        # is blind to a feature column that holds two different measurements.
+        # Adopting weights fitted across mixed provenance would encode "which
+        # page rated this" into the production objective.
+        ("one qc_mos metric", warn is None,
+         "all rows measure qc_mos the same way" if warn is None
+         else "mixed provenance — see the warning above"),
+        # Adopting weight on a term the data cannot identify writes a number
+        # into config that was never measured — and `tempo` in particular is
+        # read by BOTH composite_score (as a stretch penalty) and
+        # tts_engine._take_rank (as a pace-match reward), so it would move take
+        # selection on no evidence at all.
+        ("weights are identifiable", parked <= 0.05,
+         "no meaningful weight on a constant term" if parked <= 0.05
+         else f"{parked:.2f} parked on {'/'.join(flat)}, unfittable here"),
     ]
     print("\n  adoption gates:")
     for label, ok, detail in gates:
