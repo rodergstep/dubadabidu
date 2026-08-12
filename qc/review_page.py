@@ -37,8 +37,12 @@ audio{height:2rem;max-width:260px} .txt{color:#aaa;margin:.3rem 0}
 .w{cursor:pointer;border-bottom:1px dotted #555;padding:0 1px}
 .w:hover{background:#333}
 .w.bad{background:#a53;color:#fff;border-radius:3px;border-bottom:none}
-.axis{color:#8ab;background:#1a1f24;border-left:3px solid #365;
-  padding:.5rem .8rem;margin:.8rem 0;font-size:.92rem}
+.axis{color:#cdd;background:#1a1f24;border-left:3px solid #365;
+  padding:.7rem 1rem;margin:.8rem 0;font-size:.94rem}
+.axis ol{margin:.4rem 0 .6rem 0;padding-left:1.2rem}
+.axis li{margin:.25rem 0}
+.axis .k{color:#8fb;font-weight:bold}
+.axis .note{color:#8ab;margin-top:.5rem}
 #export{position:fixed;top:1rem;right:1rem;background:#365;color:#fff;
   border:none;border-radius:6px;padding:.4rem .8rem;cursor:pointer}
 """
@@ -214,19 +218,37 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                    f"be refused at ingest. Run <code>dubadabidu qc "
                    f"{Path(video).stem}</code>, then regenerate this page."
                    f"</div>" if stale else "")
-                # TWO AXES, STATED. The listener rated STRESS instead of overall
-                # quality on at least one past round while every page said "the
-                # one you would ship" (FINDINGS 2.1d). The permutation test
-                # cleared mixed axes as refit's problem, but the ambiguity was
-                # real and it is now removable: stars mean shippability, word
-                # clicks mean stress, and the page says which is which.
-                + ("<div class='axis'>Two separate things, please: "
-                   "<b>stars + accept/reject</b> = would you ship this take "
-                   "overall. <b>Click a word</b> = you heard it stressed on the "
-                   "wrong syllable. A take can be 5 stars and still have one "
-                   "wrong word — mark both.<br>These clicks build the per-word "
-                   "table; automated stress detection is closed (FINDINGS 2.1), "
-                   "so your ear is the only labeller there is."
+                # THE AXES, STATED IN PLAIN TERMS. The listener rated STRESS
+                # instead of overall quality on at least one past round while
+                # every page said "the one you would ship" (FINDINGS 2.1d), so
+                # the page has to say which control means what. The FIRST
+                # version of this text failed for the opposite reason — it was
+                # written for someone who had read FINDINGS ("the per-word
+                # table", "2.1", "the only labeller") and the reviewer said he
+                # could not tell what to do. Instructions the rater cannot
+                # follow produce noisy labels just as surely as no
+                # instructions, so this reads as a task, not as a rationale.
+                + ("<div class='axis'><b>Three things, and they are "
+                   "separate:</b>"
+                   "<ol>"
+                   "<li><span class='k'>rate 1–5</span> — how good does this "
+                   "line <i>sound</i>? (voice, naturalness, delivery)</li>"
+                   "<li><span class='k'>✓ accept / ✗ reject</span> — accept = "
+                   "ship it as is. reject = make a new attempt at this line.</li>"
+                   "<li><span class='k'>click a word</span> — that one word has "
+                   "the stress on the wrong syllable</li>"
+                   "</ol>"
+                   "They do not affect each other. A line can sound great — "
+                   "<b>5 stars, accept</b> — <b>and</b> have one word stressed "
+                   "wrong. That is normal: give it 5 stars <i>and</i> click the "
+                   "word."
+                   "<div class='note'>Clicking a word is not a complaint about "
+                   "the take — it is a note about the <i>word</i>. The same word "
+                   "comes out wrong in every video, so marking it once here lets "
+                   "it be fixed in all of them. No software can hear stress "
+                   "errors, so this is the one thing only you can do."
+                   "<br><b>Short version:</b> rate and accept/reject as usual, "
+                   "then click any word that sounded wrong.</div>"
                    "</div>" if mark_words else "")
                 + f"<div class='cal'>calibration: {cal_line}</div>"
                 f"{''.join(segs)}<script>{JS}</script>")

@@ -111,6 +111,29 @@ def test_other_languages_get_plain_text():
     assert "<span" not in out and out == "This is paint"
 
 
+def test_the_rating_guidance_reads_as_a_task_not_a_rationale():
+    """The first version of this text was written for someone who had read
+    FINDINGS — "the per-word table", "FINDINGS 2.1", "the only labeller" — and
+    the reviewer said he could not tell what to do with it.
+
+    That is not a cosmetic failure. Instructions a rater cannot follow produce
+    noisy labels just as surely as no instructions do, and FINDINGS 2.1d exists
+    because he once rated STRESS while the page asked for overall quality. The
+    guidance has to name each control and say the three are independent.
+    """
+    src = (ROOT / "qc" / "review_page.py").read_text(encoding="utf-8")
+    axis = src[src.index("class='axis'"):src.index("if mark_words else")]
+    for control in ("rate 1", "accept", "reject", "click a word"):
+        assert control in axis, f"guidance never names the {control!r} control"
+    assert "separate" in axis and "do not affect each other" in axis, (
+        "the guidance must say the three axes are independent — a take can be "
+        "5 stars AND have a wrong word")
+    for jargon in ("FINDINGS", "labeller", "per-word table", "2.1"):
+        assert jargon not in axis, (
+            f"{jargon!r} is internal vocabulary — the reviewer is mid-task, "
+            f"not reading the research log")
+
+
 def test_stress_langs_are_the_lexical_stress_ones():
     assert "ru" in SW.STRESS_LANGS
     assert "uk" in SW.STRESS_LANGS, "uk is the next target and stress is lexical"
