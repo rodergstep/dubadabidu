@@ -143,7 +143,17 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                         break
             durs = [_dur(w) for w in wavs]
             ci, verdict, tempo = choose_placement(durs, slot, f["max_tempo"], soft)
-            if verdict == "no":
+            # `slot > 0` GUARDS THE RESCUE, NOT THE OVERFLOW FLAG. choose_placement
+            # returns "no" for slot <= 0 before it looks at a single duration, so
+            # on a zero-slot segment (the last utterance running to man["duration"],
+            # or a segment the drift budget has squeezed shut) the rescue below
+            # asked the LLM for rewrites under a budget of int(len * 0 * ...) = 0
+            # characters, then synthesized whatever came back — a full best_of unit
+            # per variant — and handed it to a function that returns "no" for
+            # slot <= 0 regardless. Paid twice, over and over, for audio that
+            # cannot be placed by construction. The overflow branch is below this
+            # block, not inside it, so flagging is unaffected.
+            if slot > 0 and verdict == "no":
                 # emergency rescue: every pre-generated variant overflows, so
                 # ask the LLM for rewrites under a char budget derived from the
                 # measured pace of the best candidate. Degrades to the overflow
