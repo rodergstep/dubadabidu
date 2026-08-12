@@ -344,15 +344,29 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 log.info("%s: reflect pass — %d/%d drafts clean",
                          lang, n_ok, len(adapted))
                 final = _ask(sys_adapt, adapted)
-            for u in batch:
-                r = final[u["id"]]
-                u["tr"].setdefault(lang, {})
-                u["tr"][lang]["text"] = r["text"].strip()
-                u["tr"][lang]["variants"] = [v.strip() for v in r.get("variants", [])]
+            # Build every value first, then splice under the lock. The mutation
+            # is `u["tr"][lang] = ...`, i.e. an INSERT into a dict that another
+            # language's thread may be inside json.dumps() over. The lock only
+            # ever covered the save, not the writes it serialises against.
+            # I could not force a failure in 400 attempts, so this is a hazard
+            # rather than an observed bug — but it is unsynchronised access on a
+            # 32-minute paid path, and doing it correctly costs nothing.
+            done = {u["id"]: {
+                "text": final[u["id"]]["text"].strip(),
+                "variants": [v.strip()
+                             for v in final[u["id"]].get("variants", [])]}
+                for u in batch}
+            with save_lock:
+                for u in batch:
+                    u["tr"].setdefault(lang, {}).update(done[u["id"]])
             # adequacy gate: judge the FINAL text against the source. QC only
             # ever checked the AUDIO (WER/sim/MOS) — a mistranslation passes all
             # of those and only a human reading the review page caught it. Here
             # a cheap LLM-judge flags unfaithful segments BEFORE synthesis.
+            # OUTSIDE the lock: it is an API round trip, and holding the lock
+            # across it would serialise the languages this function exists to
+            # overlap. It writes tr[lang]["adequacy"] into a key this thread
+            # already created above, so no new insert races a concurrent save.
             if tcfg.get("adequacy_check", True):
                 _adequacy(_ask, adeq_shared, batch, lang, flag, tcfg)
             with save_lock:

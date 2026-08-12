@@ -55,6 +55,19 @@ def set_device(want: str) -> str:
             want = "cuda" if torch.cuda.is_available() else "cpu"
         except Exception:
             want = "cpu"
+    if want == "cuda":
+        # config.gpu.yaml sets metrics_device: cuda, and course.py phase C
+        # applies that overlay on the LAPTOP (s5-s8 are local and free by
+        # design). Without this, any local `evaluate`/`qc` under the GPU
+        # overlay dies inside speechbrain instead of falling back.
+        try:
+            import torch
+            if not torch.cuda.is_available():
+                log.warning("qc.metrics_device: cuda requested but no CUDA "
+                            "here — falling back to cpu")
+                want = "cpu"
+        except Exception:
+            want = "cpu"
     if want != _device:
         _ecapa = _sqa = None      # singletons are bound to the old device
         _device = want

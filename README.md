@@ -42,7 +42,7 @@ there, re-run from s4, and only the changed segments are re-synthesized (content
 | faster-qwen3-tts | 0.3.2 | CUDA-graph decode for qwen (GPU); 5.9x measured (THIRD_PARTY.md) |
 | qwen_tts | git-clone | Qwen3-TTS bake-off engine (GPU); Apache-2.0, ~4 GB VRAM (THIRD_PARTY.md) |
 | edge-tts | 7.2.8 | free fallback voices (no cloning) |
-| openai SDK | 2.45.0 | universal client → DeepSeek / OpenAI / LM Studio / Ollama via `base_url` |
+| openai SDK | 2.52.0 | universal client → DeepSeek / OpenAI / LM Studio / Ollama via `base_url` |
 | jiwer | latest | WER for QC |
 | ffmpeg | 7.x system binary | required in PATH |
 

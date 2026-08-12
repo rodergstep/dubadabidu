@@ -184,6 +184,9 @@ def run(cfg: dict, video: str) -> None:
         keep = [(u, cut, q, min(u["end"] - u["start"], max_s))
                 for u, cut, q in rejected[:n_refs]]
 
+    # ref/ is gitignored (it holds media), so it does not exist on a fresh
+    # clone and cut.replace(out) below would raise FileNotFoundError.
+    Path("ref").mkdir(parents=True, exist_ok=True)
     kept_cuts = {id(x[1]) for x in keep}
     refs = {}
     for i, (u, cut, q, dur) in enumerate(keep, 1):
@@ -193,7 +196,10 @@ def run(cfg: dict, video: str) -> None:
                           "end": round(u["start"] + dur, 2), "quality": q}
         print(f"[prep] {out}  ({dur:.1f}s)  mos={q['mos']} voiced={q['voiced']}  "
               f"{u['text_uk'][:48]}")
-    for _, cut, _ in rejected:   # drop losing cuts (kept ones were moved out)
+    # every cut that was not moved into ref/ — PASSED-but-unkept ones too.
+    # Only `rejected` was swept before, so each prep run left the survivors
+    # _spread() did not pick lying in refcand/ forever.
+    for _, cut, *_ in rejected + passed:
         if id(cut) not in kept_cuts:
             cut.unlink(missing_ok=True)
 

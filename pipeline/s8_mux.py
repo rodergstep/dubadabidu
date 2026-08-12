@@ -34,7 +34,11 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     for lang in sub_langs:
         cmd += ["-i", str(wd / f"subs_{lang}.srt")]           # N+1.. subs
 
-    cmd += ["-map", "0:v", "-map", "0:a"]                     # original UA track first
+    # "0:a:0", NOT "0:a": the bare form maps EVERY audio stream of the source,
+    # so a two-track camera file would shift all the a:i indices below and tag
+    # the wrong streams (-metadata:s:a:1, -disposition:a:1 ...). Every lesson
+    # on disk has exactly one track, which is why this has never bitten.
+    cmd += ["-map", "0:v", "-map", "0:a:0"]                   # original UA track first
     for i in range(len(langs)):
         cmd += ["-map", f"{1 + i}:a"]
     for i in range(len(sub_langs)):
