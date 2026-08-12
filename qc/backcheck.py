@@ -96,6 +96,20 @@ def _norm(s: str, lang: str) -> str:
     single point both sides of every comparison pass through.
     """
     s = _DEG_C.sub("°C", s)
+    # ё -> е FOR THE COMPARISON ONLY. Russian is conventionally written without
+    # ё and Whisper transcribes it that way, so `жёлтая` came back as `желтая`
+    # and every ё word scored as a substitution. Measured 2026-08-11 on the
+    # first real ru backcheck: 7 segments flagged over the 0.15 threshold, and
+    # ё accounted for ALL of the difference in four of them (u0007 0.219,
+    # u0013 0.200, u0032 0.167, u0040 0.167 -> 0.000). Short segments make it
+    # worse — one substitution in a five-word line is already 0.20.
+    #
+    # This does NOT contradict qc.stress_words.lexicon_key keeping ё and е
+    # apart. Different jobs: there, ё is always-stressed and the distinction is
+    # a remediation lever; here it is orthographic noise between two spellings
+    # of the same sound. Do not "unify" them.
+    if lang == "ru":
+        s = s.replace("ё", "е").replace("Ё", "Е")   # lowercasing happens below
     # same function the engine saw: digits, %, ° -> target-language words
     s = localize_numbers(s, lang)
     # mop up anything localize_numbers left: languages outside NUM_VERSIONS, and
