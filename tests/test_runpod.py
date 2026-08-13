@@ -632,3 +632,45 @@ def test_engine_list_handed_to_the_installer_is_engine_names():
             assert e in ENGINE_MODULE, (
                 f"{task}: {e!r} is not an engine name — if a path reaches "
                 f"_install_engines it silently installs nothing")
+
+
+# --- cost controls -------------------------------------------------------------
+
+def test_deadline_is_recomputed_from_the_price_actually_paid():
+    """--budget only ever meant dollars if assumed_price_per_hr was right. The
+    ledger says it often was not: prices actually paid are 0.25, 0.26, 0.28 and
+    0.49. The cap is on TIME, so on the 0.49 pod a "$10 cap" bought nearly twice
+    the dollars it promised."""
+    from pathlib import Path as _P
+    src = (_P(__file__).resolve().parents[1] / "pipeline"
+           / "runpod_infra.py").read_text(encoding="utf-8")
+    block = src[src.index("RE-DERIVE THE DEADLINE"):]
+    block = block[:block.index("arm_pod_watchdog")]
+    assert "_LAST_POD" in block, "the actual price is never consulted"
+    assert "if tighter < deadline" in block, (
+        "the correction must only ever SHORTEN — extending would spend past "
+        "what the caller asked for")
+
+
+def test_bootstrap_time_is_recorded_in_the_ledger():
+    """runlog.cost_per_video_hour subtracts bootstrap_s to separate fixed setup
+    from real work, and nothing ever wrote it — 15 of 17 rows carry 0, so setup
+    was being billed as synthesis. 'Is batching worth it' has to be answerable
+    from the ledger, not from memory."""
+    from pathlib import Path as _P
+    src = (_P(__file__).resolve().parents[1] / "pipeline"
+           / "runpod_infra.py").read_text(encoding="utf-8")
+    assert '"bootstrap_s": _boot_s' in src, "bootstrap_s still never written"
+    assert src.index("_boot_s = round(") < src.index("rc = ssh_exec(rp, host, port, full"), (
+        "bootstrap must be stamped BEFORE the task runs, or it measures the task")
+
+
+def test_runlog_consumes_the_field_that_is_now_written():
+    from pipeline.runlog import cost_per_video_hour
+    rows = [{"video_minutes": 8.0, "wall_s": 900, "bootstrap_s": 600,
+             "price_per_hr": 0.30, "langs": ["ru"]}]
+    out = cost_per_video_hour(rows)
+    assert out["mean_bootstrap_min"] == 10.0
+    # per-language cost must exclude the bootstrap: 300 s of real work, not 900
+    assert out["usd_per_video_hour_per_language"] == round(
+        (900 - 600) / 3600 * 0.30 / (8.0 / 60), 3)
