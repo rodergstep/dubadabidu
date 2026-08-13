@@ -297,6 +297,21 @@ qc:
     # (pooled f0 0.95 vs within-round sim 0.55 on the SAME ratings, FINDINGS
     # 2.1d). This is a targeted removal of a feature measured to be noise, not
     # an adopted re-fit — do not read it as the gate having cleared.
+    # FROZEN 2026-08-13 — and not because they are right. Measured against 72
+    # within-sentence comparison groups (the first length-free data the project
+    # has had, FINDINGS 2.1p), this vector agrees with the listener on which
+    # take to ship 33 of 72 times against a chance of 32. Every single metric
+    # is at chance there: f0st 0.542 (p 0.062), mos_min 0.458, sim_cal 0.458,
+    # mos 0.417 — BELOW chance.
+    #
+    # A grid search over 48 groups did find {sim 0.47, mos 0.04, f0 0.34} at
+    # held-out 0.604 and cleared all seven adoption gates. Twenty-four more
+    # groups took it to 0.472 with p 0.275. It was overfitting; nothing was
+    # applied. `dubadabidu refit` still runs and still refuses.
+    #
+    # So qc_score is a COARSE HEALTH SIGNAL, not a quality ranking. Do not tune
+    # these further against the same four metrics — that question is closed.
+    # Reopening it needs a metric that hears what these do not.
     weights: {sim: 0.0, mos: 0.55, f0: 0.30, tempo: 0.15}
     # MOVED 0.55 -> 0.36 on 2026-08-11, with the metric, not as a judgement.
     # composite_score now takes the worst-3s window instead of the whole-take

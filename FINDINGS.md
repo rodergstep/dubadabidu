@@ -75,6 +75,7 @@ would reach 4 of 9 (§2.1k.6). Not the refuted U+0301 route (§2.1b/2.1bb).
 | `sim` as a quality predictor | noise in both languages, weight now 0 | 2.1e |
 | Mixed rating axes as refit's problem | refuted by permutation test | 2.1d |
 | "More ratings will fix refit" | no — the audio is uniformly good now | 2.0 |
+| **Re-fitting qc.eval.weights at all** | **72 length-free groups: every metric at chance** | **2.1p** |
 
 ### Method rules earned the hard way
 - **Compute the binomial before believing a small blind test.** A 2-of-3 has a
@@ -817,6 +818,60 @@ working: three arms were queued, one was removed on inspection.
 **WHAT IS STILL OPEN** lexical avoidance (2.1k) — untested by ear, and the only
 input-side lever left. Per-word engine control remains the real fix and remains
 absent (2.1c).
+
+### 2.1p CLOSED: no weighting of these metrics reproduces the ear
+
+**CLAIM** (AUTOPILOT M4, the flywheel's premise) Enough (rating, metric) pairs
+let `refit` derive weights that make `qc_score` agree with the listener, so the
+tune loop optimises a better target each cycle.
+
+**EVIDENCE** 2026-08-13, the first length-free measurement the project has ever
+had: 72 within-sentence comparison groups over three rounds, same sentence per
+group so duration and content are constant (§2.1m). Statistic is winner
+agreement — does the metric's argmax equal the clip he picked — which is
+literally what `synth_best_of` does. Chance 0.444.
+
+| picked by | agreement | p |
+|---|---|---|
+| `qc_f0st` | 39/72 = 0.542 | 0.062 |
+| `qc_mos_min` | 33/72 = 0.458 | 0.451 |
+| `qc_sim_cal` | 33/72 = 0.458 | 0.451 |
+| **current composite** | **33/72 = 0.458** | 0.451 |
+| `qc_mos` | 30/72 = 0.417 | 0.722 |
+
+**AND THE INTERIM RESULT REVERSED, which is the methodological point.** At 48
+groups the grid found `{sim 0.47, mos 0.04, f0 0.34}` at held-out 0.604 against
+chance 0.417, permutation p 0.020, and **all seven adoption gates passed —
+`refit` said ADOPT for the first time in the project's life.** Twenty-four more
+groups took the same fit to held-out 0.472, p 0.275, and a margin of +0.014
+against a 0.02 bar. The ADOPT was overfitting 48 groups. Nothing was applied.
+
+**VERDICT** **REFUTED, and this closes M4 as a route to a better objective.**
+Not "needs more ratings" — that is itself on the CLOSED list, and 72 clean
+groups is more evidence than any previous conclusion here rested on. The
+metrics available (Distill-MOS whole-take, its worst-3s window, ECAPA
+similarity, f0 variability) do not carry what this listener responds to when
+choosing between takes of one sentence.
+
+**CONSEQUENCE FOR THE WEIGHTS** they stay at `{sim 0.0, mos 0.55, f0 0.30,
+tempo 0.15}`. Not because that vector is right — it agrees with the ear at
+0.458 against a chance of 0.444, i.e. not at all — but because no reachable
+vector is better, and churning them again would move every stored score and
+both cut points for nothing. `qc_score` is a coarse health signal, not a
+quality ranking, and should be read as one.
+
+**WHAT THE RATING ROUNDS DID BUY, since the weights did not move:** the
+length confound (§2.1m), the qc_mos provenance split (blind.py writing the
+window into both columns), the positional-bias gate (§ this entry's en round),
+the stress lexicon and the avoidance feature built on it (§2.1k), and the
+refutation of reduction respelling (§2.1o). The flywheel's payload was wrong;
+its diagnostics were not.
+
+**WHAT WOULD REOPEN IT** a metric that hears what these do not — not more
+ratings against the same four. The listener's own summary, unprompted, is that
+ru and en quality are adequate and stress is the only defect left, which is
+consistent with every number above: the metrics agree with him at chance
+because there is little quality variation left for them to rank.
 
 ### 2.1c No zero-shot cloning TTS handles Russian stress (survey, 2026-08-09)
 
