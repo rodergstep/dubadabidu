@@ -831,6 +831,13 @@ group so duration and content are constant (§2.1m). Statistic is winner
 agreement — does the metric's argmax equal the clip he picked — which is
 literally what `synth_best_of` does. Chance 0.444.
 
+The rounds are reproducible from `config.exp.ru-control.yaml` (`variant_label:
+control`) and `config.exp.en-k3.yaml` (`en-k3`); the rated audio and the
+verdict files are `work/<video>/bakeoff/compare_{ru_control,en_k3,ru_k5b}.html`
+and their `_truth.json` siblings; the ingested pairs are `comparisons_ru.json`
+and `comparisons_en.json`. Recorded because both configs are otherwise
+cited by nothing and read as dead on a cleanup sweep — they are evidence.
+
 | picked by | agreement | p |
 |---|---|---|
 | `qc_f0st` | 39/72 = 0.542 | 0.062 |
