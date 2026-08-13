@@ -100,7 +100,7 @@ def build(wd: Path, lang: str, variants: list[str],
           min_seconds: float = MIN_SECONDS, embed: bool = True,
           takes_per_variant: int = 1, max_groups: int | None = None,
           axis: str = "overall quality — the one you would ship",
-          skip_groups: int = 0) -> Path:
+          skip_groups: int = 0, tag: str = "") -> Path:
     """`axis` is printed ON the page, and it is not decoration.
 
     2026-08-09: a page was built to settle whether ICL's flatter delivery was
@@ -132,7 +132,7 @@ def build(wd: Path, lang: str, variants: list[str],
         raise SystemExit(
             f"no segment of {variants} in {lang} has >= {min_seconds}s of audio "
             f"and 2+ takes — raise bakeoff.subset_size or lower min_seconds")
-    anon = bo / "compare" / lang
+    anon = bo / "compare" / (lang + tag)
     if anon.exists():
         shutil.rmtree(anon)
     anon.mkdir(parents=True)
@@ -154,12 +154,12 @@ def build(wd: Path, lang: str, variants: list[str],
                        + base64.b64encode(m4a.read_bytes()).decode())
             else:
                 shutil.copyfile(src, anon / f"{key}.wav")
-                url = f"compare/{lang}/{key}.wav"
+                url = f"compare/{lang}{tag}/{key}.wav"
             items.append({"key": key, "src": url})
         payload.append({"g": f"g{gi:02d}", "dur": g["dur"], "items": items})
 
     # the un-blinding map stays OUT of the page
-    (bo / f"compare_{lang}_truth.json").write_text(
+    (bo / f"compare_{lang}{tag}_truth.json").write_text(
         json.dumps(truth, indent=1, ensure_ascii=False), encoding="utf-8")
 
     # localStorage is namespaced by the BUILD, not just the language. It was
@@ -178,12 +178,13 @@ def build(wd: Path, lang: str, variants: list[str],
     build_id = hashlib.sha1(
         json.dumps({"axis": axis, "truth": truth},
                    sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:8]
-    out = bo / f"compare_{lang}.html"
+    out = bo / f"compare_{lang}{tag}.html"
     out.write_text(_HTML.replace("__LANG__", lang)
                    .replace("__BUILD__", "_" + build_id)
+                   .replace("__TAG__", tag)
                    .replace("__AXIS__", axis)
                    .replace("__DATA__", json.dumps(payload)), encoding="utf-8")
-    (bo / f"compare_{lang}_truth.json").write_text(
+    (bo / f"compare_{lang}{tag}_truth.json").write_text(
         json.dumps({"_build": build_id, "_axis": axis, **truth},
                    indent=1, ensure_ascii=False), encoding="utf-8")
     log.info("%d group(s), %d clips -> %s", len(payload),
@@ -242,7 +243,7 @@ function dl(){
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],
     {type:'application/json'}));
-  a.download='compare___LANG__.json'; a.click();
+  a.download='compare___LANG____TAG__.json'; a.click();
 }
 draw();
 </script>
@@ -259,7 +260,8 @@ if __name__ == "__main__":
     print(build(wd, sys.argv[2], sys.argv[3:]))
 
 
-def ingest(wd: Path, lang: str, export: Path, cfg: dict) -> Path:
+def ingest(wd: Path, lang: str, export: Path, cfg: dict,
+           tag: str = "") -> Path:
     """Exported picks -> comparisons_<lang>.json, the length-free training set.
 
     THE HALF THAT WAS MISSING. `build` has existed since 2026-08-03 and this
@@ -285,8 +287,15 @@ def ingest(wd: Path, lang: str, export: Path, cfg: dict) -> Path:
     import json as _json
     from qc import metrics as X
     bo = wd / "bakeoff"
-    truth = _json.loads((bo / f"compare_{lang}_truth.json").read_text(
-        encoding="utf-8"))
+    # `tag` must match the build. Without it a second page overwrote the
+    # first's truth map, and an ingest then silently matched an export against
+    # the WRONG un-blinding key — every pick would look "not in this build".
+    tp = bo / f"compare_{lang}{tag}_truth.json"
+    if not tp.exists():
+        avail = sorted(x.name for x in bo.glob(f"compare_{lang}*_truth.json"))
+        raise SystemExit(f"no truth map at {tp.name} — available: {avail}. "
+                         f"Pass the tag the page was built with.")
+    truth = _json.loads(tp.read_text(encoding="utf-8"))
     picks = _json.loads(Path(export).read_text(encoding="utf-8"))
     build_id = truth.get("_build")
 
