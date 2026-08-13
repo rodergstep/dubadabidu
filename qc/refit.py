@@ -424,8 +424,35 @@ def run(cfg: dict, langs: list[str]) -> int:
         print("     (diagnostic only — the fit reads qc_mos_min, which every "
               "page wrote the same way)" if not fits_qc_mos else "")
 
+    groups = group_rows(load_comparisons(langs))
+    if groups:
+        ch = chance_rate(groups)
+        hold_c = {kk: float(cur.get(kk, 0.0))
+                  for kk in constant_terms([r for g in groups for r in g],
+                                           max_tempo)}
+        cur_acc = winner_agreement(groups, cur, max_tempo)
+        best_c, best_acc = fit_comparisons(groups, max_tempo, step, hold_c)
+        cv_c = cv_agreement(groups, max_tempo, k, step, hold=hold_c)
+        cv_cur_c = cv_agreement(groups, max_tempo, k, step, fixed=cur)
+        print(f"\n  === WITHIN-SENTENCE COMPARISONS ({len(groups)} groups) ===")
+        print(f"  Every clip in a group is the same sentence, so length and "
+              f"content are constant\n  and the confound in FINDINGS 2.1m "
+              f"cannot occur. This is the trustworthy half.")
+        print(f"    chance (mean 1/k)      {ch:.3f}")
+        print(f"    current weights        {cur_acc:.3f}  (held-out {cv_cur_c:.3f})")
+        print(f"    best fit {best_c}")
+        print(f"                           {best_acc:.3f}  (held-out {cv_c:.3f})")
+        if cv_c <= ch:
+            print("    -> held-out agreement is AT OR BELOW CHANCE: no weighting "
+                  "of these metrics\n       reproduces the ear on this data.")
+    else:
+        print("\n  (no within-sentence comparisons yet — build a page with "
+              "qc.compare and\n   ingest it. Absolute per-segment ratings are "
+              "length-confounded, FINDINGS 2.1m.)")
+
     cur_rho = rho_of(rows, cur, max_tempo)
-    print(f"\n  current weights {cur} -> Spearman {cur_rho:+.3f}")
+    print(f"\n  === ABSOLUTE PER-SEGMENT RATINGS (length-confounded) ===")
+    print(f"  current weights {cur} -> Spearman {cur_rho:+.3f}")
 
     if len(rows) < min_rows:
         print(f"\n  !! REFUSING to propose weights: {len(rows)} ratings < "
@@ -524,3 +551,98 @@ def run(cfg: dict, langs: list[str]) -> int:
     print("  Then re-score every video, so old and new scores are never "
           "compared:\n    dubadabidu evaluate <each video>")
     return 0
+
+
+# ---------- comparison mode: the length-free objective ----------
+
+def load_comparisons(langs: list[str]) -> list[dict]:
+    """Rows written by qc.compare.ingest, grouped by sentence."""
+    out = []
+    for lang in langs:
+        p = Path(f"comparisons_{lang}.json")
+        if not p.exists():
+            continue
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            raise SystemExit(f"{p} is not valid JSON ({e}).")
+        for r in data:
+            r.setdefault("lang", lang)
+        out += data
+    return out
+
+
+def group_rows(rows: list[dict]) -> list[list[dict]]:
+    """[[clips of one sentence], ...] — only groups with a marked winner."""
+    by: dict[tuple, list[dict]] = {}
+    for r in rows:
+        if all(k in r for k in NEEDED):
+            by.setdefault((r.get("video"), r.get("lang"), r.get("build"),
+                           r.get("group")), []).append(r)
+    return [g for g in by.values() if len(g) >= 2 and any(x.get("winner") for x in g)]
+
+
+def winner_agreement(groups: list[list[dict]], w: dict,
+                     max_tempo: float) -> float:
+    """How often the objective's top-scoring clip IS the one the ear picked.
+
+    THE RIGHT STATISTIC FOR THIS DATA, and not a Spearman. Every clip in a group
+    is the same sentence, so the comparison is free of the length/difficulty
+    confound that invalidated the absolute-rating fit (FINDINGS 2.1m) — but only
+    if the fit stays INSIDE the group. Pooling the clips and correlating
+    globally would put the between-sentence variance straight back in.
+
+    It is also the production question stated exactly: tts_engine.synth_best_of
+    ships `max(pool, key=_take_rank)`, so "does the argmax match the human's
+    pick" is what take selection actually does, not a proxy for it. Chance is
+    1/k per group, reported alongside so a number can be read.
+    """
+    if not groups:
+        return 0.0
+    hit = 0
+    for g in groups:
+        top = max(g, key=lambda r: predict(r, w, max_tempo))
+        hit += bool(top.get("winner"))
+    return round(hit / len(groups), 4)
+
+
+def chance_rate(groups: list[list[dict]]) -> float:
+    """Mean 1/k over groups — the score a coin flip gets on this exact set."""
+    if not groups:
+        return 0.0
+    return round(sum(1.0 / len(g) for g in groups) / len(groups), 4)
+
+
+def fit_comparisons(groups: list[list[dict]], max_tempo: float,
+                    step: float = 0.05, hold: dict | None = None) -> tuple:
+    """Weights maximising winner agreement. Ties break least-committed, as fit()."""
+    hold = hold or {}
+    free = tuple(k for k in KEYS if k not in hold)
+    budget = max(0.0, 1.0 - sum(hold.values()))
+    best, best_acc = None, -1.0
+    for part in simplex(step, free):
+        cand = {**hold, **{k: round(v * budget, 4) for k, v in part.items()}}
+        acc = winner_agreement(groups, cand, max_tempo)
+        if acc > best_acc or (acc == best_acc and best is not None
+                              and _spread(cand) < _spread(best)):
+            best, best_acc = cand, acc
+    return best, best_acc
+
+
+def cv_agreement(groups: list[list[dict]], max_tempo: float, k: int = 5,
+                 step: float = 0.05, fixed: dict | None = None,
+                 hold: dict | None = None) -> float:
+    """Held-out winner agreement. Folds are whole GROUPS — splitting a sentence
+    across folds would leak its answer into training."""
+    hit = tot = 0
+    for f in range(k):
+        test = [g for i, g in enumerate(groups) if i % k == f]
+        train = [g for i, g in enumerate(groups) if i % k != f]
+        if not test or (fixed is None and len(train) < 3):
+            continue
+        w = fixed or fit_comparisons(train, max_tempo, step, hold)[0]
+        for g in test:
+            top = max(g, key=lambda r: predict(r, w, max_tempo))
+            hit += bool(top.get("winner"))
+            tot += 1
+    return round(hit / tot, 4) if tot else 0.0

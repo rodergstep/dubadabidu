@@ -257,3 +257,81 @@ if __name__ == "__main__":
                          "<variant> [variant ...]")
     wd = Path("work") / sys.argv[1]
     print(build(wd, sys.argv[2], sys.argv[3:]))
+
+
+def ingest(wd: Path, lang: str, export: Path, cfg: dict) -> Path:
+    """Exported picks -> comparisons_<lang>.json, the length-free training set.
+
+    THE HALF THAT WAS MISSING. `build` has existed since 2026-08-03 and this
+    module's whole argument is that absolute per-clip ratings are confounded —
+    but nothing converted its answers into rows, so every comparison round ended
+    in a JSON file nobody could fit. Meanwhile refit kept training on the
+    absolute ratings this page was built to replace, and on 2026-08-13 that cost
+    a live objective change: segment length correlates -0.719 with qc_mos_min,
+    +0.854 with qc_mos, -0.304 with the rating itself, so a length proxy looked
+    like a quality signal (FINDINGS 2.1m).
+
+    WHAT MAKES THESE ROWS DIFFERENT. Every clip in a group is the SAME SENTENCE,
+    so duration, content and difficulty are constant WITHIN a group. A
+    comparison between siblings therefore cannot be explained by length. The
+    rows carry `group` so a fit can stay inside it; pooling them and running a
+    global correlation would throw that away and reintroduce exactly the
+    confound this page exists to remove.
+
+    Metrics are recomputed here from the ORIGINAL take (via the truth map)
+    rather than copied from anywhere, so a row always describes the audio that
+    was actually heard.
+    """
+    import json as _json
+    from qc import metrics as X
+    bo = wd / "bakeoff"
+    truth = _json.loads((bo / f"compare_{lang}_truth.json").read_text(
+        encoding="utf-8"))
+    picks = _json.loads(Path(export).read_text(encoding="utf-8"))
+    build_id = truth.get("_build")
+
+    ref = cfg["tts"]["reference_wav"]
+    anchor = X.ecapa_embed(ref) if Path(ref).exists() else None
+    rows, n_groups = [], 0
+    for gid, ans in sorted(picks.items()):
+        best = (ans or {}).get("best")
+        bad = set((ans or {}).get("bad") or [])
+        if not best and not bad:
+            continue                      # skipped block: a real answer, no data
+        members = {k: v for k, v in truth.items()
+                   if not k.startswith("_") and k.startswith(gid + "c")}
+        if best and best not in members:
+            log.warning("%s: pick %r is not in this build — stale export?",
+                        gid, best)
+            continue
+        n_groups += 1
+        for key, meta in sorted(members.items()):
+            w = bo / meta["path"]
+            if not w.exists():
+                continue
+            raw = X.cosine(anchor, X.ecapa_embed(str(w))) if anchor is not None \
+                else None
+            rows.append({
+                "video": wd.name, "lang": lang, "group": f"{gid}",
+                "id": f"{meta['seg']}:{meta['variant']}:{meta['take']}",
+                "seg": meta["seg"], "variant": meta["variant"],
+                "winner": key == best, "unusable": key in bad,
+                "qc_sim2": round(raw, 4) if raw is not None else None,
+                "qc_mos": round(X.mos(str(w)), 4),
+                "qc_mos_min": round(X.mos_min_window(str(w)), 4),
+                "qc_f0st": round(X.f0_semitone_std(str(w)), 4),
+                "tempo": 1.0,           # bake-off takes are unstretched
+                "dur": round(_dur(w), 2),
+                "axis": truth.get("_axis", ""), "build": build_id,
+            })
+    out = Path(f"comparisons_{lang}.json")
+    prev = _json.loads(out.read_text(encoding="utf-8")) if out.exists() else []
+    # a re-export of the SAME build replaces that build's rows; other builds and
+    # other videos are untouched (verdicts learned this the expensive way)
+    keep = [r for r in prev
+            if not (r.get("build") == build_id and r.get("video") == wd.name)]
+    out.write_text(_json.dumps(keep + rows, ensure_ascii=False, indent=1),
+                   encoding="utf-8")
+    log.info("%d group(s), %d clip rows -> %s (%d total)",
+             n_groups, len(rows), out, len(keep) + len(rows))
+    return out

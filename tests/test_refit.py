@@ -233,3 +233,59 @@ def test_a_varying_term_is_identifiable():
     rows = [{"qc_sim_cal": 0.5, "qc_mos_min": 4.0, "qc_f0st": 2.0,
              "tempo": 1.0 + i * 0.01} for i in range(10)]
     assert "tempo" not in constant_terms(rows, 1.12)
+
+
+# --- comparison mode: the length-free objective --------------------------------
+
+def _grp(*mos_winner):
+    """One group: (qc_mos_min, is_winner) per clip, everything else constant."""
+    return [{"qc_sim_cal": 0.5, "qc_mos_min": m, "qc_f0st": 2.0,
+             "tempo": 1.0, "winner": w} for m, w in mos_winner]
+
+
+def test_winner_agreement_is_the_argmax_question():
+    """tts_engine.synth_best_of ships max(pool, key=_take_rank), so "does the
+    argmax match the human's pick" IS take selection, not a proxy for it."""
+    groups = [_grp((4.5, True), (2.0, False)), _grp((4.6, True), (3.0, False))]
+    mos_only = {"sim": 0.0, "mos": 1.0, "f0": 0.0, "tempo": 0.0}
+    assert R.winner_agreement(groups, mos_only, MAX_TEMPO) == 1.0
+    # a weighting that ignores the only varying feature cannot beat the order
+    # the list happens to be in
+    blind = {"sim": 1.0, "mos": 0.0, "f0": 0.0, "tempo": 0.0}
+    assert R.winner_agreement(groups, blind, MAX_TEMPO) <= 1.0
+
+
+def test_chance_is_reported_so_the_number_can_be_read():
+    """0.5 on 2-way groups, 0.33 on 3-way. Agreement without chance beside it
+    is unreadable."""
+    assert R.chance_rate([_grp((1, True), (2, False))]) == 0.5
+    assert R.chance_rate([_grp((1, True), (2, False), (3, False))]) == 0.3333
+
+
+def test_groups_without_a_winner_are_dropped():
+    """A skipped block is a real answer — "I cannot tell them apart" — and must
+    not be scored as if some clip had won."""
+    rows = [dict(r, video="v", lang="ru", build="b", group="g0")
+            for r in _grp((4.0, False), (2.0, False))]
+    assert R.group_rows(rows) == []
+
+
+def test_folds_split_whole_groups_not_clips():
+    """Splitting a sentence across folds leaks its answer into training."""
+    rows = []
+    for i in range(20):
+        for r in _grp((4.5, True), (2.0, False)):
+            rows.append(dict(r, video="v", lang="ru", build="b",
+                             group=f"g{i:02d}"))
+    groups = R.group_rows(rows)
+    assert len(groups) == 20 and all(len(g) == 2 for g in groups)
+    mos_only = {"sim": 0.0, "mos": 1.0, "f0": 0.0, "tempo": 0.0}
+    assert R.cv_agreement(groups, MAX_TEMPO, fixed=mos_only) == 1.0
+
+
+def test_comparison_rows_carry_the_group_key():
+    """Pooling clips and correlating globally would put the between-sentence
+    variance straight back in — the confound the page exists to remove."""
+    import inspect
+    src = inspect.getsource(R.winner_agreement)
+    assert "for g in groups" in src, "agreement must be computed inside groups"
