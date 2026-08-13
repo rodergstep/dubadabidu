@@ -449,7 +449,18 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             for u in subset:
                 if unavailable:   # tune-lite already proved it isn't installed
                     break
-                text = u["tr"][lang].get("fitted_text") or u["tr"][lang]["text"]
+                # bakeoff.text_variant selects an ALTERNATIVE translation
+                # stored alongside the shipped one (qc/avoidance_ab.py writes
+                # tr[lang].text_variants). Scoped to `bakeoff.` on purpose: a
+                # tts.* key would look like it changed what production
+                # synthesizes while only this loop read it, which is the exact
+                # shape of qc.eval.weights ranking nothing and tts.engine
+                # routing nothing. A segment with no such variant falls back to
+                # the shipped text, so an A/B covers only where they differ.
+                _tv = (cfg.get("bakeoff", {}) or {}).get("text_variant")
+                text = ((u["tr"][lang].get("text_variants") or {}).get(_tv)
+                        if _tv else None) \
+                    or u["tr"][lang].get("fitted_text") or u["tr"][lang]["text"]
                 # source speech slot: same text goes to every engine, so pace
                 # DIFFERENCES between engines isolate the engine's speaking rate
                 # (the shared translation-length bias cancels in the comparison).
