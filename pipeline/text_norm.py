@@ -187,9 +187,14 @@ def accent_ru(text: str) -> str:
 
 
 def marked_words(lang: str) -> set[str]:
-    """Surface forms a native listener flagged as mis-stressed, from
-    stress_lexicon_<lang>.json. Empty when the table does not exist yet, which
-    makes respelling a no-op rather than a guess."""
+    """Surface forms a native listener flagged as mis-stressed, read from
+    stress_lexicon_<lang>.json.
+
+    Kept after reduction respelling was refused (FINDINGS 2.1o) because the
+    LEXICON is not what was wrong — the respelling was. This is still the list
+    translation.avoid_mis_stressed routes around, and the only durable output
+    of the word-marking loop.
+    """
     import json
     from pathlib import Path
     p = Path(f"stress_lexicon_{lang}.json")
@@ -204,134 +209,13 @@ def marked_words(lang: str) -> set[str]:
 
 def normalize_for_tts(text: str, lang: str, tts_cfg: dict | None = None) -> str:
     """Stress-mark Russian when tts.ru_stress is on. Engine-agnostic now: the
-    old version hardcoded chatterbox, which is why it became unreachable."""
+    old version hardcoded chatterbox, which is why it became unreachable.
+
+    Reduction respelling briefly lived here too and was removed on 2026-08-13:
+    writing `малако` does not tell a TTS where the stress is, it hands it a
+    non-word to guess about (FINDINGS 2.1o).
+    """
     cfg = tts_cfg or {}
     if lang == "ru" and cfg.get("ru_stress"):
         return accent_ru(text)
     return text
-
-
-def marked_words(lang: str) -> set[str]:
-    """Surface forms a native listener flagged as mis-stressed, from
-    stress_lexicon_<lang>.json. Empty when the table does not exist yet, which
-    makes respelling a no-op rather than a guess."""
-    import json
-    from pathlib import Path
-    p = Path(f"stress_lexicon_{lang}.json")
-    if not p.exists():
-        return set()
-    try:
-        lex = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return set()
-    return {f for e in lex.values() for f in (e.get("forms") or [])}
-
-
-def normalize_for_tts(text: str, lang: str, tts_cfg: dict | None = None) -> str:
-    """Stress-mark Russian when tts.ru_stress is on. Engine-agnostic now: the
-    old version hardcoded chatterbox, which is why it became unreachable."""
-    cfg = tts_cfg or {}
-    if lang == "ru" and cfg.get("ru_stress"):
-        return accent_ru(text)
-    return text
-
-
-# --- layer 3: Russian REDUCTION RESPELLING (2026-08-13, UNTESTED) ------------
-# The last untried remediation for wrong Russian stress. FINDINGS 2.1b/2.1bb
-# refuted feeding qwen combining acutes (U+0301): it was not trained on them and
-# reads them as content to pronounce — 97% of clips unusable by ear. That
-# refutation is about a DIACRITIC, and says nothing about respelling a word in
-# ordinary Cyrillic, which qwen certainly saw in training.
-#
-# The mechanism is akanye/ikanye. Russian reduces unstressed vowels: /o/ is
-# realised [a] and unstressed /e/ raises toward [i], while the stressed vowel
-# keeps full quality. So writing the reduction explicitly leaves the stressed
-# vowel as the only unreduced one, and the stress position is encoded in
-# ordinary letters rather than in a mark. qc/stress_detect measured that this
-# contrast is real in the audio: stressed-о words produce [o] 89% of the time
-# against 26% for unstressed ones (FINDINGS 2.1g.2).
-#
-# TARGETED, NOT GLOBAL, and that is the whole design. Respelling every word
-# would hand the engine a page of misspelled Russian to test one hypothesis.
-# Only words in stress_lexicon_<lang>.json are touched — the finite set a native
-# listener has actually marked wrong (FINDINGS 2.1k) — so a failure costs those
-# words and nothing else.
-#
-# THE ORACLE IS RUAccent, and it is imperfect: FINDINGS 2.1h caught it marking
-# `перед` on the wrong slot. Here that matters less than it did for a detector,
-# because the word list is human-confirmed-wrong to begin with and the A/B is
-# judged by ear. But a respelling is only as right as the stress it encodes.
-#
-# THE REDUCTION RULES ARE A SIMPLIFICATION. Real Russian reduction is
-# position-dependent (first pretonic differs from the rest) and conditioned by
-# the preceding consonant's palatalisation. This does о->а and unstressed е->и
-# and no more. It is a gate, not a phonology: if the simple version moves
-# nothing, the elaborate one is not worth building.
-RESPELL_VERSIONS = {"ru": 1}
-
-
-def _stressed_index(word: str) -> int | None:
-    """Index of the stressed character in `word`, via RUAccent. None if unknown."""
-    marked = accent_ru_plus(word)
-    if marked is None:
-        return None
-    i = marked.find("+")
-    return i if i >= 0 else None      # '+' precedes the vowel; removing it lands here
-
-
-def accent_ru_plus(text: str) -> str | None:
-    """RUAccent's raw PLUS notation ('дер+евья'), or None if unavailable.
-
-    Kept separate from accent_ru(), which converts to combining acutes for the
-    refuted marking path. Respelling needs the POSITION, not the mark.
-    """
-    global _ruaccent
-    try:
-        if _ruaccent is None:
-            from ruaccent import RUAccent
-            log.info("loading RUAccent (turbo3.1) ...")
-            _ruaccent = RUAccent()
-            _ruaccent.load(omograph_model_size="turbo3.1", use_dictionary=True)
-        return _ruaccent.process_all(text)
-    except Exception as e:
-        log.warning("RUAccent unavailable (%s); cannot respell", e)
-        return None
-
-
-def respell_word_ru(word: str) -> str:
-    """One word rewritten so its unstressed vowels are spelled as reduced.
-
-    Returns the word unchanged when the stress position is unknown — silently
-    guessing would encode a WRONG stress, which is worse than encoding none.
-    """
-    idx = _stressed_index(word)
-    if idx is None or not (0 <= idx < len(word)):
-        return word
-    out = []
-    for i, ch in enumerate(word):
-        if i == idx:
-            out.append(ch)                    # the stressed vowel keeps quality
-        elif ch == "о":
-            out.append("а")                   # akanye
-        elif ch == "е":
-            out.append("и")                   # ikanye
-        elif ch == "О":
-            out.append("А")
-        elif ch == "Е":
-            out.append("И")
-        else:
-            out.append(ch)
-    return "".join(out)
-
-
-def respell_ru(text: str, words: set[str]) -> str:
-    """Respell only the members of `words` (case-insensitively) found in `text`."""
-    if not words:
-        return text
-    low = {w.casefold() for w in words}
-
-    def _one(m: "re.Match[str]") -> str:
-        w = m.group()
-        return respell_word_ru(w) if w.casefold() in low else w
-
-    return re.sub(r"[^\W\d_]+", _one, text, flags=re.UNICODE)

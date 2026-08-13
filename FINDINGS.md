@@ -784,8 +784,11 @@ lever") Russian reduces unstressed vowels, so writing the reduction explicitly �
 as the only unreduced one and encodes stress position in ordinary Cyrillic. Not
 the refuted diacritic route (2.1b/2.1bb): letters qwen was trained on.
 
-**REFUTED BY THE NATIVE SPEAKER, 2026-08-13**, on sight, and the mechanism says
-he is right.
+**EVIDENCE** Native-speaker judgement on sight, 2026-08-13 ("totally
+bullshit"), plus the mechanism below, which says the same thing for a reason
+that can be checked without a listener. No pod, no takes — the argument is the
+measurement here, and it is sufficient because it shows the route cannot carry
+the information it was supposed to carry.
 
 **THE ERROR IS A REVERSED INFERENCE.** 2.1g.2 measured that when qwen stresses
 an `о` it outputs `[o]` 89% of the time, and `[a]` when it does not. That is

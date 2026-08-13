@@ -284,15 +284,15 @@ def synth_hash(text: str, lang: str, tts_cfg: dict) -> str:
     # accented audio would be served from the unaccented cache (and vice versa).
     if lang == "ru" and tts_cfg.get("ru_stress"):
         key_data["rustress"] = NORM_VERSIONS.get("ru", 1)
-    # ru_respell rewrites the TEXT the engine sees (unstressed о->а, е->и on the
-    # words in stress_lexicon_ru.json), so it must salt the key or the A/B would
-    # score respelled config against un-respelled cached audio. The LEXICON is
-    # part of the input too: adding a word changes what gets respelled, so its
-    # size goes in the key — otherwise a grown table silently reuses old takes.
-    if lang == "ru" and tts_cfg.get("ru_respell"):
-        from .text_norm import RESPELL_VERSIONS, marked_words
-        key_data["respell"] = [RESPELL_VERSIONS.get("ru", 1),
-                               len(marked_words("ru"))]
+    # NORM_VERSIONS salted the key for chatterbox's acute RU stress marks. That
+    # normalisation was chatterbox-only and left with it (2026-08-02); no
+    # surviving engine applies it, so nothing salts on it.
+    # number localization is applied to EVERY engine, so its version salts all
+    # engines' hashes (v1/absent adds no key -> pre-existing caches stay valid)
+    # ru_stress changes the TEXT the engine sees, so it must salt the key or
+    # accented audio would be served from the unaccented cache (and vice versa).
+    if lang == "ru" and tts_cfg.get("ru_stress"):
+        key_data["rustress"] = NORM_VERSIONS.get("ru", 1)
     numv = NUM_VERSIONS.get(lang, 1)
     if numv > 1:
         key_data["numv"] = numv
