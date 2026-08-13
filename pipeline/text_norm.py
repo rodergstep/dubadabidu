@@ -208,12 +208,31 @@ def normalize_for_tts(text: str, lang: str, tts_cfg: dict | None = None) -> str:
     cfg = tts_cfg or {}
     if lang == "ru" and cfg.get("ru_stress"):
         return accent_ru(text)
-    # MUTUALLY EXCLUSIVE with ru_stress by construction: one marks the stressed
-    # vowel with a diacritic (refuted, 2.1b), the other respells the UNstressed
-    # ones in ordinary letters. Running both would hand the engine a marked
-    # AND respelled word, testing neither.
-    if lang == "ru" and cfg.get("ru_respell"):
-        return respell_ru(text, marked_words("ru"))
+    return text
+
+
+def marked_words(lang: str) -> set[str]:
+    """Surface forms a native listener flagged as mis-stressed, from
+    stress_lexicon_<lang>.json. Empty when the table does not exist yet, which
+    makes respelling a no-op rather than a guess."""
+    import json
+    from pathlib import Path
+    p = Path(f"stress_lexicon_{lang}.json")
+    if not p.exists():
+        return set()
+    try:
+        lex = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    return {f for e in lex.values() for f in (e.get("forms") or [])}
+
+
+def normalize_for_tts(text: str, lang: str, tts_cfg: dict | None = None) -> str:
+    """Stress-mark Russian when tts.ru_stress is on. Engine-agnostic now: the
+    old version hardcoded chatterbox, which is why it became unreachable."""
+    cfg = tts_cfg or {}
+    if lang == "ru" and cfg.get("ru_stress"):
+        return accent_ru(text)
     return text
 
 

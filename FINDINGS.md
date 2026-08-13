@@ -776,6 +776,45 @@ the honest route.
 gained comparison mode (winner agreement, whole-group folds, chance printed
 beside), and `comparisons_ru.json` holds the first 72 rows.
 
+### 2.1o Reduction respelling: REFUSED on mechanism, before it cost anything
+
+**CLAIM** (mine, 2026-08-11, carried in 2.1k and 2.1n as "the last untested
+lever") Russian reduces unstressed vowels, so writing the reduction explicitly —
+`молоко` -> `малако`, `натюрморте` -> `натюрморти` — leaves the stressed vowel
+as the only unreduced one and encodes stress position in ordinary Cyrillic. Not
+the refuted diacritic route (2.1b/2.1bb): letters qwen was trained on.
+
+**REFUTED BY THE NATIVE SPEAKER, 2026-08-13**, on sight, and the mechanism says
+he is right.
+
+**THE ERROR IS A REVERSED INFERENCE.** 2.1g.2 measured that when qwen stresses
+an `о` it outputs `[o]` 89% of the time, and `[a]` when it does not. That is
+**stress -> spelling in the model's OUTPUT**. I read it as **spelling -> stress
+in its INPUT**, which does not follow. A Russian TTS applies reduction ITSELF,
+as a consequence of wherever it decides the stress falls. Give it `малако` and
+it does not learn where the stress is: it receives a non-word, picks a stress
+for that new letter sequence, and reduces around THAT. Nothing is constrained.
+It is not a cue, it is a misspelling — and out-of-distribution input to a model
+trained on correct orthography.
+
+**SAME SHAPE AS 2.1m**, three days apart: take a real correlation, assume the
+causal direction the plan needs, act. There it was `qc_mos_min` vs the listener
+(both tracking segment length); here it is spelling vs stress. The tell in both
+is that no mechanism was stated in the direction being relied on.
+
+**VERDICT** **REFUTED.** Implementation, config overlay and cache salt removed
+rather than retained-but-unwired: 2.1h keeps `qc/stress_mfa.py` because it was
+BUILT AND MEASURED and its negative is reproducible. This was never measured
+and there is nothing to reproduce — only an argument, which is what this entry
+is for.
+
+**COST** none. Caught before the pod run it was written for. That is the gate
+working: three arms were queued, one was removed on inspection.
+
+**WHAT IS STILL OPEN** lexical avoidance (2.1k) — untested by ear, and the only
+input-side lever left. Per-word engine control remains the real fix and remains
+absent (2.1c).
+
 ### 2.1c No zero-shot cloning TTS handles Russian stress (survey, 2026-08-09)
 
 **CLAIM** Some other open model solves this and we can swap engines for ru via
