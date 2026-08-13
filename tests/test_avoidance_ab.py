@@ -63,3 +63,16 @@ def test_each_overlay_isolates_exactly_one_axis(path, axis):
     assert c["tts"].get("variant_label"), "rows would merge without a label"
     allowed = {"variant_label", key}
     assert set(c["tts"]) <= allowed, f"{path} tts moves more than its axis"
+
+
+def test_take_offset_selects_unheard_takes():
+    """qwen+fast+k5 holds five takes per segment and the first round used 0-2.
+    Without an offset a second page re-rates the same audio: more rows, no more
+    evidence, and the pair is already in comparisons_<lang>.json."""
+    import inspect
+    from qc.compare import _groups, build
+    assert "take_offset" in inspect.signature(_groups).parameters
+    assert "take_offset" in inspect.signature(build).parameters
+    src = inspect.getsource(_groups)
+    assert "ts[take_offset:take_offset +" in src, \
+        "the window must start at the offset, not at zero"

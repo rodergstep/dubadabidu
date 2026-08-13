@@ -55,7 +55,8 @@ def _dur(p: Path) -> float:
 
 
 def _groups(bo: Path, lang: str, variants: list[str],
-            min_seconds: float, takes_per_variant: int = 1) -> list[dict]:
+            min_seconds: float, takes_per_variant: int = 1,
+            take_offset: int = 0) -> list[dict]:
     """One group per segment: `takes_per_variant` take(s) of each, shuffled.
 
     ONE take per variant by default, and that default matters. Every take of
@@ -80,7 +81,13 @@ def _groups(bo: Path, lang: str, variants: list[str],
         for w in takes:
             per_seg.setdefault(w.stem.split("_t")[0], []).append(w)
         for seg, ts in per_seg.items():
-            by_seg.setdefault(seg, []).extend(ts[:max(1, takes_per_variant)])
+            # take_offset skips takes already rated in an earlier round.
+            # qwen+fast+k5 holds five takes per segment; the first round used
+            # 0-2, so offset 3 yields clips the listener has genuinely not
+            # heard. Re-rating the same audio would add rows without adding
+            # evidence — the pair is already in comparisons_<lang>.json.
+            window = ts[take_offset:take_offset + max(1, takes_per_variant)]
+            by_seg.setdefault(seg, []).extend(window)
     out = []
     for seg, takes in by_seg.items():
         dur = sum(_dur(t) for t in takes) / max(len(takes), 1)
@@ -100,7 +107,8 @@ def build(wd: Path, lang: str, variants: list[str],
           min_seconds: float = MIN_SECONDS, embed: bool = True,
           takes_per_variant: int = 1, max_groups: int | None = None,
           axis: str = "overall quality — the one you would ship",
-          skip_groups: int = 0, tag: str = "") -> Path:
+          skip_groups: int = 0, tag: str = "",
+          take_offset: int = 0) -> Path:
     """`axis` is printed ON the page, and it is not decoration.
 
     2026-08-09: a page was built to settle whether ICL's flatter delivery was
@@ -113,7 +121,8 @@ def build(wd: Path, lang: str, variants: list[str],
     listener while they judge.
     """
     bo = wd / "bakeoff"
-    groups = _groups(bo, lang, variants, min_seconds, takes_per_variant)
+    groups = _groups(bo, lang, variants, min_seconds, takes_per_variant,
+                     take_offset)
     # skip_groups continues an earlier page instead of re-asking what was already
     # answered. Groups are sorted longest-first and that order is deterministic,
     # so skip_groups=N picks up exactly where a max_groups=N page stopped. The
