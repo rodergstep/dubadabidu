@@ -667,6 +667,65 @@ word marking on the review page for `STRESS_LANGS`, ingest into
 `stress_lexicon_<lang>.json` via `dubadabidu verdicts`, and
 `translation.avoid_mis_stressed` / `avoid_min_marks` in `config.yaml`.
 
+### 2.1m SEGMENT LENGTH confounds every metric except f0 — and it fooled me
+
+**CLAIM** (mine, 2026-08-11, acted on before it was checked) `qc_mos_min`
+predicts the listener where whole-take `qc_mos` does not, so the composite
+should read the windowed minimum. Evidence offered at the time: +0.226 vs
++0.005 on 140 rated rows, and the composite going from **-0.205 to +0.364**
+against 46 accept/reject verdicts. The switch was made and everything rescored.
+
+**EVIDENCE THAT IT WAS A CONFOUND** 2026-08-13, 46 rated ru segments, no pod.
+`mos_min_window` takes a MINIMUM over sliding windows, so a longer segment has
+more windows and a lower expected minimum by arithmetic alone:
+
+| | vs segment duration |
+|---|---|
+| `qc_mos_min` | **-0.719** |
+| `qc_mos` | **+0.854** |
+| `qc_sim_cal` | **+0.548** |
+| `qc_f0st` | **+0.018** |
+| the human RATING | **-0.304** (and **-0.500** vs accept/reject) |
+
+The listener rates long segments worse, so ANY length-correlated feature scores
+a respectable rank correlation without measuring quality. Within an 8-16 s band
+`qc_mos_min` vs rating **reverses to -0.276** (n=11).
+
+**CONFIRMED INDEPENDENTLY BY EAR, and this is what triggered the check.** The
+five worst-scoring segments across en/fr/es/de — every one with whole-take MOS
+4.5-4.7 and `mos_min` 1.5-2.3, i.e. the new metric claiming a glitch — were
+played blind: *"mostly sound clean, good quality."* The metric was flagging
+LENGTH, not defects.
+
+**VERDICT** **REFUTED.** Neither MOS variant measures quality here. Whole-take
+tracks length upward and so anti-correlates with the ear; the window tracks it
+downward and so appears to agree. The 2026-08-11 switch traded one length
+artefact for another with a more convenient sign. `f0st` is the only clean
+feature (+0.018 with duration, +0.247 with rating).
+
+**WHY IT SURVIVED THE GATES** the permutation test shuffles RATINGS, so it
+cannot break a relationship that runs through a third variable present on both
+sides. Five adoption gates passed a proposal built on this.
+
+**THE PROJECT ALREADY KNEW.** `qc/compare.py`'s header says it: *"An absolute
+score on differing content confounds two variables — how good the take is, and
+how hard that sentence was. A 1.4 s fragment and a 14.9 s sentence are not on
+the same scale."* It was built to remove exactly this and has never been used
+for a rating round. Its stated motivation — refit's cross-validated rho falling
+to +0.119 while in-sample reached +0.293 — is the same effect.
+
+**ENCODED** `qc.verdicts` now records `dur` on every row (the column whose
+absence made this uncheckable), and `refit` gained a
+`features measure quality, not length` gate that fails when any feature runs
+|rho| >= 0.45 against duration. It currently fails, correctly.
+
+**DO NOT** move the weights again on absolute per-segment ratings. The next
+rating round has to come from `qc/compare.py`, which holds the sentence
+constant. **NOT DONE:** the composite still reads `qc_mos_min` — reverting to
+`qc_mos` would restore a feature that is anti-correlated with the ear, so
+neither state is defensible and a third objective change on confounded data
+would repeat the mistake.
+
 ### 2.1c No zero-shot cloning TTS handles Russian stress (survey, 2026-08-09)
 
 **CLAIM** Some other open model solves this and we can swap engines for ru via

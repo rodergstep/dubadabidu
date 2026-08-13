@@ -155,6 +155,53 @@ def mos_provenance_warning(rows: list[dict]) -> str | None:
         f"current qc/blind.py, or fit the two groups separately.")
 
 
+def length_confound_warning(rows: list[dict]) -> str | None:
+    """Features that mostly track SEGMENT LENGTH rather than quality.
+
+    Found the hard way on 2026-08-13, after a live objective change had already
+    been made on the strength of a correlation this explains away.
+
+    mos_min_window takes a MINIMUM over sliding windows, so a longer segment has
+    more windows and a lower expected minimum by arithmetic alone. Measured on
+    46 rated ru segments: duration vs qc_mos_min -0.719, vs qc_mos +0.854 (the
+    other way), vs qc_sim_cal +0.548. Only qc_f0st is clean at +0.018.
+
+    The listener also rates long segments worse — duration vs rating -0.304, and
+    -0.500 against accept/reject — so ANY length-correlated feature scores a
+    respectable rank correlation without measuring quality at all. qc_mos_min
+    read +0.226 that way; inside an 8-16 s band it reverses to -0.276.
+
+    qc/compare.py predicted exactly this in its header: "An absolute score on
+    differing content confounds two variables — how good the take is, and how
+    hard that sentence was. A 1.4 s fragment and a 14.9 s sentence are not on
+    the same scale." That page exists to remove the confound and has never been
+    used for a rating round.
+    """
+    have = [r for r in rows if isinstance(r.get("dur"), (int, float))]
+    if len(have) < 20:
+        return None
+    dur = [r["dur"] for r in have]
+    rat = [r["rating"] for r in have]
+    hits = []
+    for key, feat in (("qc_mos_min", "mos"), ("qc_mos", "mos"),
+                      ("qc_sim_cal", "sim"), ("qc_f0st", "f0")):
+        vals = [r.get(key) for r in have]
+        if any(v is None for v in vals):
+            continue
+        rho_d = spearman(dur, vals)
+        if abs(rho_d) >= 0.45:
+            hits.append(f"{key} {rho_d:+.2f}")
+    if not hits:
+        return None
+    return (
+        f"LENGTH CONFOUND: {', '.join(hits)} vs segment duration, while the "
+        f"ratings themselves run {spearman(dur, rat):+.2f} with duration. A "
+        f"feature that tracks length will appear to predict the listener "
+        f"without measuring quality. Weights fitted here encode 'this segment "
+        f"is long', not 'this segment is bad' — use qc/compare.py, which holds "
+        f"the sentence constant, before trusting a proposal.")
+
+
 def constant_terms(rows: list[dict], max_tempo: float) -> list[str]:
     """Weight keys whose TERM has no variance across `rows`.
 
@@ -367,6 +414,9 @@ def run(cfg: dict, langs: list[str]) -> int:
     # must neither gate adoption nor drop rows. qc_mos_min was written the same
     # way by every page all along, which is why the 20 rows that could not be
     # repaired are usable again.
+    lenwarn = length_confound_warning(rows)
+    if lenwarn:
+        print(f"\n  !! {lenwarn}")
     fits_qc_mos = "qc_mos" in NEEDED
     warn = mos_provenance_warning(rows)
     if warn:
@@ -442,6 +492,12 @@ def run(cfg: dict, langs: list[str]) -> int:
         # not that it is near zero: holding is the correct treatment, and
         # `tempo` legitimately keeps its 0.15. What must never happen is the
         # search MOVING it, because a move there is an arbitrary point on a tie.
+        # A length-confounded feature will sail through the permutation test:
+        # shuffling ratings cannot break a relationship that runs through a
+        # third variable present in both.
+        ("features measure quality, not length", lenwarn is None,
+         "no feature tracks segment duration" if lenwarn is None
+         else "see the length-confound warning above"),
         ("weights are identifiable", moved <= 1e-9,
          "constant terms held at their incumbent values" if moved <= 1e-9
          else f"the fit moved {'/'.join(flat)} by {moved:.2f} on flat data"),

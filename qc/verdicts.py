@@ -29,6 +29,14 @@ log = logging.getLogger("dubadabidu.qc.verdicts")
 
 QC_FEATURES = ("qc_score", "qc_sim2", "qc_sim_cal", "qc_mos", "qc_mos_min",
                "qc_f0st", "qc_wer", "tempo", "fit")
+# SEGMENT LENGTH, recorded since 2026-08-13 because its absence hid a confound
+# that invalidated a live objective change. mos_min_window takes a MINIMUM over
+# sliding windows, so a longer segment has more windows and a lower expected
+# minimum by arithmetic alone: measured -0.719 against duration. Whole-take mos
+# runs the other way at +0.854, and sim at +0.548. The listener also rates long
+# segments worse (-0.304, and -0.500 on accept/reject), so ANY length-correlated
+# feature will appear to predict him. f0st is the only one that is clean (+0.018).
+# Without this column none of that was checkable from the ratings file.
 
 
 def _seg_hash(utterances: list[dict], lang: str) -> str:
@@ -161,6 +169,7 @@ def run(cfg: dict, video: str, export_file: str) -> None:
         n_man += 1
         row = {"video": stem, "lang": lang, "id": uid,
                "rating": rating, "verdict": verdict,
+               "dur": round(u["end"] - u["start"], 2),
                "text": tr.get("fitted_text", tr.get("text", ""))}
         row.update({k: tr[k] for k in QC_FEATURES if k in tr})
         new_rows[(stem, uid)] = row  # replace: latest verdict wins
