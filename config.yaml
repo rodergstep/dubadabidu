@@ -95,7 +95,19 @@ translation:
   #
   # Affects NEW translations only; s3 skips segments that already have text.
   # Re-translate with `stage s3_translate --force` to apply it to a done video.
-  avoid_mis_stressed: true
+  # OFF 2026-08-13, REFUTED BY EAR. See FINDINGS 2.1q. The output was rejected
+  # outright — `натюрморта хватит` came back as `постановки достаточно`, which
+  # swaps the course's own subject term for a different one. Two mechanism
+  # failures, not a tuning problem:
+  #   - the terminology guard is inflection-blind. `натюрморт` IS mandatory
+  #     terminology, but the lexicon holds the prepositional `натюрморте` and
+  #     the check tested `"натюрморте" in mandatory` — the substring runs the
+  #     wrong way round, so the one word that most needed protecting was the
+  #     one it missed;
+  #   - and where the guard DID fire (`цвета`), the model rewrote the word
+  #     anyway. "terminology wins" is a request, not a constraint.
+  # Turning this on again needs both fixed AND a fresh ear check.
+  avoid_mis_stressed: false
   avoid_min_marks: 1          # words marked at least this often. 1 = trust the
                               # ear; a single mark may be the stochastic band
                               # (2.1f) rather than a systematic error, but

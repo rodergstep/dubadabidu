@@ -41,7 +41,7 @@ below was tried and failed, each for a different reason:
 | Detector: wav2vec2 phonemes | model does not transcribe vowel reduction | 2.1g |
 | Detector: MFA variant alignment | AUC 0.641, and the RUAccent oracle itself errs | 2.1h |
 | Selection: 5-take consensus | ANTI-correlated — prefers the systematic error | 2.1i, 2.1j |
-| Lexical avoidance from a human-marked table | **PARTIAL WIN** — 2-3 of 9 marked words | 2.1k |
+| Lexical avoidance from a human-marked table | **REFUTED by ear** — swaps domain terms; guard was inflection-blind | 2.1q |
 
 **The reason it is closed, and it is structural (§2.1j):** the errors are partly
 SYSTEMATIC. For some words qwen is reliably wrong, so the majority placement is
@@ -872,6 +872,48 @@ ratings against the same four. The listener's own summary, unprompted, is that
 ru and en quality are adequate and stress is the only defect left, which is
 consistent with every number above: the metrics agree with him at chance
 because there is little quality variation left for them to rank.
+
+### 2.1q Lexical avoidance: REFUTED BY EAR, and the guard was broken
+
+**CLAIM** (§2.1k) Routing translations around the words qwen mis-stresses is
+the one remediation needing no new capability anywhere.
+
+**EVIDENCE** 2026-08-13, dry run over the 46 ru segments, 12 rewrites, read as
+text by the native speaker. Verdict on the clearest example — `натюрморта
+хватит` -> `постановки достаточно` — was "total trash, it's totally different
+words." He is right: `натюрморт` is the course's own subject and `постановка`
+is a different term.
+
+**TWO MECHANISM FAILURES, not a tuning problem.**
+1. **The terminology guard was inflection-blind, in the direction that
+   mattered.** `натюрморт` IS in `terms_ru.json` as mandatory terminology. The
+   check asked `"натюрморте" in mandatory` — but the lexicon stores the
+   inflected form and the terms base the dictionary form, so the test looks for
+   the LONGER string inside the shorter one and always fails. It caught 1 of 9
+   words; a stem-prefix comparison catches 3 (`белилам`, `натюрморте`,
+   `цвета`). A third of the list was being rewritten despite being protected.
+2. **Where the guard DID fire, the model ignored it.** `цвета` was correctly
+   detected and the prompt says "terminology wins, KEEP IT". It came back as
+   `тона` anyway. Precedence stated in a prompt is a request, not a constraint.
+
+**VERDICT** **REFUTED.** `translation.avoid_mis_stressed` is now `false`.
+Turning it back on needs BOTH fixes — the guard is repaired, but the second
+failure is not fixable by prompting and would need the substitution applied
+deterministically in code rather than asked for.
+
+**RETAINED, not deleted:** the guard fix, `qc/avoidance_ab.py` and
+`config.exp.ru-avoided.yaml` stay, per the §2.1h rule — this was built and
+measured, and the negative should be reproducible. What is gone is the default.
+
+**THE LEXICON IS UNAFFECTED AND IS THE SURVIVING ARTEFACT.** 9 words, 13 marks,
+and the word-marking loop that produced them. Every remediation built on it has
+now failed — marks (2.1b), respelling (2.1o), avoidance (this) — but the table
+itself is the only per-word record of the defect that exists, and any future
+route starts from it.
+
+**WHAT IS LEFT** nothing on the input side. Per-word pronunciation control in
+the engine (§2.1c, absent) or a stress-aware cloning TTS. **ru ships with the
+defect**, which is where §2.1j left it and where it stays.
 
 ### 2.1c No zero-shot cloning TTS handles Russian stress (survey, 2026-08-09)
 
