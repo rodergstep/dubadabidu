@@ -726,6 +726,56 @@ constant. **NOT DONE:** the composite still reads `qc_mos_min` — reverting to
 neither state is defensible and a third objective change on confounded data
 would repeat the mistake.
 
+### 2.1n First LENGTH-FREE measurement: mos is at chance, f0 is the only signal
+
+**CLAIM** With the sentence held constant (§2.1m), the metrics will finally show
+which one tracks the ear.
+
+**EVIDENCE** 2026-08-13, first `qc/compare.py` round ever ingested. 25 groups
+built from `qwen+fast+k5` — 3 takes of ONE config per sentence, so the only
+thing varying inside a group is the dice. 24 decided, 1 skipped. Statistic is
+winner agreement: does the metric's argmax equal the clip he picked. Chance is
+1/3.
+
+| picked by | agreement | p (one-sided binomial) |
+|---|---|---|
+| **`qc_f0st`** | **12/24 = 0.500** | **0.068** |
+| current composite | 11/24 = 0.458 | 0.140 |
+| `qc_mos` | 8/24 = 0.333 | 0.576 |
+| `qc_sim_cal` | 8/24 = 0.333 | 0.576 |
+| **`qc_mos_min`** | **7/24 = 0.292** | 0.737 |
+
+**VERDICT** **OPEN — nothing is significant at n=24, but the direction is
+clear.** `qc_mos_min` performs AT OR BELOW CHANCE once length is removed, which
+independently confirms §2.1m: the +0.226 it scored on absolute ratings was the
+length proxy, not quality. It currently carries **0.55 of the objective**.
+`qc_f0st` is the only feature above chance and the only one that was ever clean
+of duration (+0.018).
+
+**THE BEST FIT DOES NOT GENERALISE.** Grid search reaches 0.583 in-sample with
+`{sim 0.47, mos 0.09, f0 0.30}` but held-out agreement is **0.458 — identical to
+the incumbent**. The sim weight is overfitting 24 groups; sim alone sits exactly
+at chance.
+
+**WORTH NOTING ANYWAY:** sim's apparent ANTI-signal (§2.1e, -0.283, which sent
+its weight to 0.0) may itself be a length artefact — duration correlates +0.548
+with sim and -0.304 with the rating, which manufactures a negative. In the
+length-free data sim is merely useless, not harmful. Not enough to re-open 2.1e.
+
+**DO NOT MOVE THE WEIGHTS ON THIS.** 24 groups, nothing under p 0.05, and the
+one apparent gain is in-sample only. What it justifies is collecting more
+comparison groups — not a config edit.
+
+**COST OF MORE DATA** the page dropped 21 of 46 segments as under
+`MIN_SECONDS` 5.0. That floor is the listener's own ("especially when track up
+to five seconds") and applies to judging a clip at all, so lowering it buys
+groups of the kind he said he cannot judge. More videos, or more languages, is
+the honest route.
+
+**ENCODED** `qc/compare.py` gained the `ingest` it never had, `qc/refit.py`
+gained comparison mode (winner agreement, whole-group folds, chance printed
+beside), and `comparisons_ru.json` holds the first 72 rows.
+
 ### 2.1c No zero-shot cloning TTS handles Russian stress (survey, 2026-08-09)
 
 **CLAIM** Some other open model solves this and we can swap engines for ru via

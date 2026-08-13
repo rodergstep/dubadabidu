@@ -424,7 +424,7 @@ def run(cfg: dict, langs: list[str]) -> int:
         print("     (diagnostic only — the fit reads qc_mos_min, which every "
               "page wrote the same way)" if not fits_qc_mos else "")
 
-    groups = group_rows(load_comparisons(langs))
+    groups = group_rows(load_comparisons(langs), warn=True)
     if groups:
         ch = chance_rate(groups)
         hold_c = {kk: float(cur.get(kk, 0.0))
@@ -572,13 +572,26 @@ def load_comparisons(langs: list[str]) -> list[dict]:
     return out
 
 
-def group_rows(rows: list[dict]) -> list[list[dict]]:
-    """[[clips of one sentence], ...] — only groups with a marked winner."""
+def group_rows(rows: list[dict], warn: bool = False) -> list[list[dict]]:
+    """[[clips of one sentence], ...] — only groups with a marked winner.
+
+    `warn` reports rows dropped for missing features instead of discarding them
+    quietly. The first comparison ingest wrote 72 rows with no `qc_sim_cal`, and
+    this filter swallowed every one — refit printed "no within-sentence
+    comparisons yet" over a file that had just been written.
+    """
+    missing = 0
     by: dict[tuple, list[dict]] = {}
     for r in rows:
-        if all(k in r for k in NEEDED):
+        if not all(k in r and r[k] is not None for k in NEEDED):
+            missing += 1
+            continue
+        if True:
             by.setdefault((r.get("video"), r.get("lang"), r.get("build"),
                            r.get("group")), []).append(r)
+    if warn and missing:
+        print(f"  !! {missing} comparison row(s) dropped for missing "
+              f"{'/'.join(NEEDED)} — re-ingest with a current qc/compare.py")
     return [g for g in by.values() if len(g) >= 2 and any(x.get("winner") for x in g)]
 
 

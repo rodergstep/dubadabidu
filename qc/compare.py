@@ -290,6 +290,19 @@ def ingest(wd: Path, lang: str, export: Path, cfg: dict) -> Path:
     picks = _json.loads(Path(export).read_text(encoding="utf-8"))
     build_id = truth.get("_build")
 
+    # THE CALIBRATION BAND, and it is not optional. qc_sim_cal is what the
+    # production composite consumes; writing only the raw cosine leaves rows
+    # missing the feature refit needs, and refit's group filter drops them
+    # SILENTLY — the first ingest produced 72 rows that fitted nothing at all.
+    # blind.py records the same mistake in a different form (floor 0 /
+    # ceiling 1, so calibration was a silent no-op), which is why it computes
+    # the band explicitly and logs it. Same here.
+    from qc.evaluate import calibration
+    man = _json.loads((wd / "manifest.json").read_text(encoding="utf-8"))
+    cal = calibration(cfg, wd, man, lang)
+    floor, ceiling = float(cal["floor"]), float(cal["ceiling"])
+    log.info("sim band for %s: floor %.3f ceiling %.3f (ref %s)",
+             lang, floor, ceiling, cal["ref"])
     ref = cfg["tts"]["reference_wav"]
     anchor = X.ecapa_embed(ref) if Path(ref).exists() else None
     rows, n_groups = [], 0
@@ -317,6 +330,8 @@ def ingest(wd: Path, lang: str, export: Path, cfg: dict) -> Path:
                 "seg": meta["seg"], "variant": meta["variant"],
                 "winner": key == best, "unusable": key in bad,
                 "qc_sim2": round(raw, 4) if raw is not None else None,
+                "qc_sim_cal": (round(X.calibrate_sim(raw, floor, ceiling), 4)
+                               if raw is not None else None),
                 "qc_mos": round(X.mos(str(w)), 4),
                 "qc_mos_min": round(X.mos_min_window(str(w)), 4),
                 "qc_f0st": round(X.f0_semitone_std(str(w)), 4),
