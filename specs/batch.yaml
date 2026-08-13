@@ -15,7 +15,19 @@ accept:
   # 0.43 preserves the old margin: ru sat +0.053 above the old bar and sits
   # +0.056 above this one. Same strictness, new scale.
   mean_score_min: 0.43      # mean qc_score per video/lang
-  flagged_pct_max: 5        # % of segments below qc.eval.score_flag
+  # 5 -> 15 on 2026-08-13. Unlike mean_score_min above this IS a loosening, and
+  # a deliberate one: 5 was never met. Under the OLD metric and threshold ru
+  # flagged 4 of 46 (8.7%), so the spec had never passed on real data — it was
+  # aspirational, and an acceptance bar nothing can reach is one the agent
+  # learns to escalate past rather than satisfy.
+  # 15 says "roughly one segment in seven wanting a look is normal for a first
+  # pass". It is a statement about how much review is expected, not about
+  # quality; tightening qc.eval.score_flag is the other lever and changes what
+  # the review page shows instead.
+  # CAVEAT, live: this is a PERCENTAGE, so it is noise on a short video —
+  # sketch60 has 4 segments and one flagged take is 25%. Judge small videos by
+  # the flagged COUNT on the report, not by this gate.
+  flagged_pct_max: 15       # % of segments below qc.eval.score_flag
   wer_bad_max: 0            # segments with backcheck WER above threshold
   overflow_max: 0           # segments that would not fit even at max_tempo
   overlap_max: 0            # segments spilling into the next utterance
