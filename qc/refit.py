@@ -426,6 +426,9 @@ def run(cfg: dict, langs: list[str]) -> int:
 
     groups = group_rows(load_comparisons(langs), warn=True)
     if groups:
+        posw = positional_bias_warning(groups)
+        if posw:
+            print(f"\n  !! {posw}")
         ch = chance_rate(groups)
         hold_c = {kk: float(cur.get(kk, 0.0))
                   for kk in constant_terms([r for g in groups for r in g],
@@ -445,6 +448,16 @@ def run(cfg: dict, langs: list[str]) -> int:
         if cv_c <= ch:
             print("    -> held-out agreement is AT OR BELOW CHANCE: no weighting "
                   "of these metrics\n       reproduces the ear on this data.")
+        # THE GATES JUDGE THIS, not the absolute ratings, whenever it exists.
+        # Until 2026-08-13 they read the Spearman on per-segment ratings — the
+        # data FINDINGS 2.1m showed is length-confounded — while the
+        # length-free measurement was printed above them and ignored. Deciding
+        # adoption on the confounded half while displaying the clean one is the
+        # same shape as qc.eval.weights ranking nothing for weeks.
+        cmp_p = permutation_p_comparisons(groups, cv_c, k, step, n_perm,
+                                          hold=hold_c)
+        print(f"    permutation ({n_perm} shuffles of the winner within each "
+              f"group): p={cmp_p:.3f}")
     else:
         print("\n  (no within-sentence comparisons yet — build a page with "
               "qc.compare and\n   ingest it. Absolute per-segment ratings are "
@@ -493,13 +506,24 @@ def run(cfg: dict, langs: list[str]) -> int:
     # Three independent gates, ALL required. Any one alone is defeatable:
     # a high CV rho can be luck, a low p can accompany a useless-but-consistent
     # objective, and beating the incumbent is confounded (see permutation_p).
+    if groups:
+        # comparison mode: the length-free measurement decides
+        _tracks = (cv_c > ch, f"held-out agreement {cv_c:.3f} > chance {ch:.3f}")
+        _chance = (cmp_p <= max_p,
+                   f"within-group permutation p {cmp_p:.3f} <= {max_p}")
+        _beats = (cv_c - cur_acc >= margin,
+                  f"held-out {cv_c:.3f} vs incumbent {cur_acc:.3f} "
+                  f"(delta {cv_c - cur_acc:+.3f} >= {margin})")
+        _best = best_c
+    else:
+        _tracks = (cv_new >= min_rho, f"cross-validated rho {cv_new:+.3f} >= {min_rho}")
+        _chance = (p <= max_p, f"permutation p {p:.3f} <= {max_p} ({n_perm} shuffles)")
+        _beats = (cv_new - cv_cur >= margin, f"delta {cv_new - cv_cur:+.3f} >= {margin}")
+        _best = best
     gates = [
-        ("tracks your ear", cv_new >= min_rho,
-         f"cross-validated rho {cv_new:+.3f} >= {min_rho}"),
-        ("not chance", p <= max_p,
-         f"permutation p {p:.3f} <= {max_p} ({n_perm} shuffles)"),
-        ("beats incumbent", cv_new - cv_cur >= margin,
-         f"delta {cv_new - cv_cur:+.3f} >= {margin}"),
+        ("tracks your ear", *_tracks),
+        ("not chance", *_chance),
+        ("beats incumbent", *_beats),
         # A FOURTH GATE, and it is not optional. The permutation test shuffles
         # RATINGS, so it prices in a spurious rating-feature relationship but
         # is blind to a feature column that holds two different measurements.
@@ -522,9 +546,23 @@ def run(cfg: dict, langs: list[str]) -> int:
         # A length-confounded feature will sail through the permutation test:
         # shuffling ratings cannot break a relationship that runs through a
         # third variable present in both.
-        ("features measure quality, not length", lenwarn is None,
-         "no feature tracks segment duration" if lenwarn is None
-         else "see the length-confound warning above"),
+        # A positionally-biased round has no signal to fit, so a weighting
+        # that "wins" on it won something meaningless.
+        ("picks track sound, not slot", posw is None if groups else True,
+         "no positional skew in the comparison rounds"
+         if (not groups or posw is None)
+         else "see the positional-bias warning above"),
+        # Scoped to the data being FITTED. In comparison mode every clip in a
+        # group is the same sentence, so duration is constant within the group
+        # and cannot explain a pick — that is the entire reason the page
+        # exists. Applying the absolute-ratings confound check to a
+        # comparison fit blocks it for a problem it structurally does not have.
+        ("features measure quality, not length",
+         lenwarn is None or bool(groups),
+         "within-sentence: duration is constant inside every group"
+         if groups else
+         ("no feature tracks segment duration" if lenwarn is None
+          else "see the length-confound warning above")),
         ("weights are identifiable", moved <= 1e-9,
          "constant terms held at their incumbent values" if moved <= 1e-9
          else f"the fit moved {'/'.join(flat)} by {moved:.2f} on flat data"),
@@ -545,7 +583,7 @@ def run(cfg: dict, langs: list[str]) -> int:
     print("```yaml")
     print("qc:")
     print("  eval:")
-    print("    weights: {" + ", ".join(f"{k2}: {best[k2]:.2f}"
+    print("    weights: {" + ", ".join(f"{k2}: {_best[k2]:.2f}"
                                        for k2 in KEYS) + "}")
     print("```")
     print("  Then re-score every video, so old and new scores are never "
@@ -659,3 +697,75 @@ def cv_agreement(groups: list[list[dict]], max_tempo: float, k: int = 5,
             hit += bool(top.get("winner"))
             tot += 1
     return round(hit / tot, 4) if tot else 0.0
+
+
+def positional_bias_warning(groups: list[list[dict]]) -> str | None:
+    """Detect a round where picks track SLOT rather than sound.
+
+    Clips are shuffled per group, so a listener who can genuinely hear a
+    difference picks slots at chance. One slot winning far more often means the
+    picks are being made on something other than the audio — most often "I
+    cannot tell them apart, so take the last one I played", a recency effect.
+
+    Measured 2026-08-13 on the first en round: slot 2 won 12 of 22 against a
+    chance of 7.3, p=0.033, and the listener said unprompted that "all tracks
+    [are] nearly on the same Quality Level". The ru round of the same day showed
+    no such skew (15/24 on a 2-way, p=0.154).
+
+    THIS IS NOT A METRIC RESULT. Because the shuffle is per group, always
+    picking slot 2 selects a RANDOM take each time, so the round carries no
+    quality signal for any metric to agree or disagree with. Fitting on it
+    would read as "no metric predicts the ear" when the truth is "there was
+    nothing to predict" — a null about the AUDIO being uniform, not about the
+    metrics being wrong.
+    """
+    import math
+    from collections import Counter
+    picks = []
+    for g in groups:
+        idx = [i for i, r in enumerate(g) if r.get("winner")]
+        if len(idx) == 1:
+            picks.append((idx[0], len(g)))
+    if len(picks) < 10:
+        return None
+    n = len(picks)
+    k = round(sum(sz for _, sz in picks) / n)
+    if k < 2:
+        return None
+    c = Counter(i for i, _ in picks)
+    slot, hits = c.most_common(1)[0]
+    p = sum(math.comb(n, j) * (1/k)**j * (1-1/k)**(n-j) for j in range(hits, n+1))
+    if p > 0.05:
+        return None
+    return (
+        f"POSITIONAL BIAS: slot {slot} won {hits} of {n} picks against a chance "
+        f"of {n/k:.1f} (p={p:.3f}). Clips are shuffled per group, so a slot "
+        f"preference means the picks were not made on the audio — usually "
+        f"\"they sound the same, take the last one\". This round carries NO "
+        f"quality signal, so any agreement score on it measures nothing. It is "
+        f"a null about the takes being uniform, not about the metrics.")
+
+
+def permutation_p_comparisons(groups: list[list[dict]], observed: float,
+                              k: int = 5, step: float = 0.05,
+                              n_perm: int = 50, seed: int = 0,
+                              hold: dict | None = None) -> float:
+    """How often the same fit-and-cross-validate reaches `observed` when the
+    WINNER is reassigned at random inside each group.
+
+    Shuffling within the group is the right null here: it destroys the link
+    between metrics and the pick while preserving group sizes, which is what
+    chance_rate is computed from. Shuffling across groups would also scramble
+    which sentence a clip belongs to and test a different question.
+    """
+    import random
+    rnd = random.Random(seed)
+    hits = 0
+    for _ in range(n_perm):
+        perm = []
+        for g in groups:
+            win = rnd.randrange(len(g))
+            perm.append([{**r, "winner": i == win} for i, r in enumerate(g)])
+        if cv_agreement(perm, 1.12, k, step, hold=hold) >= observed:
+            hits += 1
+    return (hits + 1) / (n_perm + 1)
