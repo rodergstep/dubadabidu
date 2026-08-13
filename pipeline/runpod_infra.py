@@ -838,6 +838,38 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
     if not (wd_v / "vocals.wav").exists():
         raise SystemExit(f"{video}: work/{Path(video).stem}/vocals.wav missing — "
                          f"run s1 locally first.")
+    # FAIL BEFORE PROVISIONING IF THE POD COULD NOT POSSIBLY DO THE WORK.
+    # runpod.engine_setup lives in config.gpu.yaml, and the overlay stack is
+    # asymmetric: REMOTE_TASK hardcodes `--overlay config.gpu.yaml` for the POD
+    # command, so the pod always gets it — but the LOCAL cfg only has it if the
+    # caller passed it too, and that half is what supplies engine_setup for the
+    # installer. Omit it locally and everything looks fine: the pod provisions,
+    # bootstraps, installs NOTHING, and the bake-off dutifully reports "engine
+    # unavailable" over zero measurements. That exact run is already recorded in
+    # this file's history ("two ICL arms provisioned their own pod and both
+    # produced empty scorecards"), and it happened again on 2026-08-13 — ~10
+    # minutes of billing for a result that could not exist.
+    #
+    # The check is cheap and it is BEFORE the money starts: a GPU engine with no
+    # install snippet cannot be installed, so refuse rather than discover it
+    # after the bootstrap.
+    _needed_pre = engines_for_task(cfg, task, langs)
+    _no_snippet = [e for e in _needed_pre
+                   if e != "edge" and not (rp.get("engine_setup") or {}).get(e)]
+    if _no_snippet:
+        msg = (f"runpod.engine_setup has no install command for "
+               f"{_no_snippet} — the pod cannot install {'them' if len(_no_snippet) > 1 else 'it'}, "
+               f"so this run would provision, bootstrap and measure nothing.\n"
+               f"Almost always the cause is a missing LOCAL overlay: pass\n"
+               f"  --overlay config.gpu.yaml\n"
+               f"in addition to any experiment overlay. (The pod-side command "
+               f"already has it; the local side is what feeds the installer.)")
+        if reuse:
+            log.warning("%s\n  --reuse: continuing, since a live pod may "
+                        "already have it installed.", msg)
+        else:
+            raise SystemExit(msg)
+
     deadline = _deadline(rp, budget)
     # with a persistent volume, put the project (incl .venv) on it so deps survive
     remote = ("/workspace/dubadabidu" if rp.get("network_volume_id")

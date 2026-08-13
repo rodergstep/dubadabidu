@@ -674,3 +674,26 @@ def test_runlog_consumes_the_field_that_is_now_written():
     # per-language cost must exclude the bootstrap: 300 s of real work, not 900
     assert out["usd_per_video_hour_per_language"] == round(
         (900 - 600) / 3600 * 0.30 / (8.0 / 60), 3)
+
+
+def test_missing_engine_setup_fails_before_provisioning():
+    """The overlay stack is asymmetric: REMOTE_TASK hardcodes
+    `--overlay config.gpu.yaml` for the POD, but the LOCAL cfg only has it if
+    the caller passed it — and the local half is what supplies engine_setup to
+    the installer. Omit it and the pod provisions, bootstraps, installs nothing,
+    and the bake-off reports "engine unavailable" over zero measurements.
+    Happened 2026-08-13: ~10 minutes billed for a result that could not exist.
+    The refusal has to come BEFORE the money starts."""
+    from pathlib import Path as _P
+    src = (_P(__file__).resolve().parents[1] / "pipeline"
+           / "runpod_infra.py").read_text(encoding="utf-8")
+    guard = src.index("FAIL BEFORE PROVISIONING")
+    assert guard < src.index("deadline = _deadline(rp, budget)"), \
+        "the guard must run before the deadline/provision path"
+    assert guard < src.index("pid, host, port = provision("), \
+        "the guard must run before anything bills"
+    block = src[guard:src.index("deadline = _deadline(rp, budget)")]
+    assert "--overlay config.gpu.yaml" in block, \
+        "the error must name the fix, not just the symptom"
+    assert "if reuse:" in block, \
+        "a live pod may already have the engine — reuse should warn, not refuse"
