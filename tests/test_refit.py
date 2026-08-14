@@ -24,7 +24,7 @@ def _rows(n, seed, weights=None, noise=0.25):
     for i in range(n):
         r = {"video": "v", "id": f"u{i:04d}",
              "qc_sim_cal": rnd.uniform(0.2, 1.0),
-             "qc_mos": rnd.uniform(2.5, 4.9),
+             "qc_mos_min": rnd.uniform(2.5, 4.9),
              "qc_f0st": rnd.uniform(0.5, 4.0),
              "tempo": rnd.uniform(1.0, 1.12)}
         r["rating"] = (rnd.randint(1, 5) if weights is None else
@@ -65,8 +65,10 @@ def test_ties_share_the_average_rank():
 # --- search space ---
 
 def test_simplex_weights_sum_to_one():
-    """score_flag (0.55) and mean_score_min (0.60) are cut points on this
-    scale — weights summing to anything else silently move every threshold."""
+    """score_flag (0.36) and mean_score_min (0.43) are cut points on this
+    scale — weights summing to anything else silently move every threshold.
+    Both moved on 2026-08-11 when composite_score switched to the windowed MOS
+    minimum; the sum-to-1 constraint is what keeps them meaningful at all."""
     pts = R.simplex(0.1)
     assert pts and all(abs(sum(w.values()) - 1.0) < 1e-9 for w in pts)
 
@@ -84,10 +86,10 @@ def test_simplex_is_deterministic():
 def test_usable_drops_unrated_and_incomplete_rows():
     rows = [
         {"video": "v", "id": "a", "rating": 4, "qc_sim_cal": .8,
-         "qc_mos": 4.0, "qc_f0st": 2.0},                    # keep
+         "qc_mos_min": 4.0, "qc_f0st": 2.0},               # keep
         {"video": "v", "id": "b", "verdict": "accept", "qc_sim_cal": .8,
-         "qc_mos": 4.0, "qc_f0st": 2.0},                    # no rating
-        {"video": "v", "id": "c", "rating": 3, "qc_mos": 4.0},   # no sim/f0
+         "qc_mos_min": 4.0, "qc_f0st": 2.0},               # no rating
+        {"video": "v", "id": "c", "rating": 3, "qc_mos_min": 4.0},  # no sim/f0
     ]
     assert [r["id"] for r in R.usable(rows)] == ["a"]
 
@@ -95,7 +97,7 @@ def test_usable_drops_unrated_and_incomplete_rows():
 def test_usable_order_is_deterministic():
     """Folds are assigned by index, so a stable order makes CV reproducible."""
     rows = [{"video": v, "id": i, "rating": 3, "qc_sim_cal": .5,
-             "qc_mos": 4.0, "qc_f0st": 2.0}
+             "qc_mos_min": 4.0, "qc_f0st": 2.0}
             for v, i in [("b", "u2"), ("a", "u9"), ("a", "u1")]]
     assert [(r["video"], r["id"]) for r in R.usable(rows)] == [
         ("a", "u1"), ("a", "u9"), ("b", "u2")]
@@ -103,7 +105,7 @@ def test_usable_order_is_deterministic():
 
 def test_predict_goes_through_the_production_composite():
     """A proposal must mean in production exactly what it means here."""
-    row = {"qc_sim_cal": 0.8, "qc_mos": 4.2, "qc_f0st": 2.5, "tempo": 1.05}
+    row = {"qc_sim_cal": 0.8, "qc_mos_min": 4.2, "qc_f0st": 2.5, "tempo": 1.05}
     assert R.predict(row, CUR, MAX_TEMPO) == X.composite_score(
         0.8, 4.2, X.tempo_penalty(1.05, MAX_TEMPO), CUR, 2.5)
 
@@ -180,3 +182,110 @@ def test_missing_ratings_file_is_not_an_error(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     rows, per_lang = R._load(["en", "fr"])
     assert rows == [] and per_lang == {"en": 0, "fr": 0}
+
+
+# --- data-integrity gates ------------------------------------------------------
+
+def test_mixed_qc_mos_provenance_is_detected():
+    """qc/blind.py wrote mos_min_window into BOTH qc_mos and qc_mos_min until
+    2026-08-11, while qc/evaluate writes whole-take MOS into the first. A
+    pooled file then holds two different measurements under one column, and
+    refit fits on that column. Measured on the real ru file: those rows
+    averaged 2.69 against 4.51 for the rest, a 1.82 gap on a pooled sd of 0.91
+    — so a correlation across both was substantially measuring WHICH PAGE
+    produced the row.
+
+    The permutation test cannot price this in: it shuffles RATINGS, not
+    features, so a corrupted feature column survives it untouched."""
+    from qc.refit import mos_provenance_warning
+    collapsed = [{"rating": 3, "qc_mos": 2.5, "qc_mos_min": 2.5} for _ in range(40)]
+    proper = [{"rating": 3, "qc_mos": 4.5, "qc_mos_min": 2.8} for _ in range(40)]
+    assert mos_provenance_warning(collapsed + proper) is not None
+
+
+def test_a_self_consistent_file_is_not_flagged():
+    """All-or-nothing is at least one metric. Only a MIX is unfittable."""
+    from qc.refit import mos_provenance_warning
+    all_old = [{"rating": 3, "qc_mos": 2.5, "qc_mos_min": 2.5} for _ in range(40)]
+    all_new = [{"rating": 3, "qc_mos": 4.5, "qc_mos_min": 2.8} for _ in range(40)]
+    assert mos_provenance_warning(all_old) is None
+    assert mos_provenance_warning(all_new) is None
+
+
+def test_a_constant_term_is_reported_as_unidentifiable():
+    """Every row on the real file has tempo 1.0, so tempo_penalty is 0
+    everywhere and the grid returned {f0: 0.05, tempo: 0.95}. That is not
+    "tempo matters most" — it is 0.95 parked where it cannot change any
+    ranking, so f0 could have the rest. Spearman is scale-invariant, so it ties
+    with {f0: 1.0}.
+
+    Adopting it would write a real 0.95 stretch penalty into config, and
+    `tempo` is ALSO the pace-match reward in tts_engine._take_rank, so take
+    selection would move on no evidence."""
+    from qc.refit import constant_terms
+    rows = [{"qc_sim_cal": 0.5 + i * 0.01, "qc_mos_min": 4.0 + i * 0.01,
+             "qc_f0st": 2.0 + i * 0.01, "tempo": 1.0} for i in range(10)]
+    assert constant_terms(rows, 1.12) == ["tempo"]
+
+
+def test_a_varying_term_is_identifiable():
+    from qc.refit import constant_terms
+    rows = [{"qc_sim_cal": 0.5, "qc_mos_min": 4.0, "qc_f0st": 2.0,
+             "tempo": 1.0 + i * 0.01} for i in range(10)]
+    assert "tempo" not in constant_terms(rows, 1.12)
+
+
+# --- comparison mode: the length-free objective --------------------------------
+
+def _grp(*mos_winner):
+    """One group: (qc_mos_min, is_winner) per clip, everything else constant."""
+    return [{"qc_sim_cal": 0.5, "qc_mos_min": m, "qc_f0st": 2.0,
+             "tempo": 1.0, "winner": w} for m, w in mos_winner]
+
+
+def test_winner_agreement_is_the_argmax_question():
+    """tts_engine.synth_best_of ships max(pool, key=_take_rank), so "does the
+    argmax match the human's pick" IS take selection, not a proxy for it."""
+    groups = [_grp((4.5, True), (2.0, False)), _grp((4.6, True), (3.0, False))]
+    mos_only = {"sim": 0.0, "mos": 1.0, "f0": 0.0, "tempo": 0.0}
+    assert R.winner_agreement(groups, mos_only, MAX_TEMPO) == 1.0
+    # a weighting that ignores the only varying feature cannot beat the order
+    # the list happens to be in
+    blind = {"sim": 1.0, "mos": 0.0, "f0": 0.0, "tempo": 0.0}
+    assert R.winner_agreement(groups, blind, MAX_TEMPO) <= 1.0
+
+
+def test_chance_is_reported_so_the_number_can_be_read():
+    """0.5 on 2-way groups, 0.33 on 3-way. Agreement without chance beside it
+    is unreadable."""
+    assert R.chance_rate([_grp((1, True), (2, False))]) == 0.5
+    assert R.chance_rate([_grp((1, True), (2, False), (3, False))]) == 0.3333
+
+
+def test_groups_without_a_winner_are_dropped():
+    """A skipped block is a real answer — "I cannot tell them apart" — and must
+    not be scored as if some clip had won."""
+    rows = [dict(r, video="v", lang="ru", build="b", group="g0")
+            for r in _grp((4.0, False), (2.0, False))]
+    assert R.group_rows(rows) == []
+
+
+def test_folds_split_whole_groups_not_clips():
+    """Splitting a sentence across folds leaks its answer into training."""
+    rows = []
+    for i in range(20):
+        for r in _grp((4.5, True), (2.0, False)):
+            rows.append(dict(r, video="v", lang="ru", build="b",
+                             group=f"g{i:02d}"))
+    groups = R.group_rows(rows)
+    assert len(groups) == 20 and all(len(g) == 2 for g in groups)
+    mos_only = {"sim": 0.0, "mos": 1.0, "f0": 0.0, "tempo": 0.0}
+    assert R.cv_agreement(groups, MAX_TEMPO, fixed=mos_only) == 1.0
+
+
+def test_comparison_rows_carry_the_group_key():
+    """Pooling clips and correlating globally would put the between-sentence
+    variance straight back in — the confound the page exists to remove."""
+    import inspect
+    src = inspect.getsource(R.winner_agreement)
+    assert "for g in groups" in src, "agreement must be computed inside groups"

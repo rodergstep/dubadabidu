@@ -155,7 +155,20 @@ def _avoid_block(cfg: dict, lang: str, mandatory: str) -> str:
         return ""
     log.info("%s: avoidance list active — %d word(s) from stress_lexicon_%s.json",
              lang, len(words), lang)
-    clash = sorted({w for w, _ in words if w.lower() in mandatory.lower()})
+    # STEM-PREFIX, not substring, and the direction matters. The lexicon holds
+    # inflected forms (`натюрморте`) while the glossary and terms base hold
+    # dictionary forms (`натюрморт`), so `w in mandatory` asks whether the
+    # LONGER string appears in the shorter one and always fails — which is how
+    # the course's own subject term ended up routed around. Compare on a stem
+    # instead: a mandatory term protects every form built on it.
+    mand_low = mandatory.lower()
+    import re as _re
+    mand_words = set(_re.findall(r"[^\W\d_]+", mand_low, _re.UNICODE))
+    def _protected(w: str) -> bool:
+        wl = w.lower()
+        return any(wl.startswith(m) or m.startswith(wl)
+                   for m in mand_words if len(m) >= 4)
+    clash = sorted({w for w, _ in words if _protected(w)})
     if clash:
         log.info("%s: %d avoid-list word(s) are mandatory terminology — "
                  "terminology wins, they will not be routed around: %s",

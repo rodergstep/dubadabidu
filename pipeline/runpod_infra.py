@@ -838,6 +838,38 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
     if not (wd_v / "vocals.wav").exists():
         raise SystemExit(f"{video}: work/{Path(video).stem}/vocals.wav missing — "
                          f"run s1 locally first.")
+    # FAIL BEFORE PROVISIONING IF THE POD COULD NOT POSSIBLY DO THE WORK.
+    # runpod.engine_setup lives in config.gpu.yaml, and the overlay stack is
+    # asymmetric: REMOTE_TASK hardcodes `--overlay config.gpu.yaml` for the POD
+    # command, so the pod always gets it — but the LOCAL cfg only has it if the
+    # caller passed it too, and that half is what supplies engine_setup for the
+    # installer. Omit it locally and everything looks fine: the pod provisions,
+    # bootstraps, installs NOTHING, and the bake-off dutifully reports "engine
+    # unavailable" over zero measurements. That exact run is already recorded in
+    # this file's history ("two ICL arms provisioned their own pod and both
+    # produced empty scorecards"), and it happened again on 2026-08-13 — ~10
+    # minutes of billing for a result that could not exist.
+    #
+    # The check is cheap and it is BEFORE the money starts: a GPU engine with no
+    # install snippet cannot be installed, so refuse rather than discover it
+    # after the bootstrap.
+    _needed_pre = engines_for_task(cfg, task, langs)
+    _no_snippet = [e for e in _needed_pre
+                   if e != "edge" and not (rp.get("engine_setup") or {}).get(e)]
+    if _no_snippet:
+        msg = (f"runpod.engine_setup has no install command for "
+               f"{_no_snippet} — the pod cannot install {'them' if len(_no_snippet) > 1 else 'it'}, "
+               f"so this run would provision, bootstrap and measure nothing.\n"
+               f"Almost always the cause is a missing LOCAL overlay: pass\n"
+               f"  --overlay config.gpu.yaml\n"
+               f"in addition to any experiment overlay. (The pod-side command "
+               f"already has it; the local side is what feeds the installer.)")
+        if reuse:
+            log.warning("%s\n  --reuse: continuing, since a live pod may "
+                        "already have it installed.", msg)
+        else:
+            raise SystemExit(msg)
+
     deadline = _deadline(rp, budget)
     # with a persistent volume, put the project (incl .venv) on it so deps survive
     remote = ("/workspace/dubadabidu" if rp.get("network_volume_id")
@@ -852,6 +884,7 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
     _t0 = time.time()
     _LAST_POD.clear()          # this run's pod, not the previous one's
     pid = None
+    _boot_s = None   # None distinguishes "died before the task" from "0 s"
     rc = None   # bound before the finally can read it: a failure during
                 # provision/bootstrap never reaches the task, and an unbound
                 # local would raise UnboundLocalError inside the cleanup
@@ -896,6 +929,25 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
                 sweep_orphans()   # deferred from the top; a stale state-file
                                   # pod must still never be left billing
             pid, host, port = provision(rp, deadline)
+            # RE-DERIVE THE DEADLINE FROM WHAT THIS POD ACTUALLY COSTS.
+            # _deadline() divides the budget by runpod.assumed_price_per_hr
+            # (0.25), so --budget only ever meant dollars if the guess was
+            # right. The ledger says it often was not: prices actually paid are
+            # 0.25, 0.26, 0.28 and 0.49. On the 0.49 pod a "$10 cap" bought
+            # nearly twice the dollars it promised, because the cap is on TIME.
+            # The real rate is known the moment the pod is up, so use it — and
+            # only ever to SHORTEN, never to extend past what was asked for.
+            actual = float(_LAST_POD.get("price_per_hr") or 0)
+            if actual > 0:
+                hrs = min(budget / actual, rp["max_runtime_hours"])
+                tighter = time.time() + hrs * 3600
+                if tighter < deadline:
+                    log.warning(
+                        "pod costs $%.2f/h, not the assumed $%.2f — deadline "
+                        "cut from %.1f h to %.1f h so $%.2f stays $%.2f",
+                        actual, rp["assumed_price_per_hr"],
+                        (deadline - time.time()) / 3600, hrs, budget, budget)
+                    deadline = tighter
             # arm the independent pod-side self-destruct FIRST — before the long
             # install — so a crash during setup can't leave a billing pod
             arm_pod_watchdog(rp, host, port, deadline - time.time())
@@ -1012,6 +1064,15 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         full = (f"cd {remote}; . .venv/bin/activate; "
                 f"export TRANSLATE_API_KEY={tk}; "
                 f"timeout {secs} {cmd}")
+        # Everything up to here is BOOTSTRAP: provision, apt, project rsync,
+        # the ~2.5 GB torch install and the engine setup. runlog.py has always
+        # subtracted `bootstrap_s` to separate fixed cost from real work — and
+        # nothing ever wrote it, so 15 of 17 ledger rows carry 0 and
+        # `usd_per_video_hour_per_language` has silently been billing setup as
+        # synthesis. Measure it, so "is batching worth it" is answerable from
+        # the ledger instead of from memory.
+        _boot_s = round(time.time() - _t0, 1)
+        log.info("bootstrap took %.1f min; task starts now", _boot_s / 60)
         rc = ssh_exec(rp, host, port, full, timeout=secs + 120)
         if rc != 0:   # spot pods can be reclaimed mid-run — name it clearly
             try:
@@ -1057,6 +1118,7 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
                 "stages": stages or None, "reuse": bool(reuse),
                 "ok": rc == 0, "rc": rc,
                 "wall_s": round(time.time() - _t0, 1),
+                "bootstrap_s": _boot_s,
                 "video_minutes": vid_min, "utterances": segs,
                 "engines": needed,
                 **{k: v for k, v in _LAST_POD.items()},

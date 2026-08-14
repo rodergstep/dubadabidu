@@ -133,3 +133,29 @@ def test_variant_label_is_not_in_synth_hash():
             "cfg_weight": 0.0, "exaggeration": 0.5}
     assert synth_hash("hi", "en", base) == \
         synth_hash("hi", "en", dict(base, variant_label="control"))
+
+
+def test_a_bakeoff_that_measured_nothing_exits_nonzero():
+    """Every engine unavailable used to exit 0, so remote_run recorded ok=True
+    and the ledger row looked like a clean run — 11.6 min of billed bootstrap
+    producing zero rows, indistinguishable from a good result until someone
+    opened the scorecard (2026-08-13)."""
+    from pathlib import Path as _P
+    src = (_P(__file__).resolve().parents[1] / "qc" / "bakeoff.py").read_text(
+        encoding="utf-8")
+    assert "measured NOTHING" in src, "a zero-measurement run still exits 0"
+    assert 'all("unavailable" in v for v in per_engine.values())' in src, (
+        "the check must look at THIS run's engines, not the merged scorecard — "
+        "engines from previous runs are not evidence this pod did anything")
+
+
+def test_verdict_names_the_actual_failure():
+    """"n/a (not installed)" was printed for every cause and sent a diagnosis
+    the wrong way: the install had printed "qwen ok" and what really failed was
+    the weights fetch."""
+    from qc.bakeoff import _verdict
+    hub = _verdict("qwen", {"unavailable": "An error happened while trying to "
+                            "locate the file on the Hub"}, None)
+    imp = _verdict("qwen", {"unavailable": "qwen_tts not importable"}, None)
+    assert "weights" in hub and "not installed" not in hub, hub
+    assert "not installed" in imp, imp

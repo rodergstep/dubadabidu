@@ -95,7 +95,19 @@ translation:
   #
   # Affects NEW translations only; s3 skips segments that already have text.
   # Re-translate with `stage s3_translate --force` to apply it to a done video.
-  avoid_mis_stressed: true
+  # OFF 2026-08-13, REFUTED BY EAR. See FINDINGS 2.1q. The output was rejected
+  # outright — `натюрморта хватит` came back as `постановки достаточно`, which
+  # swaps the course's own subject term for a different one. Two mechanism
+  # failures, not a tuning problem:
+  #   - the terminology guard is inflection-blind. `натюрморт` IS mandatory
+  #     terminology, but the lexicon holds the prepositional `натюрморте` and
+  #     the check tested `"натюрморте" in mandatory` — the substring runs the
+  #     wrong way round, so the one word that most needed protecting was the
+  #     one it missed;
+  #   - and where the guard DID fire (`цвета`), the model rewrote the word
+  #     anyway. "terminology wins" is a request, not a constraint.
+  # Turning this on again needs both fixed AND a fresh ear check.
+  avoid_mis_stressed: false
   avoid_min_marks: 1          # words marked at least this often. 1 = trust the
                               # ear; a single mark may be the stochastic band
                               # (2.1f) rather than a systematic error, but
@@ -297,8 +309,35 @@ qc:
     # (pooled f0 0.95 vs within-round sim 0.55 on the SAME ratings, FINDINGS
     # 2.1d). This is a targeted removal of a feature measured to be noise, not
     # an adopted re-fit — do not read it as the gate having cleared.
+    # FROZEN 2026-08-13 — and not because they are right. Measured against 72
+    # within-sentence comparison groups (the first length-free data the project
+    # has had, FINDINGS 2.1p), this vector agrees with the listener on which
+    # take to ship 33 of 72 times against a chance of 32. Every single metric
+    # is at chance there: f0st 0.542 (p 0.062), mos_min 0.458, sim_cal 0.458,
+    # mos 0.417 — BELOW chance.
+    #
+    # A grid search over 48 groups did find {sim 0.47, mos 0.04, f0 0.34} at
+    # held-out 0.604 and cleared all seven adoption gates. Twenty-four more
+    # groups took it to 0.472 with p 0.275. It was overfitting; nothing was
+    # applied. `dubadabidu refit` still runs and still refuses.
+    #
+    # So qc_score is a COARSE HEALTH SIGNAL, not a quality ranking. Do not tune
+    # these further against the same four metrics — that question is closed.
+    # Reopening it needs a metric that hears what these do not.
     weights: {sim: 0.0, mos: 0.55, f0: 0.30, tempo: 0.15}
-    score_flag: 0.55                # review page flags segments below this
+    # MOVED 0.55 -> 0.36 on 2026-08-11, with the metric, not as a judgement.
+    # composite_score now takes the worst-3s window instead of the whole-take
+    # MOS mean, and the window is systematically lower: the same 46 ru segments
+    # went from mean 0.653 to 0.486. At the old 0.55 the new score flags 31 of
+    # 46 instead of 4, which makes the review page's flag meaningless.
+    #
+    # 0.36 is BEHAVIOUR-PRESERVING — it flags the same 4 of 46 the old cut did.
+    # Chosen that way deliberately: changing the metric and the bar in one step
+    # would make any later shift impossible to attribute. Now that qc_score
+    # actually tracks the ear (+0.364 against accept/reject, where the old one
+    # was -0.205), tightening this is a real option — but it is a product
+    # decision on how much review you want, not a recalibration.
+    score_flag: 0.36                # review page flags segments below this
     sim_floor_default: 0.35         # fallback if edge floor-synth is offline
   refit:                            # `dubadabidu refit` — AUTOPILOT M4.
     # Re-derives the weights above from accumulated human ratings. It PROPOSES

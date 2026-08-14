@@ -55,7 +55,8 @@ def _dur(p: Path) -> float:
 
 
 def _groups(bo: Path, lang: str, variants: list[str],
-            min_seconds: float, takes_per_variant: int = 1) -> list[dict]:
+            min_seconds: float, takes_per_variant: int = 1,
+            take_offset: int = 0) -> list[dict]:
     """One group per segment: `takes_per_variant` take(s) of each, shuffled.
 
     ONE take per variant by default, and that default matters. Every take of
@@ -80,7 +81,13 @@ def _groups(bo: Path, lang: str, variants: list[str],
         for w in takes:
             per_seg.setdefault(w.stem.split("_t")[0], []).append(w)
         for seg, ts in per_seg.items():
-            by_seg.setdefault(seg, []).extend(ts[:max(1, takes_per_variant)])
+            # take_offset skips takes already rated in an earlier round.
+            # qwen+fast+k5 holds five takes per segment; the first round used
+            # 0-2, so offset 3 yields clips the listener has genuinely not
+            # heard. Re-rating the same audio would add rows without adding
+            # evidence — the pair is already in comparisons_<lang>.json.
+            window = ts[take_offset:take_offset + max(1, takes_per_variant)]
+            by_seg.setdefault(seg, []).extend(window)
     out = []
     for seg, takes in by_seg.items():
         dur = sum(_dur(t) for t in takes) / max(len(takes), 1)
@@ -100,7 +107,8 @@ def build(wd: Path, lang: str, variants: list[str],
           min_seconds: float = MIN_SECONDS, embed: bool = True,
           takes_per_variant: int = 1, max_groups: int | None = None,
           axis: str = "overall quality — the one you would ship",
-          skip_groups: int = 0) -> Path:
+          skip_groups: int = 0, tag: str = "",
+          take_offset: int = 0) -> Path:
     """`axis` is printed ON the page, and it is not decoration.
 
     2026-08-09: a page was built to settle whether ICL's flatter delivery was
@@ -113,7 +121,8 @@ def build(wd: Path, lang: str, variants: list[str],
     listener while they judge.
     """
     bo = wd / "bakeoff"
-    groups = _groups(bo, lang, variants, min_seconds, takes_per_variant)
+    groups = _groups(bo, lang, variants, min_seconds, takes_per_variant,
+                     take_offset)
     # skip_groups continues an earlier page instead of re-asking what was already
     # answered. Groups are sorted longest-first and that order is deterministic,
     # so skip_groups=N picks up exactly where a max_groups=N page stopped. The
@@ -132,7 +141,7 @@ def build(wd: Path, lang: str, variants: list[str],
         raise SystemExit(
             f"no segment of {variants} in {lang} has >= {min_seconds}s of audio "
             f"and 2+ takes — raise bakeoff.subset_size or lower min_seconds")
-    anon = bo / "compare" / lang
+    anon = bo / "compare" / (lang + tag)
     if anon.exists():
         shutil.rmtree(anon)
     anon.mkdir(parents=True)
@@ -154,12 +163,12 @@ def build(wd: Path, lang: str, variants: list[str],
                        + base64.b64encode(m4a.read_bytes()).decode())
             else:
                 shutil.copyfile(src, anon / f"{key}.wav")
-                url = f"compare/{lang}/{key}.wav"
+                url = f"compare/{lang}{tag}/{key}.wav"
             items.append({"key": key, "src": url})
         payload.append({"g": f"g{gi:02d}", "dur": g["dur"], "items": items})
 
     # the un-blinding map stays OUT of the page
-    (bo / f"compare_{lang}_truth.json").write_text(
+    (bo / f"compare_{lang}{tag}_truth.json").write_text(
         json.dumps(truth, indent=1, ensure_ascii=False), encoding="utf-8")
 
     # localStorage is namespaced by the BUILD, not just the language. It was
@@ -178,12 +187,13 @@ def build(wd: Path, lang: str, variants: list[str],
     build_id = hashlib.sha1(
         json.dumps({"axis": axis, "truth": truth},
                    sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:8]
-    out = bo / f"compare_{lang}.html"
+    out = bo / f"compare_{lang}{tag}.html"
     out.write_text(_HTML.replace("__LANG__", lang)
                    .replace("__BUILD__", "_" + build_id)
+                   .replace("__TAG__", tag)
                    .replace("__AXIS__", axis)
                    .replace("__DATA__", json.dumps(payload)), encoding="utf-8")
-    (bo / f"compare_{lang}_truth.json").write_text(
+    (bo / f"compare_{lang}{tag}_truth.json").write_text(
         json.dumps({"_build": build_id, "_axis": axis, **truth},
                    indent=1, ensure_ascii=False), encoding="utf-8")
     log.info("%d group(s), %d clips -> %s", len(payload),
@@ -242,7 +252,7 @@ function dl(){
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],
     {type:'application/json'}));
-  a.download='compare___LANG__.json'; a.click();
+  a.download='compare___LANG____TAG__.json'; a.click();
 }
 draw();
 </script>
@@ -257,3 +267,104 @@ if __name__ == "__main__":
                          "<variant> [variant ...]")
     wd = Path("work") / sys.argv[1]
     print(build(wd, sys.argv[2], sys.argv[3:]))
+
+
+def ingest(wd: Path, lang: str, export: Path, cfg: dict,
+           tag: str = "") -> Path:
+    """Exported picks -> comparisons_<lang>.json, the length-free training set.
+
+    THE HALF THAT WAS MISSING. `build` has existed since 2026-08-03 and this
+    module's whole argument is that absolute per-clip ratings are confounded —
+    but nothing converted its answers into rows, so every comparison round ended
+    in a JSON file nobody could fit. Meanwhile refit kept training on the
+    absolute ratings this page was built to replace, and on 2026-08-13 that cost
+    a live objective change: segment length correlates -0.719 with qc_mos_min,
+    +0.854 with qc_mos, -0.304 with the rating itself, so a length proxy looked
+    like a quality signal (FINDINGS 2.1m).
+
+    WHAT MAKES THESE ROWS DIFFERENT. Every clip in a group is the SAME SENTENCE,
+    so duration, content and difficulty are constant WITHIN a group. A
+    comparison between siblings therefore cannot be explained by length. The
+    rows carry `group` so a fit can stay inside it; pooling them and running a
+    global correlation would throw that away and reintroduce exactly the
+    confound this page exists to remove.
+
+    Metrics are recomputed here from the ORIGINAL take (via the truth map)
+    rather than copied from anywhere, so a row always describes the audio that
+    was actually heard.
+    """
+    import json as _json
+    from qc import metrics as X
+    bo = wd / "bakeoff"
+    # `tag` must match the build. Without it a second page overwrote the
+    # first's truth map, and an ingest then silently matched an export against
+    # the WRONG un-blinding key — every pick would look "not in this build".
+    tp = bo / f"compare_{lang}{tag}_truth.json"
+    if not tp.exists():
+        avail = sorted(x.name for x in bo.glob(f"compare_{lang}*_truth.json"))
+        raise SystemExit(f"no truth map at {tp.name} — available: {avail}. "
+                         f"Pass the tag the page was built with.")
+    truth = _json.loads(tp.read_text(encoding="utf-8"))
+    picks = _json.loads(Path(export).read_text(encoding="utf-8"))
+    build_id = truth.get("_build")
+
+    # THE CALIBRATION BAND, and it is not optional. qc_sim_cal is what the
+    # production composite consumes; writing only the raw cosine leaves rows
+    # missing the feature refit needs, and refit's group filter drops them
+    # SILENTLY — the first ingest produced 72 rows that fitted nothing at all.
+    # blind.py records the same mistake in a different form (floor 0 /
+    # ceiling 1, so calibration was a silent no-op), which is why it computes
+    # the band explicitly and logs it. Same here.
+    from qc.evaluate import calibration
+    man = _json.loads((wd / "manifest.json").read_text(encoding="utf-8"))
+    cal = calibration(cfg, wd, man, lang)
+    floor, ceiling = float(cal["floor"]), float(cal["ceiling"])
+    log.info("sim band for %s: floor %.3f ceiling %.3f (ref %s)",
+             lang, floor, ceiling, cal["ref"])
+    ref = cfg["tts"]["reference_wav"]
+    anchor = X.ecapa_embed(ref) if Path(ref).exists() else None
+    rows, n_groups = [], 0
+    for gid, ans in sorted(picks.items()):
+        best = (ans or {}).get("best")
+        bad = set((ans or {}).get("bad") or [])
+        if not best and not bad:
+            continue                      # skipped block: a real answer, no data
+        members = {k: v for k, v in truth.items()
+                   if not k.startswith("_") and k.startswith(gid + "c")}
+        if best and best not in members:
+            log.warning("%s: pick %r is not in this build — stale export?",
+                        gid, best)
+            continue
+        n_groups += 1
+        for key, meta in sorted(members.items()):
+            w = bo / meta["path"]
+            if not w.exists():
+                continue
+            raw = X.cosine(anchor, X.ecapa_embed(str(w))) if anchor is not None \
+                else None
+            rows.append({
+                "video": wd.name, "lang": lang, "group": f"{gid}",
+                "id": f"{meta['seg']}:{meta['variant']}:{meta['take']}",
+                "seg": meta["seg"], "variant": meta["variant"],
+                "winner": key == best, "unusable": key in bad,
+                "qc_sim2": round(raw, 4) if raw is not None else None,
+                "qc_sim_cal": (round(X.calibrate_sim(raw, floor, ceiling), 4)
+                               if raw is not None else None),
+                "qc_mos": round(X.mos(str(w)), 4),
+                "qc_mos_min": round(X.mos_min_window(str(w)), 4),
+                "qc_f0st": round(X.f0_semitone_std(str(w)), 4),
+                "tempo": 1.0,           # bake-off takes are unstretched
+                "dur": round(_dur(w), 2),
+                "axis": truth.get("_axis", ""), "build": build_id,
+            })
+    out = Path(f"comparisons_{lang}.json")
+    prev = _json.loads(out.read_text(encoding="utf-8")) if out.exists() else []
+    # a re-export of the SAME build replaces that build's rows; other builds and
+    # other videos are untouched (verdicts learned this the expensive way)
+    keep = [r for r in prev
+            if not (r.get("build") == build_id and r.get("video") == wd.name)]
+    out.write_text(_json.dumps(keep + rows, ensure_ascii=False, indent=1),
+                   encoding="utf-8")
+    log.info("%d group(s), %d clip rows -> %s (%d total)",
+             n_groups, len(rows), out, len(keep) + len(rows))
+    return out

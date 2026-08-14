@@ -41,7 +41,7 @@ below was tried and failed, each for a different reason:
 | Detector: wav2vec2 phonemes | model does not transcribe vowel reduction | 2.1g |
 | Detector: MFA variant alignment | AUC 0.641, and the RUAccent oracle itself errs | 2.1h |
 | Selection: 5-take consensus | ANTI-correlated — prefers the systematic error | 2.1i, 2.1j |
-| Lexical avoidance from a human-marked table | **PARTIAL WIN** — 2-3 of 9 marked words | 2.1k |
+| Lexical avoidance from a human-marked table | **REFUTED by ear** — swaps domain terms; guard was inflection-blind | 2.1q |
 
 **The reason it is closed, and it is structural (§2.1j):** the errors are partly
 SYSTEMATIC. For some words qwen is reliably wrong, so the majority placement is
@@ -75,6 +75,7 @@ would reach 4 of 9 (§2.1k.6). Not the refuted U+0301 route (§2.1b/2.1bb).
 | `sim` as a quality predictor | noise in both languages, weight now 0 | 2.1e |
 | Mixed rating axes as refit's problem | refuted by permutation test | 2.1d |
 | "More ratings will fix refit" | no — the audio is uniformly good now | 2.0 |
+| **Re-fitting qc.eval.weights at all** | **72 length-free groups: every metric at chance** | **2.1p** |
 
 ### Method rules earned the hard way
 - **Compute the binomial before believing a small blind test.** A 2-of-3 has a
@@ -666,6 +667,260 @@ feature was trusted, not after it shipped.
 word marking on the review page for `STRESS_LANGS`, ingest into
 `stress_lexicon_<lang>.json` via `dubadabidu verdicts`, and
 `translation.avoid_mis_stressed` / `avoid_min_marks` in `config.yaml`.
+
+### 2.1m SEGMENT LENGTH confounds every metric except f0 — and it fooled me
+
+**CLAIM** (mine, 2026-08-11, acted on before it was checked) `qc_mos_min`
+predicts the listener where whole-take `qc_mos` does not, so the composite
+should read the windowed minimum. Evidence offered at the time: +0.226 vs
++0.005 on 140 rated rows, and the composite going from **-0.205 to +0.364**
+against 46 accept/reject verdicts. The switch was made and everything rescored.
+
+**EVIDENCE THAT IT WAS A CONFOUND** 2026-08-13, 46 rated ru segments, no pod.
+`mos_min_window` takes a MINIMUM over sliding windows, so a longer segment has
+more windows and a lower expected minimum by arithmetic alone:
+
+| | vs segment duration |
+|---|---|
+| `qc_mos_min` | **-0.719** |
+| `qc_mos` | **+0.854** |
+| `qc_sim_cal` | **+0.548** |
+| `qc_f0st` | **+0.018** |
+| the human RATING | **-0.304** (and **-0.500** vs accept/reject) |
+
+The listener rates long segments worse, so ANY length-correlated feature scores
+a respectable rank correlation without measuring quality. Within an 8-16 s band
+`qc_mos_min` vs rating **reverses to -0.276** (n=11).
+
+**CONFIRMED INDEPENDENTLY BY EAR, and this is what triggered the check.** The
+five worst-scoring segments across en/fr/es/de — every one with whole-take MOS
+4.5-4.7 and `mos_min` 1.5-2.3, i.e. the new metric claiming a glitch — were
+played blind: *"mostly sound clean, good quality."* The metric was flagging
+LENGTH, not defects.
+
+**VERDICT** **REFUTED.** Neither MOS variant measures quality here. Whole-take
+tracks length upward and so anti-correlates with the ear; the window tracks it
+downward and so appears to agree. The 2026-08-11 switch traded one length
+artefact for another with a more convenient sign. `f0st` is the only clean
+feature (+0.018 with duration, +0.247 with rating).
+
+**WHY IT SURVIVED THE GATES** the permutation test shuffles RATINGS, so it
+cannot break a relationship that runs through a third variable present on both
+sides. Five adoption gates passed a proposal built on this.
+
+**THE PROJECT ALREADY KNEW.** `qc/compare.py`'s header says it: *"An absolute
+score on differing content confounds two variables — how good the take is, and
+how hard that sentence was. A 1.4 s fragment and a 14.9 s sentence are not on
+the same scale."* It was built to remove exactly this and has never been used
+for a rating round. Its stated motivation — refit's cross-validated rho falling
+to +0.119 while in-sample reached +0.293 — is the same effect.
+
+**ENCODED** `qc.verdicts` now records `dur` on every row (the column whose
+absence made this uncheckable), and `refit` gained a
+`features measure quality, not length` gate that fails when any feature runs
+|rho| >= 0.45 against duration. It currently fails, correctly.
+
+**DO NOT** move the weights again on absolute per-segment ratings. The next
+rating round has to come from `qc/compare.py`, which holds the sentence
+constant. **NOT DONE:** the composite still reads `qc_mos_min` — reverting to
+`qc_mos` would restore a feature that is anti-correlated with the ear, so
+neither state is defensible and a third objective change on confounded data
+would repeat the mistake.
+
+### 2.1n First LENGTH-FREE measurement: mos is at chance, f0 is the only signal
+
+**CLAIM** With the sentence held constant (§2.1m), the metrics will finally show
+which one tracks the ear.
+
+**EVIDENCE** 2026-08-13, first `qc/compare.py` round ever ingested. 25 groups
+built from `qwen+fast+k5` — 3 takes of ONE config per sentence, so the only
+thing varying inside a group is the dice. 24 decided, 1 skipped. Statistic is
+winner agreement: does the metric's argmax equal the clip he picked. Chance is
+1/3.
+
+| picked by | agreement | p (one-sided binomial) |
+|---|---|---|
+| **`qc_f0st`** | **12/24 = 0.500** | **0.068** |
+| current composite | 11/24 = 0.458 | 0.140 |
+| `qc_mos` | 8/24 = 0.333 | 0.576 |
+| `qc_sim_cal` | 8/24 = 0.333 | 0.576 |
+| **`qc_mos_min`** | **7/24 = 0.292** | 0.737 |
+
+**VERDICT** **OPEN — nothing is significant at n=24, but the direction is
+clear.** `qc_mos_min` performs AT OR BELOW CHANCE once length is removed, which
+independently confirms §2.1m: the +0.226 it scored on absolute ratings was the
+length proxy, not quality. It currently carries **0.55 of the objective**.
+`qc_f0st` is the only feature above chance and the only one that was ever clean
+of duration (+0.018).
+
+**THE BEST FIT DOES NOT GENERALISE.** Grid search reaches 0.583 in-sample with
+`{sim 0.47, mos 0.09, f0 0.30}` but held-out agreement is **0.458 — identical to
+the incumbent**. The sim weight is overfitting 24 groups; sim alone sits exactly
+at chance.
+
+**WORTH NOTING ANYWAY:** sim's apparent ANTI-signal (§2.1e, -0.283, which sent
+its weight to 0.0) may itself be a length artefact — duration correlates +0.548
+with sim and -0.304 with the rating, which manufactures a negative. In the
+length-free data sim is merely useless, not harmful. Not enough to re-open 2.1e.
+
+**DO NOT MOVE THE WEIGHTS ON THIS.** 24 groups, nothing under p 0.05, and the
+one apparent gain is in-sample only. What it justifies is collecting more
+comparison groups — not a config edit.
+
+**COST OF MORE DATA** the page dropped 21 of 46 segments as under
+`MIN_SECONDS` 5.0. That floor is the listener's own ("especially when track up
+to five seconds") and applies to judging a clip at all, so lowering it buys
+groups of the kind he said he cannot judge. More videos, or more languages, is
+the honest route.
+
+**ENCODED** `qc/compare.py` gained the `ingest` it never had, `qc/refit.py`
+gained comparison mode (winner agreement, whole-group folds, chance printed
+beside), and `comparisons_ru.json` holds the first 72 rows.
+
+### 2.1o Reduction respelling: REFUSED on mechanism, before it cost anything
+
+**CLAIM** (mine, 2026-08-11, carried in 2.1k and 2.1n as "the last untested
+lever") Russian reduces unstressed vowels, so writing the reduction explicitly —
+`молоко` -> `малако`, `натюрморте` -> `натюрморти` — leaves the stressed vowel
+as the only unreduced one and encodes stress position in ordinary Cyrillic. Not
+the refuted diacritic route (2.1b/2.1bb): letters qwen was trained on.
+
+**EVIDENCE** Native-speaker judgement on sight, 2026-08-13 ("totally
+bullshit"), plus the mechanism below, which says the same thing for a reason
+that can be checked without a listener. No pod, no takes — the argument is the
+measurement here, and it is sufficient because it shows the route cannot carry
+the information it was supposed to carry.
+
+**THE ERROR IS A REVERSED INFERENCE.** 2.1g.2 measured that when qwen stresses
+an `о` it outputs `[o]` 89% of the time, and `[a]` when it does not. That is
+**stress -> spelling in the model's OUTPUT**. I read it as **spelling -> stress
+in its INPUT**, which does not follow. A Russian TTS applies reduction ITSELF,
+as a consequence of wherever it decides the stress falls. Give it `малако` and
+it does not learn where the stress is: it receives a non-word, picks a stress
+for that new letter sequence, and reduces around THAT. Nothing is constrained.
+It is not a cue, it is a misspelling — and out-of-distribution input to a model
+trained on correct orthography.
+
+**SAME SHAPE AS 2.1m**, three days apart: take a real correlation, assume the
+causal direction the plan needs, act. There it was `qc_mos_min` vs the listener
+(both tracking segment length); here it is spelling vs stress. The tell in both
+is that no mechanism was stated in the direction being relied on.
+
+**VERDICT** **REFUTED.** Implementation, config overlay and cache salt removed
+rather than retained-but-unwired: 2.1h keeps `qc/stress_mfa.py` because it was
+BUILT AND MEASURED and its negative is reproducible. This was never measured
+and there is nothing to reproduce — only an argument, which is what this entry
+is for.
+
+**COST** none. Caught before the pod run it was written for. That is the gate
+working: three arms were queued, one was removed on inspection.
+
+**WHAT IS STILL OPEN** lexical avoidance (2.1k) — untested by ear, and the only
+input-side lever left. Per-word engine control remains the real fix and remains
+absent (2.1c).
+
+### 2.1p CLOSED: no weighting of these metrics reproduces the ear
+
+**CLAIM** (AUTOPILOT M4, the flywheel's premise) Enough (rating, metric) pairs
+let `refit` derive weights that make `qc_score` agree with the listener, so the
+tune loop optimises a better target each cycle.
+
+**EVIDENCE** 2026-08-13, the first length-free measurement the project has ever
+had: 72 within-sentence comparison groups over three rounds, same sentence per
+group so duration and content are constant (§2.1m). Statistic is winner
+agreement — does the metric's argmax equal the clip he picked — which is
+literally what `synth_best_of` does. Chance 0.444.
+
+The rounds are reproducible from `config.exp.ru-control.yaml` (`variant_label:
+control`) and `config.exp.en-k3.yaml` (`en-k3`); the rated audio and the
+verdict files are `work/<video>/bakeoff/compare_{ru_control,en_k3,ru_k5b}.html`
+and their `_truth.json` siblings; the ingested pairs are `comparisons_ru.json`
+and `comparisons_en.json`. Recorded because both configs are otherwise
+cited by nothing and read as dead on a cleanup sweep — they are evidence.
+
+| picked by | agreement | p |
+|---|---|---|
+| `qc_f0st` | 39/72 = 0.542 | 0.062 |
+| `qc_mos_min` | 33/72 = 0.458 | 0.451 |
+| `qc_sim_cal` | 33/72 = 0.458 | 0.451 |
+| **current composite** | **33/72 = 0.458** | 0.451 |
+| `qc_mos` | 30/72 = 0.417 | 0.722 |
+
+**AND THE INTERIM RESULT REVERSED, which is the methodological point.** At 48
+groups the grid found `{sim 0.47, mos 0.04, f0 0.34}` at held-out 0.604 against
+chance 0.417, permutation p 0.020, and **all seven adoption gates passed —
+`refit` said ADOPT for the first time in the project's life.** Twenty-four more
+groups took the same fit to held-out 0.472, p 0.275, and a margin of +0.014
+against a 0.02 bar. The ADOPT was overfitting 48 groups. Nothing was applied.
+
+**VERDICT** **REFUTED, and this closes M4 as a route to a better objective.**
+Not "needs more ratings" — that is itself on the CLOSED list, and 72 clean
+groups is more evidence than any previous conclusion here rested on. The
+metrics available (Distill-MOS whole-take, its worst-3s window, ECAPA
+similarity, f0 variability) do not carry what this listener responds to when
+choosing between takes of one sentence.
+
+**CONSEQUENCE FOR THE WEIGHTS** they stay at `{sim 0.0, mos 0.55, f0 0.30,
+tempo 0.15}`. Not because that vector is right — it agrees with the ear at
+0.458 against a chance of 0.444, i.e. not at all — but because no reachable
+vector is better, and churning them again would move every stored score and
+both cut points for nothing. `qc_score` is a coarse health signal, not a
+quality ranking, and should be read as one.
+
+**WHAT THE RATING ROUNDS DID BUY, since the weights did not move:** the
+length confound (§2.1m), the qc_mos provenance split (blind.py writing the
+window into both columns), the positional-bias gate (§ this entry's en round),
+the stress lexicon and the avoidance feature built on it (§2.1k), and the
+refutation of reduction respelling (§2.1o). The flywheel's payload was wrong;
+its diagnostics were not.
+
+**WHAT WOULD REOPEN IT** a metric that hears what these do not — not more
+ratings against the same four. The listener's own summary, unprompted, is that
+ru and en quality are adequate and stress is the only defect left, which is
+consistent with every number above: the metrics agree with him at chance
+because there is little quality variation left for them to rank.
+
+### 2.1q Lexical avoidance: REFUTED BY EAR, and the guard was broken
+
+**CLAIM** (§2.1k) Routing translations around the words qwen mis-stresses is
+the one remediation needing no new capability anywhere.
+
+**EVIDENCE** 2026-08-13, dry run over the 46 ru segments, 12 rewrites, read as
+text by the native speaker. Verdict on the clearest example — `натюрморта
+хватит` -> `постановки достаточно` — was "total trash, it's totally different
+words." He is right: `натюрморт` is the course's own subject and `постановка`
+is a different term.
+
+**TWO MECHANISM FAILURES, not a tuning problem.**
+1. **The terminology guard was inflection-blind, in the direction that
+   mattered.** `натюрморт` IS in `terms_ru.json` as mandatory terminology. The
+   check asked `"натюрморте" in mandatory` — but the lexicon stores the
+   inflected form and the terms base the dictionary form, so the test looks for
+   the LONGER string inside the shorter one and always fails. It caught 1 of 9
+   words; a stem-prefix comparison catches 3 (`белилам`, `натюрморте`,
+   `цвета`). A third of the list was being rewritten despite being protected.
+2. **Where the guard DID fire, the model ignored it.** `цвета` was correctly
+   detected and the prompt says "terminology wins, KEEP IT". It came back as
+   `тона` anyway. Precedence stated in a prompt is a request, not a constraint.
+
+**VERDICT** **REFUTED.** `translation.avoid_mis_stressed` is now `false`.
+Turning it back on needs BOTH fixes — the guard is repaired, but the second
+failure is not fixable by prompting and would need the substitution applied
+deterministically in code rather than asked for.
+
+**RETAINED, not deleted:** the guard fix, `qc/avoidance_ab.py` and
+`config.exp.ru-avoided.yaml` stay, per the §2.1h rule — this was built and
+measured, and the negative should be reproducible. What is gone is the default.
+
+**THE LEXICON IS UNAFFECTED AND IS THE SURVIVING ARTEFACT.** 9 words, 13 marks,
+and the word-marking loop that produced them. Every remediation built on it has
+now failed — marks (2.1b), respelling (2.1o), avoidance (this) — but the table
+itself is the only per-word record of the defect that exists, and any future
+route starts from it.
+
+**WHAT IS LEFT** nothing on the input side. Per-word pronunciation control in
+the engine (§2.1c, absent) or a stress-aware cloning TTS. **ru ships with the
+defect**, which is where §2.1j left it and where it stays.
 
 ### 2.1c No zero-shot cloning TTS handles Russian stress (survey, 2026-08-09)
 

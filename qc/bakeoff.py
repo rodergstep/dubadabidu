@@ -449,7 +449,18 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             for u in subset:
                 if unavailable:   # tune-lite already proved it isn't installed
                     break
-                text = u["tr"][lang].get("fitted_text") or u["tr"][lang]["text"]
+                # bakeoff.text_variant selects an ALTERNATIVE translation
+                # stored alongside the shipped one (qc/avoidance_ab.py writes
+                # tr[lang].text_variants). Scoped to `bakeoff.` on purpose: a
+                # tts.* key would look like it changed what production
+                # synthesizes while only this loop read it, which is the exact
+                # shape of qc.eval.weights ranking nothing and tts.engine
+                # routing nothing. A segment with no such variant falls back to
+                # the shipped text, so an A/B covers only where they differ.
+                _tv = (cfg.get("bakeoff", {}) or {}).get("text_variant")
+                text = ((u["tr"][lang].get("text_variants") or {}).get(_tv)
+                        if _tv else None) \
+                    or u["tr"][lang].get("fitted_text") or u["tr"][lang]["text"]
                 # source speech slot: same text goes to every engine, so pace
                 # DIFFERENCES between engines isolate the engine's speaking rate
                 # (the shared translation-length bias cancels in the comparison).
@@ -563,12 +574,38 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         _write_reports(bo, video, lang, subset, merged,
                        _audio_on_disk(bo, lang, merged, subset), wd,
                        _ua_slice, merged_tuning, incumbent)
+        # A BAKE-OFF THAT MEASURED NOTHING IS NOT A SUCCESS. Every engine in
+        # THIS run being unavailable used to exit 0, so remote_run recorded
+        # ok=True and the ledger row for 2026-08-13 reads as a clean run —
+        # 11.6 min of billed bootstrap producing zero rows, indistinguishable
+        # from a good result until someone opened the scorecard. Earlier
+        # engines merged in from previous runs do not count: they are not
+        # evidence that THIS pod did anything.
+        if per_engine and all("unavailable" in v for v in per_engine.values()):
+            raise SystemExit(
+                f"bake-off measured NOTHING for {lang}: every engine in this "
+                f"run was unavailable — "
+                + "; ".join(f"{k}: {v['unavailable'][:80]}"
+                            for k, v in per_engine.items()))
 
 
 def _verdict(engine: str, stats: dict, inc: dict | None,
              incumbent: str = INCUMBENT) -> str:
     if "unavailable" in stats:
-        return "n/a (not installed)"
+        # SAY WHICH FAILURE. This used to read "n/a (not installed)" for every
+        # cause, and on 2026-08-13 that sent a diagnosis in exactly the wrong
+        # direction: the install had printed "qwen ok", the import worked, and
+        # what actually failed was the ~4 GB weights fetch ("An error happened
+        # while trying to locate the file on the Hub"). 11.6 minutes of
+        # bootstrap were spent to be told the package was missing when it was
+        # not. The reason is already captured — print it.
+        why = str(stats.get("unavailable") or "").strip()
+        low = why.lower()
+        if "hub" in low or "cache" in low or "connect" in low:
+            return f"n/a (weights download failed: {why[:60]})"
+        if "not importable" in low or "no module" in low:
+            return f"n/a (not installed: {why[:60]})"
+        return f"n/a ({why[:70]})" if why else "n/a (unavailable)"
     if engine == incumbent:
         return f"incumbent ({incumbent})"
     if not inc or "unavailable" in inc:

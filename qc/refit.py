@@ -38,7 +38,12 @@ from qc import metrics as X  # noqa: E402
 log = logging.getLogger("dubadabidu.qc.refit")
 
 # Features the composite consumes, and the row keys they come from.
-NEEDED = ("qc_sim_cal", "qc_mos", "qc_f0st")
+# qc_mos_min, not qc_mos: qc.evaluate feeds the WINDOWED MINIMUM into
+# composite_score since 2026-08-11, and this module exists to fit the real
+# production objective rather than a re-derivation of it. Convenient side
+# effect — qc_mos_min was written correctly by every page all along, so the
+# provenance split that made qc_mos unfittable does not apply to it.
+NEEDED = ("qc_sim_cal", "qc_mos_min", "qc_f0st")
 KEYS = ("sim", "mos", "f0", "tempo")
 # Reported alongside the fit: the raw per-feature correlations. These are the
 # diagnostic that drove the original hand-fit (mos +.63, f0 +.48, sim -.30) and
@@ -102,6 +107,129 @@ def simplex(step: float = 0.05, keys: tuple = KEYS) -> list[dict]:
 
 # ---------- fitting ----------
 
+def mos_provenance_warning(rows: list[dict]) -> str | None:
+    """Detect rows whose `qc_mos` is not the same METRIC as everyone else's.
+
+    qc/blind.py wrote `mos_min_window` into BOTH `qc_mos` and `qc_mos_min`
+    until 2026-08-11, while qc/evaluate writes whole-take MOS into the first
+    and the worst-3s window into the second. So a pooled file can hold two
+    different measurements under one column name, and refit fits on that
+    column. Measured on ratings_ru.json: review-page rows averaged 4.33 and
+    variant-page rows 2.59 — a 1.74 gap on a pooled sd of 0.91, entirely an
+    artefact of which page produced the row.
+
+    A fit across that is partly fitting PROVENANCE, which is the kind of
+    confound the permutation test cannot price in because it shuffles ratings,
+    not features. Cheap, structural tell: a row where qc_mos == qc_mos_min
+    exactly is almost certainly one of the collapsed ones (a genuine tie needs
+    the worst window to equal the whole-take mean).
+    """
+    both = [r for r in rows if "qc_mos" in r and "qc_mos_min" in r]
+    if len(both) < 10:
+        return None
+    # Prefer the EXPLICIT stamp. Value equality is only a fallback for rows
+    # written before the stamp existed, and it over-counts: mos_min_window
+    # falls back to mos() on clips shorter than its 3 s window, so 11 correct
+    # review-page rows tie legitimately and would be misread as collapsed.
+    if any("qc_mos_kind" in r for r in both):
+        collapsed = [r for r in both if r.get("qc_mos_kind") == "window_min"]
+    else:
+        collapsed = [r for r in both if abs(r["qc_mos"] - r["qc_mos_min"]) < 1e-9]
+    if not collapsed:
+        return None
+    frac = len(collapsed) / len(both)
+    if not 0.05 < frac < 0.95:      # all-or-nothing is at least self-consistent
+        return None
+    import statistics as st
+    a = [r["qc_mos"] for r in collapsed]
+    b = [r["qc_mos"] for r in both if r not in collapsed]
+    gap = abs(st.mean(a) - st.mean(b))
+    sd = st.pstdev([r["qc_mos"] for r in both]) or 1e-9
+    return (
+        f"MIXED qc_mos PROVENANCE: {len(collapsed)}/{len(both)} rows have "
+        f"qc_mos == qc_mos_min exactly, which is how qc/blind.py wrote rows "
+        f"before 2026-08-11 (the windowed minimum in both columns). Their "
+        f"qc_mos averages {st.mean(a):.2f} against {st.mean(b):.2f} for the "
+        f"rest — a {gap:.2f} gap on a pooled sd of {sd:.2f}. Fitting across "
+        f"them fits WHICH PAGE produced the row. Re-ingest those rows with a "
+        f"current qc/blind.py, or fit the two groups separately.")
+
+
+def length_confound_warning(rows: list[dict]) -> str | None:
+    """Features that mostly track SEGMENT LENGTH rather than quality.
+
+    Found the hard way on 2026-08-13, after a live objective change had already
+    been made on the strength of a correlation this explains away.
+
+    mos_min_window takes a MINIMUM over sliding windows, so a longer segment has
+    more windows and a lower expected minimum by arithmetic alone. Measured on
+    46 rated ru segments: duration vs qc_mos_min -0.719, vs qc_mos +0.854 (the
+    other way), vs qc_sim_cal +0.548. Only qc_f0st is clean at +0.018.
+
+    The listener also rates long segments worse — duration vs rating -0.304, and
+    -0.500 against accept/reject — so ANY length-correlated feature scores a
+    respectable rank correlation without measuring quality at all. qc_mos_min
+    read +0.226 that way; inside an 8-16 s band it reverses to -0.276.
+
+    qc/compare.py predicted exactly this in its header: "An absolute score on
+    differing content confounds two variables — how good the take is, and how
+    hard that sentence was. A 1.4 s fragment and a 14.9 s sentence are not on
+    the same scale." That page exists to remove the confound and has never been
+    used for a rating round.
+    """
+    have = [r for r in rows if isinstance(r.get("dur"), (int, float))]
+    if len(have) < 20:
+        return None
+    dur = [r["dur"] for r in have]
+    rat = [r["rating"] for r in have]
+    hits = []
+    for key, feat in (("qc_mos_min", "mos"), ("qc_mos", "mos"),
+                      ("qc_sim_cal", "sim"), ("qc_f0st", "f0")):
+        vals = [r.get(key) for r in have]
+        if any(v is None for v in vals):
+            continue
+        rho_d = spearman(dur, vals)
+        if abs(rho_d) >= 0.45:
+            hits.append(f"{key} {rho_d:+.2f}")
+    if not hits:
+        return None
+    return (
+        f"LENGTH CONFOUND: {', '.join(hits)} vs segment duration, while the "
+        f"ratings themselves run {spearman(dur, rat):+.2f} with duration. A "
+        f"feature that tracks length will appear to predict the listener "
+        f"without measuring quality. Weights fitted here encode 'this segment "
+        f"is long', not 'this segment is bad' — use qc/compare.py, which holds "
+        f"the sentence constant, before trusting a proposal.")
+
+
+def constant_terms(rows: list[dict], max_tempo: float) -> list[str]:
+    """Weight keys whose TERM has no variance across `rows`.
+
+    A weight on such a term is UNIDENTIFIABLE: it cannot change any row's
+    ranking, so Spearman is flat along that axis and the search returns an
+    arbitrary point on a tie. It is not harmless. On the real ru file every row
+    has tempo 1.0, so tempo_penalty is 0 everywhere and the grid happily
+    returned `{sim: 0, mos: 0, f0: 0.05, tempo: 0.95}` — which is not "tempo
+    matters most", it is "0.95 of the budget parked where it does nothing so f0
+    can have the rest". Spearman is scale-invariant, so that ties with
+    `{f0: 1.0}` and the tie-break picked whichever looked least committed.
+
+    Pasting that into config would set a REAL 0.95 stretch penalty for the
+    first segment that ever gets time-stretched — and, because `tempo` is also
+    read as the pace-match reward in tts_engine._take_rank, would silently
+    re-weight take selection too.
+    """
+    if len(rows) < 3:
+        return []
+    terms = {
+        "sim": [r["qc_sim_cal"] for r in rows],
+        "mos": [(r["qc_mos_min"] - 1.0) / 4.0 for r in rows],
+        "f0": [min(1.0, r["qc_f0st"] / 4.0) for r in rows],
+        "tempo": [X.tempo_penalty(r.get("tempo", 1.0), max_tempo) for r in rows],
+    }
+    return [k for k, v in terms.items() if max(v) - min(v) < 1e-9]
+
+
 def usable(rows: list[dict]) -> list[dict]:
     """Rows that can train: a human rating plus every feature the composite
     needs. Sorted deterministically so folds (and reruns) are reproducible."""
@@ -115,7 +243,7 @@ def predict(row: dict, w: dict, max_tempo: float) -> float:
     """qc_score for this row under weights `w` — through the production
     composite, so a proposal means in production exactly what it means here."""
     return X.composite_score(
-        row["qc_sim_cal"], row["qc_mos"],
+        row["qc_sim_cal"], row["qc_mos_min"],
         X.tempo_penalty(row.get("tempo", 1.0), max_tempo), w, row["qc_f0st"])
 
 
@@ -124,12 +252,25 @@ def rho_of(rows: list[dict], w: dict, max_tempo: float) -> float:
                     [r["rating"] for r in rows])
 
 
-def fit(rows: list[dict], max_tempo: float, step: float = 0.05) -> tuple:
+def fit(rows: list[dict], max_tempo: float, step: float = 0.05,
+        hold: dict | None = None) -> tuple:
     """Best weights on `rows` by Spearman. Ties break toward the SMALLEST
     change from a balanced weighting, so a flat objective (common at small n)
-    doesn't return an arbitrary extreme point."""
+    doesn't return an arbitrary extreme point.
+
+    `hold` pins weights the data cannot identify (see constant_terms) at their
+    incumbent values and searches only the rest, rescaled to the remaining
+    budget so the total still sums to 1. Searching an axis the objective is
+    flat along does not find a better fit — it finds an arbitrary point on a
+    tie, and on the real ru file that was 0.95 parked on `tempo` purely so f0
+    could take the remainder.
+    """
+    hold = hold or {}
+    free = tuple(k for k in KEYS if k not in hold)
+    budget = max(0.0, 1.0 - sum(hold.values()))
     best, best_rho = None, -2.0
-    for w in simplex(step):
+    for part in simplex(step, free):
+        w = {**hold, **{k: round(v * budget, 4) for k, v in part.items()}}
         r = rho_of(rows, w, max_tempo)
         if r > best_rho or (r == best_rho and best is not None
                             and _spread(w) < _spread(best)):
@@ -145,7 +286,8 @@ def _spread(w: dict) -> float:
 
 
 def cv_rho(rows: list[dict], max_tempo: float, k: int = 5,
-           step: float = 0.05, fixed: dict | None = None) -> float:
+           step: float = 0.05, fixed: dict | None = None,
+           hold: dict | None = None) -> float:
     """Cross-validated Spearman. Predictions from every held-out fold are
     POOLED and ranked together — per-fold correlations on 5-10 points are far
     too noisy to average.
@@ -160,7 +302,7 @@ def cv_rho(rows: list[dict], max_tempo: float, k: int = 5,
         train = [r for i, r in enumerate(rows) if i % k != f]
         if not test or (fixed is None and len(train) < 3):
             continue
-        w = fixed or fit(train, max_tempo, step)[0]
+        w = fixed or fit(train, max_tempo, step, hold)[0]
         preds += [predict(r, w, max_tempo) for r in test]
         actual += [r["rating"] for r in test]
     return spearman(preds, actual)
@@ -168,7 +310,7 @@ def cv_rho(rows: list[dict], max_tempo: float, k: int = 5,
 
 def permutation_p(rows: list[dict], max_tempo: float, observed: float,
                   k: int = 5, step: float = 0.05, n_perm: int = 50,
-                  seed: int = 0) -> float:
+                  seed: int = 0, hold: dict | None = None) -> float:
     """How often the SAME fit-and-cross-validate procedure reaches `observed`
     on shuffled ratings. This is the gate that matters at these sample sizes.
 
@@ -195,7 +337,7 @@ def permutation_p(rows: list[dict], max_tempo: float, observed: float,
         shuffled = ratings[:]
         rnd.shuffle(shuffled)
         perm = [{**r, "rating": s} for r, s in zip(rows, shuffled)]
-        if cv_rho(perm, max_tempo, k, step) >= observed:
+        if cv_rho(perm, max_tempo, k, step, hold=hold) >= observed:
             hits += 1
     return (hits + 1) / (n_perm + 1)
 
@@ -266,8 +408,64 @@ def run(cfg: dict, langs: list[str]) -> int:
         elif vals:
             print(f"    {f:12} {'—':>6}  ({len(rows) - len(vals)} rows lack it)")
 
+    # DIAGNOSTIC ONLY since the switch to qc_mos_min. qc_mos still carries the
+    # blind.py split, and it is worth saying so because it is printed in the
+    # per-feature table above — but the fit no longer reads that column, so it
+    # must neither gate adoption nor drop rows. qc_mos_min was written the same
+    # way by every page all along, which is why the 20 rows that could not be
+    # repaired are usable again.
+    lenwarn = length_confound_warning(rows)
+    if lenwarn:
+        print(f"\n  !! {lenwarn}")
+    fits_qc_mos = "qc_mos" in NEEDED
+    warn = mos_provenance_warning(rows)
+    if warn:
+        print(f"\n  !! {warn}")
+        print("     (diagnostic only — the fit reads qc_mos_min, which every "
+              "page wrote the same way)" if not fits_qc_mos else "")
+
+    groups = group_rows(load_comparisons(langs), warn=True)
+    if groups:
+        posw = positional_bias_warning(groups)
+        if posw:
+            print(f"\n  !! {posw}")
+        ch = chance_rate(groups)
+        hold_c = {kk: float(cur.get(kk, 0.0))
+                  for kk in constant_terms([r for g in groups for r in g],
+                                           max_tempo)}
+        cur_acc = winner_agreement(groups, cur, max_tempo)
+        best_c, best_acc = fit_comparisons(groups, max_tempo, step, hold_c)
+        cv_c = cv_agreement(groups, max_tempo, k, step, hold=hold_c)
+        cv_cur_c = cv_agreement(groups, max_tempo, k, step, fixed=cur)
+        print(f"\n  === WITHIN-SENTENCE COMPARISONS ({len(groups)} groups) ===")
+        print(f"  Every clip in a group is the same sentence, so length and "
+              f"content are constant\n  and the confound in FINDINGS 2.1m "
+              f"cannot occur. This is the trustworthy half.")
+        print(f"    chance (mean 1/k)      {ch:.3f}")
+        print(f"    current weights        {cur_acc:.3f}  (held-out {cv_cur_c:.3f})")
+        print(f"    best fit {best_c}")
+        print(f"                           {best_acc:.3f}  (held-out {cv_c:.3f})")
+        if cv_c <= ch:
+            print("    -> held-out agreement is AT OR BELOW CHANCE: no weighting "
+                  "of these metrics\n       reproduces the ear on this data.")
+        # THE GATES JUDGE THIS, not the absolute ratings, whenever it exists.
+        # Until 2026-08-13 they read the Spearman on per-segment ratings — the
+        # data FINDINGS 2.1m showed is length-confounded — while the
+        # length-free measurement was printed above them and ignored. Deciding
+        # adoption on the confounded half while displaying the clean one is the
+        # same shape as qc.eval.weights ranking nothing for weeks.
+        cmp_p = permutation_p_comparisons(groups, cv_c, k, step, n_perm,
+                                          hold=hold_c)
+        print(f"    permutation ({n_perm} shuffles of the winner within each "
+              f"group): p={cmp_p:.3f}")
+    else:
+        print("\n  (no within-sentence comparisons yet — build a page with "
+              "qc.compare and\n   ingest it. Absolute per-segment ratings are "
+              "length-confounded, FINDINGS 2.1m.)")
+
     cur_rho = rho_of(rows, cur, max_tempo)
-    print(f"\n  current weights {cur} -> Spearman {cur_rho:+.3f}")
+    print(f"\n  === ABSOLUTE PER-SEGMENT RATINGS (length-confounded) ===")
+    print(f"  current weights {cur} -> Spearman {cur_rho:+.3f}")
 
     if len(rows) < min_rows:
         print(f"\n  !! REFUSING to propose weights: {len(rows)} ratings < "
@@ -277,28 +475,97 @@ def run(cfg: dict, langs: list[str]) -> int:
               f"still informative — keep rating segments and re-run.")
         return 1
 
-    best, best_rho = fit(rows, max_tempo, step)
-    cv_new = cv_rho(rows, max_tempo, k, step)
+    flat = constant_terms(rows, max_tempo)
+    if flat:
+        print(f"\n  !! UNIDENTIFIABLE TERMS: {', '.join(flat)} — every row has "
+              f"the same value, so the objective is FLAT along "
+              f"{'those axes' if len(flat) > 1 else 'that axis'} and any weight "
+              f"there is an arbitrary point on a tie. Weight parked on a "
+              f"constant term is not evidence it matters; it is budget removed "
+              f"from the terms that do.")
+
+    hold = {kk: float(cur.get(kk, 0.0)) for kk in flat}
+    best, best_rho = fit(rows, max_tempo, step, hold)
+    cv_new = cv_rho(rows, max_tempo, k, step, hold=hold)
     cv_cur = cv_rho(rows, max_tempo, k, step, fixed=cur)
-    print(f"  best-fit weights {best} -> Spearman {best_rho:+.3f} (in-sample)")
+    parked = sum(best.get(kk, 0.0) for kk in flat)
+    moved = sum(abs(best.get(kk, 0.0) - float(cur.get(kk, 0.0))) for kk in flat)
+    note = (f"   <- {parked:.2f} of this is {'/'.join(flat)}, HELD at the "
+            f"incumbent value because this data cannot fit it"
+            if parked > 1e-9 else "")
+    print(f"  best-fit weights {best} -> Spearman {best_rho:+.3f} (in-sample)"
+          + note)
     print(f"\n  {k}-fold cross-validated:")
     print(f"    current  {cv_cur:+.3f}")
     print(f"    proposed {cv_new:+.3f}   (delta {cv_new - cv_cur:+.3f})")
 
     print(f"\n  permutation test ({n_perm} shuffles, ~{n_perm // 25 or 1}x the "
           f"time of one fit) ...", flush=True)
-    p = permutation_p(rows, max_tempo, cv_new, k, step, n_perm)
+    p = permutation_p(rows, max_tempo, cv_new, k, step, n_perm, hold=hold)
 
     # Three independent gates, ALL required. Any one alone is defeatable:
     # a high CV rho can be luck, a low p can accompany a useless-but-consistent
     # objective, and beating the incumbent is confounded (see permutation_p).
+    if groups:
+        # comparison mode: the length-free measurement decides
+        _tracks = (cv_c > ch, f"held-out agreement {cv_c:.3f} > chance {ch:.3f}")
+        _chance = (cmp_p <= max_p,
+                   f"within-group permutation p {cmp_p:.3f} <= {max_p}")
+        _beats = (cv_c - cur_acc >= margin,
+                  f"held-out {cv_c:.3f} vs incumbent {cur_acc:.3f} "
+                  f"(delta {cv_c - cur_acc:+.3f} >= {margin})")
+        _best = best_c
+    else:
+        _tracks = (cv_new >= min_rho, f"cross-validated rho {cv_new:+.3f} >= {min_rho}")
+        _chance = (p <= max_p, f"permutation p {p:.3f} <= {max_p} ({n_perm} shuffles)")
+        _beats = (cv_new - cv_cur >= margin, f"delta {cv_new - cv_cur:+.3f} >= {margin}")
+        _best = best
     gates = [
-        ("tracks your ear", cv_new >= min_rho,
-         f"cross-validated rho {cv_new:+.3f} >= {min_rho}"),
-        ("not chance", p <= max_p,
-         f"permutation p {p:.3f} <= {max_p} ({n_perm} shuffles)"),
-        ("beats incumbent", cv_new - cv_cur >= margin,
-         f"delta {cv_new - cv_cur:+.3f} >= {margin}"),
+        ("tracks your ear", *_tracks),
+        ("not chance", *_chance),
+        ("beats incumbent", *_beats),
+        # A FOURTH GATE, and it is not optional. The permutation test shuffles
+        # RATINGS, so it prices in a spurious rating-feature relationship but
+        # is blind to a feature column that holds two different measurements.
+        # Adopting weights fitted across mixed provenance would encode "which
+        # page rated this" into the production objective.
+        ("fitted mos is one metric", warn is None or not fits_qc_mos,
+         "qc_mos_min: written identically by every page"
+         if not fits_qc_mos else
+         ("all rows measure qc_mos the same way" if warn is None
+          else "mixed provenance — see the warning above")),
+        # Adopting weight on a term the data cannot identify writes a number
+        # into config that was never measured — and `tempo` in particular is
+        # read by BOTH composite_score (as a stretch penalty) and
+        # tts_engine._take_rank (as a pace-match reward), so it would move take
+        # selection on no evidence at all.
+        # The check is that a constant term was HELD at its incumbent value,
+        # not that it is near zero: holding is the correct treatment, and
+        # `tempo` legitimately keeps its 0.15. What must never happen is the
+        # search MOVING it, because a move there is an arbitrary point on a tie.
+        # A length-confounded feature will sail through the permutation test:
+        # shuffling ratings cannot break a relationship that runs through a
+        # third variable present in both.
+        # A positionally-biased round has no signal to fit, so a weighting
+        # that "wins" on it won something meaningless.
+        ("picks track sound, not slot", posw is None if groups else True,
+         "no positional skew in the comparison rounds"
+         if (not groups or posw is None)
+         else "see the positional-bias warning above"),
+        # Scoped to the data being FITTED. In comparison mode every clip in a
+        # group is the same sentence, so duration is constant within the group
+        # and cannot explain a pick — that is the entire reason the page
+        # exists. Applying the absolute-ratings confound check to a
+        # comparison fit blocks it for a problem it structurally does not have.
+        ("features measure quality, not length",
+         lenwarn is None or bool(groups),
+         "within-sentence: duration is constant inside every group"
+         if groups else
+         ("no feature tracks segment duration" if lenwarn is None
+          else "see the length-confound warning above")),
+        ("weights are identifiable", moved <= 1e-9,
+         "constant terms held at their incumbent values" if moved <= 1e-9
+         else f"the fit moved {'/'.join(flat)} by {moved:.2f} on flat data"),
     ]
     print("\n  adoption gates:")
     for label, ok, detail in gates:
@@ -316,9 +583,189 @@ def run(cfg: dict, langs: list[str]) -> int:
     print("```yaml")
     print("qc:")
     print("  eval:")
-    print("    weights: {" + ", ".join(f"{k2}: {best[k2]:.2f}"
+    print("    weights: {" + ", ".join(f"{k2}: {_best[k2]:.2f}"
                                        for k2 in KEYS) + "}")
     print("```")
     print("  Then re-score every video, so old and new scores are never "
           "compared:\n    dubadabidu evaluate <each video>")
     return 0
+
+
+# ---------- comparison mode: the length-free objective ----------
+
+def load_comparisons(langs: list[str]) -> list[dict]:
+    """Rows written by qc.compare.ingest, grouped by sentence."""
+    out = []
+    for lang in langs:
+        p = Path(f"comparisons_{lang}.json")
+        if not p.exists():
+            continue
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            raise SystemExit(f"{p} is not valid JSON ({e}).")
+        for r in data:
+            r.setdefault("lang", lang)
+        out += data
+    return out
+
+
+def group_rows(rows: list[dict], warn: bool = False) -> list[list[dict]]:
+    """[[clips of one sentence], ...] — only groups with a marked winner.
+
+    `warn` reports rows dropped for missing features instead of discarding them
+    quietly. The first comparison ingest wrote 72 rows with no `qc_sim_cal`, and
+    this filter swallowed every one — refit printed "no within-sentence
+    comparisons yet" over a file that had just been written.
+    """
+    missing = 0
+    by: dict[tuple, list[dict]] = {}
+    for r in rows:
+        if not all(k in r and r[k] is not None for k in NEEDED):
+            missing += 1
+            continue
+        if True:
+            by.setdefault((r.get("video"), r.get("lang"), r.get("build"),
+                           r.get("group")), []).append(r)
+    if warn and missing:
+        print(f"  !! {missing} comparison row(s) dropped for missing "
+              f"{'/'.join(NEEDED)} — re-ingest with a current qc/compare.py")
+    return [g for g in by.values() if len(g) >= 2 and any(x.get("winner") for x in g)]
+
+
+def winner_agreement(groups: list[list[dict]], w: dict,
+                     max_tempo: float) -> float:
+    """How often the objective's top-scoring clip IS the one the ear picked.
+
+    THE RIGHT STATISTIC FOR THIS DATA, and not a Spearman. Every clip in a group
+    is the same sentence, so the comparison is free of the length/difficulty
+    confound that invalidated the absolute-rating fit (FINDINGS 2.1m) — but only
+    if the fit stays INSIDE the group. Pooling the clips and correlating
+    globally would put the between-sentence variance straight back in.
+
+    It is also the production question stated exactly: tts_engine.synth_best_of
+    ships `max(pool, key=_take_rank)`, so "does the argmax match the human's
+    pick" is what take selection actually does, not a proxy for it. Chance is
+    1/k per group, reported alongside so a number can be read.
+    """
+    if not groups:
+        return 0.0
+    hit = 0
+    for g in groups:
+        top = max(g, key=lambda r: predict(r, w, max_tempo))
+        hit += bool(top.get("winner"))
+    return round(hit / len(groups), 4)
+
+
+def chance_rate(groups: list[list[dict]]) -> float:
+    """Mean 1/k over groups — the score a coin flip gets on this exact set."""
+    if not groups:
+        return 0.0
+    return round(sum(1.0 / len(g) for g in groups) / len(groups), 4)
+
+
+def fit_comparisons(groups: list[list[dict]], max_tempo: float,
+                    step: float = 0.05, hold: dict | None = None) -> tuple:
+    """Weights maximising winner agreement. Ties break least-committed, as fit()."""
+    hold = hold or {}
+    free = tuple(k for k in KEYS if k not in hold)
+    budget = max(0.0, 1.0 - sum(hold.values()))
+    best, best_acc = None, -1.0
+    for part in simplex(step, free):
+        cand = {**hold, **{k: round(v * budget, 4) for k, v in part.items()}}
+        acc = winner_agreement(groups, cand, max_tempo)
+        if acc > best_acc or (acc == best_acc and best is not None
+                              and _spread(cand) < _spread(best)):
+            best, best_acc = cand, acc
+    return best, best_acc
+
+
+def cv_agreement(groups: list[list[dict]], max_tempo: float, k: int = 5,
+                 step: float = 0.05, fixed: dict | None = None,
+                 hold: dict | None = None) -> float:
+    """Held-out winner agreement. Folds are whole GROUPS — splitting a sentence
+    across folds would leak its answer into training."""
+    hit = tot = 0
+    for f in range(k):
+        test = [g for i, g in enumerate(groups) if i % k == f]
+        train = [g for i, g in enumerate(groups) if i % k != f]
+        if not test or (fixed is None and len(train) < 3):
+            continue
+        w = fixed or fit_comparisons(train, max_tempo, step, hold)[0]
+        for g in test:
+            top = max(g, key=lambda r: predict(r, w, max_tempo))
+            hit += bool(top.get("winner"))
+            tot += 1
+    return round(hit / tot, 4) if tot else 0.0
+
+
+def positional_bias_warning(groups: list[list[dict]]) -> str | None:
+    """Detect a round where picks track SLOT rather than sound.
+
+    Clips are shuffled per group, so a listener who can genuinely hear a
+    difference picks slots at chance. One slot winning far more often means the
+    picks are being made on something other than the audio — most often "I
+    cannot tell them apart, so take the last one I played", a recency effect.
+
+    Measured 2026-08-13 on the first en round: slot 2 won 12 of 22 against a
+    chance of 7.3, p=0.033, and the listener said unprompted that "all tracks
+    [are] nearly on the same Quality Level". The ru round of the same day showed
+    no such skew (15/24 on a 2-way, p=0.154).
+
+    THIS IS NOT A METRIC RESULT. Because the shuffle is per group, always
+    picking slot 2 selects a RANDOM take each time, so the round carries no
+    quality signal for any metric to agree or disagree with. Fitting on it
+    would read as "no metric predicts the ear" when the truth is "there was
+    nothing to predict" — a null about the AUDIO being uniform, not about the
+    metrics being wrong.
+    """
+    import math
+    from collections import Counter
+    picks = []
+    for g in groups:
+        idx = [i for i, r in enumerate(g) if r.get("winner")]
+        if len(idx) == 1:
+            picks.append((idx[0], len(g)))
+    if len(picks) < 10:
+        return None
+    n = len(picks)
+    k = round(sum(sz for _, sz in picks) / n)
+    if k < 2:
+        return None
+    c = Counter(i for i, _ in picks)
+    slot, hits = c.most_common(1)[0]
+    p = sum(math.comb(n, j) * (1/k)**j * (1-1/k)**(n-j) for j in range(hits, n+1))
+    if p > 0.05:
+        return None
+    return (
+        f"POSITIONAL BIAS: slot {slot} won {hits} of {n} picks against a chance "
+        f"of {n/k:.1f} (p={p:.3f}). Clips are shuffled per group, so a slot "
+        f"preference means the picks were not made on the audio — usually "
+        f"\"they sound the same, take the last one\". This round carries NO "
+        f"quality signal, so any agreement score on it measures nothing. It is "
+        f"a null about the takes being uniform, not about the metrics.")
+
+
+def permutation_p_comparisons(groups: list[list[dict]], observed: float,
+                              k: int = 5, step: float = 0.05,
+                              n_perm: int = 50, seed: int = 0,
+                              hold: dict | None = None) -> float:
+    """How often the same fit-and-cross-validate reaches `observed` when the
+    WINNER is reassigned at random inside each group.
+
+    Shuffling within the group is the right null here: it destroys the link
+    between metrics and the pick while preserving group sizes, which is what
+    chance_rate is computed from. Shuffling across groups would also scramble
+    which sentence a clip belongs to and test a different question.
+    """
+    import random
+    rnd = random.Random(seed)
+    hits = 0
+    for _ in range(n_perm):
+        perm = []
+        for g in groups:
+            win = rnd.randrange(len(g))
+            perm.append([{**r, "winner": i == win} for i, r in enumerate(g)])
+        if cv_agreement(perm, 1.12, k, step, hold=hold) >= observed:
+            hits += 1
+    return (hits + 1) / (n_perm + 1)
