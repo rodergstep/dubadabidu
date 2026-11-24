@@ -300,38 +300,59 @@ def report(cfg: dict, video: str) -> None:
               f"\n     Re-score:  dubadabidu qc {video}")
 
 
-def _remote_stages(a) -> str | None:
-    """--from/--to forwarded to the POD-side command. Without this the pod ran
-    the whole pipeline every time, including stages that need no GPU — and
-    translation, which is API-latency-bound, so the pod billed while waiting on
-    DeepSeek. Returns None to keep the previous whole-pipeline default."""
+POD_FIRST, POD_LAST = "s4_synthesize", "s5_fit"
+
+
+def _remote_plan(a) -> tuple[list[str], list[str], list[str]]:
+    """Split `remote run`'s --from/--to range into (local before, POD, local
+    after). Only s4 needs a GPU (s5 rides along: it is cheap and its input is
+    on the pod), so the pod gets at most s4..s5 and the laptop does the rest:
+
+      before: s3 translation — API-latency-bound, so on the pod it billed GPU
+              time while waiting on DeepSeek. Untouched --from starts HERE,
+              not at s1: s2 has no cache and always re-transcribes, which
+              discards every translation and synth state (2026-11-24: the
+              pod re-ran s2 on a cached video and crashed in faster-whisper).
+              An explicit --from s1/s2 still runs them, locally, where the
+              source video lives.
+      after:  s6 mix (its mastering chain needs the [master] extra no pod
+              installs — a full run died there 2026-08-09), s7 subtitles and
+              s8 mux (needs the source video, which never uploads).
+    """
+    frm = getattr(a, "from_stage", "s1_extract")
+    to = getattr(a, "to_stage", "s8_mux")
+    if frm == "s1_extract":
+        frm = "s3_translate"
+    i, j = ORDER.index(frm), ORDER.index(to)
+    rng = ORDER[i:j + 1]
+    p0, p1 = ORDER.index(POD_FIRST), ORDER.index(POD_LAST)
+    before = [s for s in rng if ORDER.index(s) < p0]
+    pod = [s for s in rng if p0 <= ORDER.index(s) <= p1]
+    after = [s for s in rng if ORDER.index(s) > p1]
+    return before, pod, after
+
+
+def _remote_stages(a) -> str:
+    """--from/--to for the POD-side command: the pod slice of _remote_plan.
+    Without this the pod ran the whole pipeline every time."""
     # dest names are from_stage / to_stage — NOT "from"/"to". Reading the wrong
     # attribute returned None for both, so the pod silently fell back to the
     # whole pipeline, ran s1/s2, and died on the input video that is
     # deliberately never uploaded. It cost a provisioned pod to find out.
-    # Defaults are real values ("s1_extract" / "s8_mux"), not None, so "did the
-    # user narrow this?" means comparing against them.
-    parts = []
-    if getattr(a, "from_stage", "s1_extract") != "s1_extract":
-        parts.append(f"--from {a.from_stage}")
-    to = getattr(a, "to_stage", "s8_mux")
-    # THE POD STOPS AT s5. It used to stop at s7, on the reasoning that only the
-    # MUX needs the source video — true, but it is the wrong cut. s4 is the only
-    # stage that needs a GPU. s6 (mix) and s7 (subtitles) are CPU work on files
-    # that already live in work/ and sync both ways, so running them on the pod
-    # billed rented time for something the laptop does free.
-    # It also broke a run, 2026-08-09: s6's mastering chain imports pedalboard,
-    # which is the opt-in [master] extra (GPLv3, deliberately not in the default
-    # install) and therefore absent from every pod, which installs `.[dev]`. All
-    # five languages synthesized and fitted, then the task exited rc=1 in s6 —
-    # a full GPU run reported as a failure over a stage that had no business
-    # being there. Finishing locally with `--from s6_mix` cost nothing.
-    # The alternative fix — install pedalboard on the pod — would have paid to
-    # move a GPL dependency onto rented hardware to do CPU work slower.
-    # An explicit --to still wins, so `--to s7_subtitles` reproduces the old
-    # behaviour when a pod genuinely needs to carry further.
-    parts.append(f"--to {to if to != 's8_mux' else 's5_fit'}")
-    return " ".join(parts)
+    _before, pod, _after = _remote_plan(a)
+    if not pod:
+        return ""
+    return f"--from {pod[0]} --to {pod[-1]}"
+
+
+def _run_local(cfg: dict, video: str, langs: list[str],
+               stages: list[str]) -> None:
+    for name in stages:
+        logging.info("[local] %s", name)
+        try:
+            STAGES[name](cfg, video, langs)
+        except subprocess.CalledProcessError as e:
+            sys.exit(f"[{name}] external command failed: {e}")
 
 
 def main() -> None:
@@ -520,6 +541,21 @@ def main() -> None:
         vids = a.rest[1:]
         if not vids:
             ap.error(f"remote {task} needs a video path")
+        if task == "run":
+            # local s3 -> pod s4..s5 -> local s6..s8, one command (_remote_plan)
+            before, pod, after = _remote_plan(a)
+            ok = True
+            for v in vids:
+                _run_local(cfg, v, langs, before)
+                if pod and not rpi.remote_run(
+                        cfg, v, langs, task, a.budget,
+                        keep_alive=a.keep_alive, reuse=a.reuse,
+                        overlays=a.overlay or [],
+                        stages=f"--from {pod[0]} --to {pod[-1]}"):
+                    ok = False
+                    continue
+                _run_local(cfg, v, langs, after)
+            sys.exit(0 if ok else 1)
         ok = all(rpi.remote_run(cfg, v, langs, task, a.budget,
                                 keep_alive=a.keep_alive,
                                 reuse=a.reuse,

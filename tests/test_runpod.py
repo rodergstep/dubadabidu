@@ -324,11 +324,43 @@ def test_remote_stages_reads_the_real_argparse_dests():
     # installed on a pod) failed a run in which all five languages had already
     # synthesized and fitted successfully.
     default = argparse.Namespace(from_stage="s1_extract", to_stage="s8_mux")
-    assert _remote_stages(default) == "--to s5_fit"
-    # an explicit --to still wins, so a pod can be made to carry further
+    assert _remote_stages(default) == "--from s4_synthesize --to s5_fit"
+    # a later --to cannot drag the pod past s5: s6..s8 run locally instead
     further = argparse.Namespace(from_stage="s1_extract",
                                  to_stage="s7_subtitles")
-    assert _remote_stages(further) == "--to s7_subtitles"
+    assert _remote_stages(further) == "--from s4_synthesize --to s5_fit"
+
+
+def test_remote_plan_translates_locally_and_finishes_locally():
+    """2026-11-24: `remote run` with untouched flags re-ran s2 ON THE POD
+    (s2 has no cache: it discards every translation) and crashed there; and
+    the local follow-up muxed without s6, i.e. stale dub_<lang>.m4a files.
+    The plan is now local s3 -> pod s4..s5 -> local s6..s8."""
+    import argparse
+    from dub import _remote_plan
+    before, pod, after = _remote_plan(
+        argparse.Namespace(from_stage="s1_extract", to_stage="s8_mux"))
+    assert before == ["s3_translate"]
+    assert pod == ["s4_synthesize", "s5_fit"]
+    assert after == ["s6_mix", "s7_subtitles", "s8_mux"]
+    # an explicit --from s2 is honoured, locally
+    before, pod, _ = _remote_plan(
+        argparse.Namespace(from_stage="s2_transcribe", to_stage="s8_mux"))
+    assert before == ["s2_transcribe", "s3_translate"]
+    # nothing for the GPU -> no pod at all
+    _, pod, after = _remote_plan(
+        argparse.Namespace(from_stage="s6_mix", to_stage="s8_mux"))
+    assert pod == [] and after == ["s6_mix", "s7_subtitles", "s8_mux"]
+
+
+def test_run_upload_sends_only_this_videos_workdir():
+    """Uploading all of work/ shipped every other lesson (2.3 GB for a
+    339 MB video) and was most of a 22.6 min bootstrap."""
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent
+           / "pipeline" / "runpod_infra.py").read_text(encoding="utf-8")
+    assert "_rsync_paths(rp, port, [str(M.video_workdir(cfg, video))], up)" in src
+    assert 'extra_excludes=("input", "output"))' not in src
 
 
 def test_pod_never_runs_a_stage_needing_an_extra_it_does_not_install():
@@ -609,8 +641,10 @@ def test_reuse_path_rearms_the_watchdog():
     n_arm = sum(1 for n in ast.walk(fn) if isinstance(n, ast.Call)
                 and isinstance(n.func, ast.Name)
                 and n.func.id == "arm_pod_watchdog")
-    assert n_arm == 2, ("arm on BOTH paths: the fresh provision and the reuse "
-                        f"attach (found {n_arm})")
+    # 3: the fresh provision, the reuse attach, and the failure HOLD (which
+    # shortens the deadline to hold_on_failure_min)
+    assert n_arm == 3, ("arm on every path: fresh provision, reuse attach, "
+                        f"hotfix hold (found {n_arm})")
 
 
 def test_unknown_remote_task_is_refused_before_provisioning():
@@ -833,3 +867,54 @@ def test_a_proxy_only_host_is_retried_on_the_next_gpu_type(monkeypatch):
                                          "NVIDIA RTX A4500"]}
     assert R.provision(rp, _t.time() + 3600) == ("p2", "1.2.3.4", 2222)
     assert starts == ["NVIDIA RTX A4000", "NVIDIA RTX A4500"]
+
+
+def test_failed_task_holds_the_pod_and_next_run_reuses_it(tmp_path, monkeypatch):
+    """A failure after a 20+ min bootstrap must not throw the pod away: it is
+    held (state file flag) and the next remote command picks it up."""
+    import json
+    from pipeline import runpod_infra as R
+    monkeypatch.setattr(R, "STATE_FILE", tmp_path / "s.json")
+    assert R._held_pod() is None
+    R._save_state({"pod_id": "abc", "created_at": 0})
+    assert R._held_pod() is None            # plain tracked pod: not held
+    R._save_state({"pod_id": "abc", "created_at": 0, "held_for_hotfix": True})
+    assert R._held_pod() == "abc"
+    assert json.loads((tmp_path / "s.json").read_text())["pod_id"] == "abc"
+    assert R.DEFAULTS["hold_on_failure_min"] > 0
+
+
+def test_proxy_only_clock_starts_at_container_start():
+    """v2 reports RUNNING while the image is still pulling (runtime null);
+    only a started container without ssh.direct is a proxy-only host."""
+    from pipeline.runpod_infra import container_started
+    assert not container_started({"status": "RUNNING", "runtime": None})
+    assert container_started({"status": "RUNNING",
+                              "runtime": {"uptime": 3, "ports": []}})
+
+
+def test_no_capacity_anywhere_waits_and_resweeps(monkeypatch):
+    """All types empty -> sleep and sweep the list again; succeed when stock
+    returns, give up after capacity_wait_min."""
+    import pytest
+    import pipeline.runpod_infra as R
+    calls: list[str] = []
+    sleeps: list[float] = []
+
+    def fake(method, path, body=None):
+        calls.append(body["gpu"]["id"])
+        if len(calls) <= 4:          # first full sweep of 2 types x 2 sweeps
+            raise RuntimeError("RunPod POST /pods -> HTTP 400: no capacity")
+        return {"id": "p9"}
+    monkeypatch.setattr(R, "_req", fake)
+    monkeypatch.setattr(R.time, "sleep", sleeps.append)
+    rp = {**R.DEFAULTS, "gpu_type_ids": ["a", "b"],
+          "capacity_wait_min": 10, "capacity_retry_s": 60}
+    assert R.create_pod(rp) == {"id": "p9"}
+    assert calls == ["a", "b", "a", "b", "a"] and sleeps == [60, 60]
+
+    calls.clear()
+    monkeypatch.setattr(R, "_req", lambda m, p, b=None: (_ for _ in ()).throw(
+        RuntimeError("RunPod POST /pods -> HTTP 400: no capacity")))
+    with pytest.raises(RuntimeError, match="no capacity"):
+        R.create_pod({**rp, "capacity_wait_min": 0})

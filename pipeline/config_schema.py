@@ -242,6 +242,9 @@ class Runpod(_Block):
     ssh_user: str | None = None
     remote_dir: str | None = None
     provision_timeout_s: int | None = None
+    hold_on_failure_min: Number | None = None
+    capacity_wait_min: Number | None = None
+    capacity_retry_s: Number | None = None
     engine_setup: dict[str, str] = Field(default_factory=dict)
 
 

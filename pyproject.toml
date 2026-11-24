@@ -106,6 +106,10 @@ environments = [
   "sys_platform == 'darwin' and platform_machine == 'arm64'",
   "sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
+# faster-whisper 1.2.1 calls av.open(..., metadata_errors=...), which PyAV 19
+# removed. The lock split av by Python (18.1 on the Mac's 3.11, 19.0 on the
+# pod's 3.12), so ASR worked locally and crashed on the pod (2026-11-24).
+constraint-dependencies = ["av<19"]
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
