@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """s1: ffmpeg audio extraction + vocal/background separation.
 
 Backends (separation.backend):

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Pure-logic tests: choose_placement ladder and qc scoring helpers."""
 from pipeline.logic import choose_placement
 from qc.metrics import calibrate_sim, tempo_penalty, composite_score

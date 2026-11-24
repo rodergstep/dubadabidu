@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """s8: one MP4 = original video (stream copy) + original UA audio + N dubbed
 audio tracks + N+1 mov_text subtitle tracks, all language-tagged.
 

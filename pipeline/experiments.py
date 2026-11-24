@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Run a queue of experiments against ONE pod, then terminate it.
 
     python -m pipeline.experiments [--dry-run] [--only NAME ...] [--file F]

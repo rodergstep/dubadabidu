@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """qc/judge.py statistics (PLAN_v0.5 P5) — the null must be exact, and loudness
 must not be able to pick a winner."""
 import math

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Stress-error detection by pronunciation-variant forced alignment (MFA).
 
 HOW IT WORKS. The MFA Russian dictionary (v3.1.0, CC BY 4.0) transcribes

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """The avoidance A/B — the ru-stress remediation that is still open.
 
 Both are gates, not features. FINDINGS 2.1 closed detection and selection; what

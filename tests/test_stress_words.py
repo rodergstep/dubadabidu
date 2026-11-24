@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Word-level stress marking: tokenizer, page rendering, ingest, lexicon.
 
 The label this produces is the input every surviving remediation route needs

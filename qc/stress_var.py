@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Does qwen's Russian stress placement VARY between takes of the same text?
 
 This is the premise the whole oracle-veto idea rests on. If the model always

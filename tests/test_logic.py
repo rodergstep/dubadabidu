@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 from pipeline.logic import merge_segments, decide_fit
 
 

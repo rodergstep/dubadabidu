@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Pure-logic tests: pause-aware segment splitting (s2)."""
 from pipeline.logic import split_at_pauses
 

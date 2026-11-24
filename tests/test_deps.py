@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Dependency contract: pyproject.toml declares, uv.lock pins, requirements.txt
 is EXPORTED from the lock (`uv export`), never hand-written.
 

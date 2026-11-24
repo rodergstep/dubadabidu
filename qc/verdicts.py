@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Verdict writeback (AUTOPILOT.md M3 — closes the flywheel).
 
 `dubadabidu verdicts <video> <exported.json>` ingests the JSON exported from a

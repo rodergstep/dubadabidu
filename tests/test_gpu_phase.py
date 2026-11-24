@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Pure-logic tests: config overlay merge, per-lang engine routing, cache-safe
 hashing for the GPU phase."""
 from pathlib import Path

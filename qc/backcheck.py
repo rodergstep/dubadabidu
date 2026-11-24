@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """QC 1: back-transcription. Re-transcribe every fitted segment with faster-whisper
 in the TARGET language and compute WER vs. the text we asked TTS to speak.
 Catches hallucinations, repetitions, skipped sentences, garbled numbers — without

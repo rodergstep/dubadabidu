@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Typed schema for the merged config (PLAN_v0.5 P7).
 
 The CI header lists "a config key that never existed" among the bugs that

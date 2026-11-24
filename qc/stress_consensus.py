@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Pick the take whose stress agrees with the other takes — no oracle, no human.
 
 THE ONE FACT THIS RESTS ON. Russian stress errors from qwen are STOCHASTIC per

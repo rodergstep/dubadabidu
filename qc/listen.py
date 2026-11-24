@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Side-by-side listening page for engine VARIANTS, with every take.
 
     python -m qc.listen <video> [lang] [variant ...]

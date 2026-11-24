@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """prep: per-video preamble — extract reference-clip candidates from the
 video's OWN clean vocals (the echo-free ref source validated on sketch60).
 

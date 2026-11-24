@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """The review-page export key must identify the SEGMENTATION, nothing else.
 
 `review_page` writes `<video>_<lang>_<seghash>` into the page; `verdicts`

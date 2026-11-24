@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Pre-TTS text normalization, applied ONLY at the synthesis boundary.
 
 Two layers:

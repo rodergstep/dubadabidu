@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """PLAN_v0.5 P7: every shipped config combination validates, and a typo fails
 loudly with its dotted path instead of being silently ignored."""
 import copy

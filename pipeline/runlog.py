@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """runs.jsonl — an append-only ledger of what every pod run actually cost.
 
 WHY THIS EXISTS. "What does an hour of dubbing cost?" was answered three times

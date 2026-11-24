@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """s3: LLM translation via OpenAI-compatible endpoint (DeepSeek / Ollama / OpenAI)
 with retry+backoff, per-batch checkpointing, isometric constraint, glossary,
 and n-best shorter variants. See prompts/translate_system.md."""

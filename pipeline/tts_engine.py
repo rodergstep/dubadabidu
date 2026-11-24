@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Unified TTS engines. Both s4 (initial synthesis) and s5 (variant retries)
 go through synthesize() so caching and device handling live in one place.
 

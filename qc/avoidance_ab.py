@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Generate the AVOIDED translation of every segment the stress lexicon touches.
 
     python -m qc.avoidance_ab <video> <lang> [--apply]

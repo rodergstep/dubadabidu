@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """s4: per-segment TTS through pipeline.tts_engine with content-hash caching.
 
 Auto-repair: autoregressive takes vary (measured spread ~0.74-0.80 on identical

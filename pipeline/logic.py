@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Pure functions: whisper-segment merging (s2) and fit decision (s5).
 Kept dependency-free so unit tests run without GPU/models."""
 from __future__ import annotations

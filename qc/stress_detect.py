@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Detect WRONG lexical stress in synthesized Russian, from the audio.
 
 WHY THIS CAN WORK AT ALL, and why the first attempt could not.

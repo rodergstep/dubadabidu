@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Did mixing rating axes break refit?
 
 The listener said on 2026-08-09 that he had been rating STRESS, not overall

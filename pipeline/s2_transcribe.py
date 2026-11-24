@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """s2: Whisper large-v3 (uk) -> manifest utterances.
 
 Transcription backend (faster-whisper on CUDA/CPU, mlx-whisper on Apple

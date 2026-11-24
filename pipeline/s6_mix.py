@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """s6: assemble dubbed vocals on the original timeline (pydub, frame-rate
 normalized), mix with background stem, loudnorm to target LUFS.
 

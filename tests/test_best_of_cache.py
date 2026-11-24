@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Crash-safety of the best-of take cache (tts_engine.synth_best_of).
 
 Regression guard: `out` is the content-hash cache key — s4 treats its existence

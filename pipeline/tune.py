@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """tune: closed-loop TTS config search — run → eval → improve, deterministically.
 
 Rounds (all local, all cached by content hash, resumable):

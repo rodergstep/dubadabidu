@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Device selection: cuda -> mps (Apple Silicon) -> cpu, with per-component overrides.
 
 Notes:

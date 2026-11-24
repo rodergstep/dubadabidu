@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Generate stress-variant pronunciations for Russian, by permuting vowels only.
 
 THE TRICK THAT MAKES THIS CHEAP. Detecting stress by forced alignment means
