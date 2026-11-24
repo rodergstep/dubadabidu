@@ -243,6 +243,39 @@ Recommended workflow per video:
 3. `run --from s3_translate` the rest. 4. `qc`. 5. Fix flagged segments in the
    manifest, re-`run` from s4.
 
+## Roadmap
+
+Open work, in order. Everything else from the earlier planning docs is done
+or closed by evidence (FINDINGS.md, CLOSED table).
+
+**Next**
+- One full ~1 h lesson end-to-end on the pod, all 5 languages
+  (`python -m pipeline.course`, `--reuse --keep-alive`), wall clock and $
+  recorded in `runs.jsonl`. Re-test `tts.best_of: 2` on it: how often is the
+  shipped take marked unusable?
+- The 20-video batch (~15 min/video of review on worst-first pages), then
+  publish per-language audio (YouTube multi-language audio; `per_language`
+  MP4s as the fallback).
+- Point `runpod.image` at the GHCR tag once `.github/workflows/image.yml` has
+  pushed one, then `remote setup-check` (never trust an image tag).
+- Widen `specs/batch.yaml` `policy.langs` from `[en]` to all five (a human edit).
+
+**Planned**
+- Vast.ai as the second provider — MIGRATION_VAST.md.
+
+**Deferred, each with its trigger**
+- Enhancement / bandwidth pass — 24 kHz dullness audible through real speakers.
+- RVC timbre training — voice-fidelity complaints return at scale.
+- WhisperX re-cut of subtitles to dubbed timing — subtitle-timing complaints.
+- Gradio UI / multi-GPU s4 — a productization decision.
+- Cross-model ASR consensus (catches silent omissions) and f0/wer scoring on
+  GPU — FINDINGS §5.
+- `pyright --basic` in CI on `pipeline/`.
+
+Comments tagged `PLAN_v0.5 Pn` or `IMPROVEMENT_PLAN Phase X` refer to planning
+docs retired in 1.0.0: `git show d7ffdc6:PLAN_v0.5.md` /
+`git show d7ffdc6:IMPROVEMENT_PLAN.md`.
+
 ## License
 
 dubadabidu is licensed under the **GNU Affero General Public License v3.0 or
@@ -264,7 +297,7 @@ covered by the AGPL.
 - Do NOT ship XTTS-v2 output commercially (Coqui CPML is non-commercial), and keep
   Fish-Speech weights (CC-BY-NC) out; neither is wired in here, on purpose.
 
-## New in v0.5 (review release, PLAN_v0.5.md)
+## New in v0.5 (review release)
 
 - RunPod client moved to **REST v2** (v1 was retired 2026-11-15): one GPU type per
   create with an in-order fallback, `minCudaVersion` driver floor, `startSsh`.
@@ -315,4 +348,4 @@ covered by the AGPL.
   drop-detection, per-batch checkpointing, stage progress in manifest
 - s6 frame-rate normalization bugfix (24k segments onto 44.1k timeline)
 - unit tests (10) for segment merging, fit ladder, cache hashing: `pytest`
-- IMPROVEMENT_PLAN.md — prioritized roadmap
+- a prioritized roadmap (now the Roadmap section above)

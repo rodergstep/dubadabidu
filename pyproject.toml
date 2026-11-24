@@ -78,7 +78,8 @@ mac = ["mlx-whisper==0.4.3; sys_platform == 'darwin' and platform_machine == 'ar
 # the default install stays permissive; it only processes audio, so the mixed
 # WAV output is not a derivative and course output stays unencumbered.
 master = ["pedalboard==0.9.24"]
-# Offline QC judges (PLAN_v0.5 P5) — LOCAL only, never on the pod. Meta's
+# Offline QC judges (FINDINGS §2.1s: refuted as a take judge; kept to
+# reproduce it) — LOCAL only, never on the pod. Meta's
 # Audiobox Aesthetics (CC-BY-4.0): per-clip PQ/CE/CU/PC axes.
 judge = ["audiobox_aesthetics==0.0.4"]
 dev = ["pytest==9.1.1"]   # ruff runs via `uvx ruff@<ver>` (CI), not from the env

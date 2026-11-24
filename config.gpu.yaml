@@ -5,7 +5,7 @@
 tts:
   # 2 takes: ranking does not perceptibly pick a better take (FINDINGS §2,
   # §2.1p), but a pool of 2 lets the WER veto and runaway guard reject a
-  # disaster. Re-test on the scale run (PLAN_v0.5 P9).
+  # disaster. Re-test on the scale run (README Roadmap).
   best_of: 2
   # THE production engine and checkpoint (FINDINGS §2; 0.6B: CLOSED list).
   engine: qwen

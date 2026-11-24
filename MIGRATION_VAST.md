@@ -352,7 +352,7 @@ exactly the lack of it.
 
 - `README.md:72,84,88,210-215`
 - `AUTOPILOT.md:50-52,68,78-79` (the infra-agent section names runpodctl)
-- `IMPROVEMENT_PLAN.md:1,10`
+- ~~`IMPROVEMENT_PLAN.md`~~ (retired in 1.0.0)
 - `THIRD_PARTY.md:20-31` — **"torch stays at 2.6.0 — RunPod's HOST DRIVER is the
   ceiling"** is already stale (the pin is 2.11.0) and its reasoning is
   RunPod-specific. Rewrite around `cuda_max_good`. Also `:62`, `:214`.
