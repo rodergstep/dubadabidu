@@ -3,7 +3,9 @@
 Rounds (all local, all cached by content hash, resumable):
   R1 ref selection   — every ref/*.wav candidate, current params; timbre is
                        dominated by the reference clip, so pick this first.
-  R2 param sweep     — cfg_weight × exaggeration grid on the winning ref.
+  R2 param sweep     — REMOVED with chatterbox (2026-08-02): qwen has no
+                       cfg_weight/exaggeration knobs, so a grid only re-rolled
+                       the same distribution. "R2" in tune.rounds is a no-op.
   R3 best-of-N       — N takes per segment with the winning config; keeps the
                        highest-scoring take (autoregressive TTS variance is free
                        quality if you measure it).
@@ -22,15 +24,9 @@ from .tts_engine import synthesize
 
 log = logging.getLogger("dubadabidu.tune")
 
-# engines whose output depends on cfg_weight/exaggeration (R2's grid). Empty
-# since chatterbox left (2026-08-02).
-R2_ENGINES: frozenset[str] = frozenset()
-
 DEFAULTS = {
     "subset_size": 8,
     "refs_glob": "ref/*.wav",
-    "cfg_weights": [0.0, 0.2, 0.3],
-    "exaggerations": [0.4, 0.55, 0.7],
     "best_of": 3,
     "rounds": ["R1", "R2", "R3"],   # subset for tune-lite, e.g. ["R1"]
     # ---- tune's OWN objective. NOT qc.eval.weights, and that is the fix. ----
@@ -162,7 +158,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> dict:
     if not refs:
         raise SystemExit(f"no reference candidates match {tn['refs_glob']}")
     # refs.json (written by `dubadabidu prep`) carries each ref's transcript —
-    # required by the cosyvoice engine, harmless for the others
+    # used as tts.reference_text (qwen ICL mode, qwen_x_vector_only: false)
     import json as _json
     rj = wd / "refs.json"
     ref_meta = _json.loads(rj.read_text(encoding="utf-8")) if rj.exists() else {}
@@ -197,22 +193,12 @@ def run(cfg: dict, video: str, langs: list[str]) -> dict:
         log.info("R1 %s -> %s", ref, m)
     best_ref = max((r for r in results), key=lambda r: r[5]["score"])[1]
 
-    # R2: param grid on the winning ref — ONLY for an engine that reads these
-    # knobs. qwen does not: sweeping them re-rolls the same distribution 8 times
-    # at full GPU price and "picks" noise (the hash differs, the audio does not).
-    if "R2" in rounds and base["engine"] not in R2_ENGINES:
+    # R2 (cfg_weight x exaggeration grid) left with chatterbox: no current
+    # engine reads those knobs, so sweeping them re-rolled the same
+    # distribution at full GPU price and "picked" noise. Accepted, ignored.
+    if "R2" in rounds:
         log.info("R2 skipped: engine %s ignores cfg_weight/exaggeration",
                  base["engine"])
-    elif "R2" in rounds:
-        for cw in tn["cfg_weights"]:
-            for ex in tn["exaggerations"]:
-                if cw == base["cfg_weight"] and ex == base["exaggeration"]:
-                    continue  # already measured in R1
-                tts = _tts_for(best_ref, cfg_weight=cw, exaggeration=ex)
-                m = _score_trial(cfg, wd, subset, lang, tts, bands[best_ref], w,
-                                 n_takes=r1_takes)
-                results.append(("R2", best_ref, cw, ex, 0, m))
-                log.info("R2 cfg=%s ex=%s -> %s", cw, ex, m)
     on_ref = [r for r in results if r[1] == best_ref]
     _, _, best_cw, best_ex, _, best_m = max(on_ref, key=lambda r: r[5]["score"])
 

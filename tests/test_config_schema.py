@@ -43,3 +43,12 @@ def test_a_wrong_enum_value_fails() -> None:
     cfg["translation"]["response_format"] = "json"
     with pytest.raises(ConfigError, match=r"translation\.response_format"):
         validate(cfg)
+
+
+def test_tune_round_r2_is_still_accepted() -> None:
+    """R2 (the chatterbox cfg_weight x exaggeration grid) was removed as
+    unreachable; an old overlay that still lists it must validate, and tune
+    logs it as skipped rather than failing."""
+    cfg = copy.deepcopy(_load("config.yaml"))
+    cfg["tune"]["rounds"] = ["R1", "R2", "R3"]
+    validate(cfg)

@@ -196,8 +196,6 @@ class Tune(_Block):
     refs_glob: str
     best_of: int
     rounds: list[Literal["R1", "R2", "R3"]] | None = None
-    cfg_weights: list[Number] | None = None
-    exaggerations: list[Number] | None = None
     r1_weights: R1Weights
     r1_takes: int = 1
     per_video_ref_override: bool = False
