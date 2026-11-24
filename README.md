@@ -243,14 +243,24 @@ Recommended workflow per video:
 3. `run --from s3_translate` the rest. 4. `qc`. 5. Fix flagged segments in the
    manifest, re-`run` from s4.
 
+## License
+
+dubadabidu is licensed under the **GNU Affero General Public License v3.0 or
+later** (AGPL-3.0-or-later); see [`LICENSE`](LICENSE). If you run a modified
+version as a network service, you must offer its source to that service's users.
+
+The licence covers this code only. Model weights and third-party engines keep
+their own licences (notes below), and the audio this pipeline produces is not
+covered by the AGPL.
+
 ## Licensing notes
 
 - Qwen3-TTS (the only cloning engine since 2026-08-02): Apache-2.0 — OK for your
   commercial courses, and no watermark. (Chatterbox, which used to sit here, was
   MIT but stamped every take with an inaudible PerTh watermark.)
 - `pedalboard` (s6 mastering) is GPLv3, kept OPT-IN as the `.[master]` extra: it
-  only processes audio, so the WAV it emits is not a derivative, but the default
-  install stays permissive.
+  only processes audio, so the WAV it emits is not a derivative. GPLv3 is
+  compatible with this project's AGPL-3.0, so installing it changes nothing.
 - Do NOT ship XTTS-v2 output commercially (Coqui CPML is non-commercial), and keep
   Fish-Speech weights (CC-BY-NC) out; neither is wired in here, on purpose.
 

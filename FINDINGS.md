@@ -42,6 +42,8 @@ below was tried and failed, each for a different reason:
 | Detector: MFA variant alignment | AUC 0.641, and the RUAccent oracle itself errs | 2.1h |
 | Selection: 5-take consensus | ANTI-correlated — prefers the systematic error | 2.1i, 2.1j |
 | Lexical avoidance from a human-marked table | **REFUTED by ear** — swaps domain terms; guard was inflection-blind | 2.1q |
+| ru-stress fine-tune (siriusfreak, x_vector + marks) | **REFUTED by ear** — production preferred 18-5 (p 0.011), unusable 11/25 vs 3/25 | 2.1r |
+| ru-stress fine-tune, ICL layout | WER gate failed (0.155 > 0.10); identity did not recover (sim 0.636) | 2.1r |
 
 **The reason it is closed, and it is structural (§2.1j):** the errors are partly
 SYSTEMATIC. For some words qwen is reliably wrong, so the majority placement is
@@ -953,6 +955,61 @@ PLAN_v0.5 P4) is where the signal is.
 protocol for its documented position-B bias. `qc/judge.py`'s `ClipScorer`
 interface is where it would plug in; given this result and §2.0, it is low
 priority.
+
+### 2.1r The ru-stress fine-tune loses to production by ear (2026-11-24)
+
+**CLAIM** `siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf` (Qwen3-TTS 1.7B fine-tuned
+to follow U+0301 marks; author-reported adherence 96% against the dictionary vs
+17% for base) plus RUAccent marks fixes ru stress without hurting the audio.
+**EVIDENCE** Full lesson ("Organising the colour palette…"), all 46 ru segments x
+2 takes, x_vector-only like production, `config.exp.ru-full.yaml`. Title-case
+words lowercased before RUAccent, as the model card recommends.
+
+| | control (prod) | ft, no marks | **ft + marks** |
+|---|---|---|---|
+| wer | 0.068 | 0.024 | **0.029** |
+| mos | 2.394 | 2.615 | 2.503 |
+| sim | **0.687** | 0.633 | 0.635 |
+| f0st | 2.874 | 2.574 | 2.492 |
+
+WER gate PASSED: unlike the base model (0.811, §2.1b) the fine-tune reads marks
+cleanly. sim fell 0.05, five times the ±0.010 band.
+Blind same-sentence round, control vs ft+marks, 25 pairs >= 5 s, axis on the page
+"word stress; unusable = wrong stress OR no longer sounds like the speaker":
+
+| | control | ft + marks |
+|---|---|---|
+| picked best | **18** | 5 | (2 groups: both unusable)
+| marked unusable | **3** / 25 | 11 / 25 |
+
+Picks: two-sided exact binomial **p = 0.011**. Unusable, discordant pairs 9 vs 1:
+**p = 0.021**.
+**VERDICT** REFUTED by ear, both gates failed in the wrong direction. The metrics
+again did not predict it: wer and mos favoured the fine-tune.
+**WHICH HALF LOST IT — the listener: "mostly the voice"** (2026-11-24), which
+sim corroborates. So the open question is identity, not adherence.
+The page asked about stress OR voice identity in one "unusable" mark, and sim
+says identity moved. If the listener
+heard voice drift, ICL (the layout it was trained in, `ru-ft-icl-stress`) is the
+one remaining arm; if it was stress, the fine-tune does not transfer to this
+voice and the route is closed.
+**THE LAST ARM, ICL (`ru-ft-icl-stress`, same day), FAILED THE WER GATE.** ICL is
+the layout the fine-tune was trained in and, on the base model, raised sim to
+0.718 — so it was the one way the voice could come back.
+
+| | control | ft + marks | **ft + marks + ICL** |
+|---|---|---|---|
+| wer | 0.068 | 0.029 | **0.155** (gate 0.10) |
+| sim | 0.687 | 0.635 | **0.636** |
+| f0st | 2.874 | 2.492 | 2.240 |
+
+sim did not move at all: the identity loss belongs to the CHECKPOINT, not the
+cloning mode. Rejected by the gate, so no listening round. **The fine-tune route
+is CLOSED** — ru keeps shipping with the defect (§2.1j), and reopening it needs a
+stress-trained checkpoint that keeps THIS voice (e.g. a fine-tune or LoRA on
+our own speaker), not another arm on this one.
+**ENCODED** `experiments.yaml` ru-ft-plain / ru-ft-stress / ru-ft-icl-stress (answered),
+`compare_ruruft_truth.json` + the listener's export, `text_norm.lower_title_ru`.
 
 ### 2.1c No zero-shot cloning TTS handles Russian stress (survey, 2026-08-09)
 

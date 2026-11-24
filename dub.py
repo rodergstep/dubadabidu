@@ -60,8 +60,9 @@ def doctor(cfg: dict) -> int:
             print("  [i ] ASR on CPU int8: `uv sync --extra mac` for mlx-whisper "
                   "(~4-5x on Apple Silicon).")
     if dev != "cuda":
-        print("  [i ] no CUDA: use tts.engine=edge for pipeline validation; "
-              "run qwen synthesis on a CUDA machine (`dubadabidu remote run`).")
+        print("  [i ] no CUDA here: qwen synthesis runs on the GPU pod — "
+              "`dubadabidu remote run <video> --overlay config.gpu.yaml` "
+              "(translation, mix and mux stay local).")
     for mod in ["faster_whisper", "pydub", "soundfile", "srt", "yaml", "openai"]:
         try:
             __import__(mod); check(f"python: {mod}", True)
@@ -101,10 +102,9 @@ def doctor(cfg: dict) -> int:
             # for synthesis to happen at all.
             remote_ready = bool(os.environ.get("RUNPOD_API_KEY"))
             if dev != "cuda" and remote_ready:
-                print(f"  [i ] python: {mod} not installed locally — fine, "
-                      f"no CUDA here; the pod installs it "
-                      f"(runpod.engine_setup). Local synthesis needs "
-                      f"tts.engine=edge.")
+                print(f"  [i ] python: {mod} not installed locally — fine: "
+                      f"the pod installs it (runpod.engine_setup in "
+                      f"config.gpu.yaml).")
             else:
                 check(f"python: {mod}", False, hint)
     if engines - {"edge"}:
@@ -118,12 +118,26 @@ def doctor(cfg: dict) -> int:
         _check_translation_models(cfg["translation"], check)
     # remote (M2) readiness — informational; only needed for `dubadabidu remote`
     if os.environ.get("RUNPOD_API_KEY"):
-        rp = cfg.get("runpod", {})
-        key_path = Path(rp.get("ssh_key", "~/.ssh/id_ed25519_runpod")).expanduser()
+        from pipeline.runpod_infra import DEFAULTS as RP_DEFAULTS
+        rp = {**RP_DEFAULTS, **(cfg.get("runpod") or {})}
+        key_path = Path(rp["ssh_key"]).expanduser()
         check("remote: ssh_key", key_path.exists(),
-              f"private key {key_path} missing; register its .pub with RunPod")
-        print(f"  [i ] remote ready: RUNPOD_API_KEY set, budget cap "
-              f"${rp.get('budget_usd', 10)}")
+              f"private key {key_path} missing (ssh-keygen -t ed25519 -f "
+              f"{key_path})")
+        # its PUBLIC half is what the pod gets (PUBLIC_KEY env): without it
+        # the pod comes up and sshd never lets this client in
+        check("remote: ssh_key .pub", Path(f"{key_path}.pub").exists(),
+              f"{key_path}.pub missing (ssh-keygen -y -f {key_path} > "
+              f"{key_path}.pub)")
+        hold = float(rp["hold_on_failure_min"] or 0)
+        print(f"  [i ] remote ready: budget cap ${rp['budget_usd']} | "
+              f"no capacity: retry every {rp['capacity_retry_s']:.0f}s for "
+              f"{rp['capacity_wait_min']:.0f} min | on task failure: "
+              + (f"pod held {hold:.0f} min for a hotfix"
+                 if hold > 0 else "pod terminated (hold off)"))
+        if "runpod" not in cfg:
+            print("  [i ] runpod block not in this config: pass "
+                  "`--overlay config.gpu.yaml` to see the pod settings")
     else:
         print("  [i ] remote (`dubadabidu remote`) off: set RUNPOD_API_KEY in "
               ".env to enable GPU pod automation")
@@ -300,38 +314,105 @@ def report(cfg: dict, video: str) -> None:
               f"\n     Re-score:  dubadabidu qc {video}")
 
 
-def _remote_stages(a) -> str | None:
-    """--from/--to forwarded to the POD-side command. Without this the pod ran
-    the whole pipeline every time, including stages that need no GPU — and
-    translation, which is API-latency-bound, so the pod billed while waiting on
-    DeepSeek. Returns None to keep the previous whole-pipeline default."""
+POD_FIRST, POD_LAST = "s4_synthesize", "s5_fit"
+
+
+def _remote_plan(a) -> tuple[list[str], list[str], list[str]]:
+    """Split `remote run`'s --from/--to range into (local before, POD, local
+    after). Only s4 needs a GPU (s5 rides along: it is cheap and its input is
+    on the pod), so the pod gets at most s4..s5 and the laptop does the rest:
+
+      before: s3 translation — API-latency-bound, so on the pod it billed GPU
+              time while waiting on DeepSeek. Untouched --from starts HERE,
+              not at s1: s2 has no cache and always re-transcribes, which
+              discards every translation and synth state (2026-11-24: the
+              pod re-ran s2 on a cached video and crashed in faster-whisper).
+              An explicit --from s1/s2 still runs them, locally, where the
+              source video lives.
+      after:  s6 mix (its mastering chain needs the [master] extra no pod
+              installs — a full run died there 2026-08-09), s7 subtitles and
+              s8 mux (needs the source video, which never uploads).
+    """
+    frm = getattr(a, "from_stage", "s1_extract")
+    to = getattr(a, "to_stage", "s8_mux")
+    if frm == "s1_extract":
+        frm = "s3_translate"
+    i, j = ORDER.index(frm), ORDER.index(to)
+    rng = ORDER[i:j + 1]
+    p0, p1 = ORDER.index(POD_FIRST), ORDER.index(POD_LAST)
+    before = [s for s in rng if ORDER.index(s) < p0]
+    pod = [s for s in rng if p0 <= ORDER.index(s) <= p1]
+    after = [s for s in rng if ORDER.index(s) > p1]
+    return before, pod, after
+
+
+def _remote_stages(a) -> str:
+    """--from/--to for the POD-side command: the pod slice of _remote_plan.
+    Without this the pod ran the whole pipeline every time."""
     # dest names are from_stage / to_stage — NOT "from"/"to". Reading the wrong
     # attribute returned None for both, so the pod silently fell back to the
     # whole pipeline, ran s1/s2, and died on the input video that is
     # deliberately never uploaded. It cost a provisioned pod to find out.
-    # Defaults are real values ("s1_extract" / "s8_mux"), not None, so "did the
-    # user narrow this?" means comparing against them.
-    parts = []
-    if getattr(a, "from_stage", "s1_extract") != "s1_extract":
-        parts.append(f"--from {a.from_stage}")
-    to = getattr(a, "to_stage", "s8_mux")
-    # THE POD STOPS AT s5. It used to stop at s7, on the reasoning that only the
-    # MUX needs the source video — true, but it is the wrong cut. s4 is the only
-    # stage that needs a GPU. s6 (mix) and s7 (subtitles) are CPU work on files
-    # that already live in work/ and sync both ways, so running them on the pod
-    # billed rented time for something the laptop does free.
-    # It also broke a run, 2026-08-09: s6's mastering chain imports pedalboard,
-    # which is the opt-in [master] extra (GPLv3, deliberately not in the default
-    # install) and therefore absent from every pod, which installs `.[dev]`. All
-    # five languages synthesized and fitted, then the task exited rc=1 in s6 —
-    # a full GPU run reported as a failure over a stage that had no business
-    # being there. Finishing locally with `--from s6_mix` cost nothing.
-    # The alternative fix — install pedalboard on the pod — would have paid to
-    # move a GPL dependency onto rented hardware to do CPU work slower.
-    # An explicit --to still wins, so `--to s7_subtitles` reproduces the old
-    # behaviour when a pod genuinely needs to carry further.
-    parts.append(f"--to {to if to != 's8_mux' else 's5_fit'}")
-    return " ".join(parts)
+    _before, pod, _after = _remote_plan(a)
+    if not pod:
+        return ""
+    return f"--from {pod[0]} --to {pod[-1]}"
+
+
+def _pod_stages_done(cfg: dict, video: str, langs: list[str],
+                     stages: list[str]) -> bool:
+    """Did every pod stage finish for every language? Read from the manifest
+    the pod synced back (stage keys are s4_<lang>, s5_<lang>)."""
+    p = M.manifest_path(cfg, video)
+    if not p.exists():
+        return False
+    import json
+    done = json.loads(p.read_text(encoding="utf-8")).get("stages", {})
+    return all(done.get(f"{st.split('_')[0]}_{lg}") == "done"
+               for st in stages for lg in langs)
+
+
+def _remote_run_batch(cfg: dict, vids: list[str], langs: list[str], a,
+                      rpi) -> bool:
+    """`remote run` over one or many videos: ONE pod, ONE pod-side process.
+
+      1. local `before` stages (translation) for EVERY video first, so the pod
+         never bills while DeepSeek answers;
+      2. one remote_run with all videos: setup is paid once (4.5 min vs 1.5
+         min of synthesis per 1-min lesson, 2026-11-24) and the models load
+         once (~30 s per process). The pod runs `run --keep-going`, so one bad
+         video does not stop the others;
+      3. local `after` stages (mix, subtitles, mux) for every video whose pod
+         stages are recorded done in its synced-back manifest.
+    """
+    before, pod, after = _remote_plan(a)
+    for v in vids:
+        _run_local(cfg, v, langs, before)
+    if pod:
+        rpi.remote_run(cfg, vids, langs, "run", a.budget,
+                       keep_alive=bool(a.keep_alive), reuse=bool(a.reuse),
+                       overlays=a.overlay or [],
+                       stages=f"--from {pod[0]} --to {pod[-1]}")
+        done = [v for v in vids if _pod_stages_done(cfg, v, langs, pod)]
+        for v in vids:
+            if v not in done:
+                logging.error("%s: GPU stages did not finish — skipping its "
+                              "local finish", Path(v).name)
+    else:
+        done = list(vids)
+    for v in done:
+        _run_local(cfg, v, langs, after)
+    return len(done) == len(vids)
+
+
+def _run_local(cfg: dict, video: str, langs: list[str],
+               stages: list[str]) -> None:
+    for name in stages:
+        logging.info("[local] %s", name)
+        try:
+            STAGES[name](cfg, video, langs)
+        except subprocess.CalledProcessError as e:
+            sys.exit(f"[{name}] external command failed: {e}")
 
 
 def main() -> None:
@@ -378,6 +459,9 @@ def main() -> None:
                          "and took anywhere from 4 to 60 min depending on the "
                          "pod's route to PyPI. Falls back to provisioning if "
                          "no live pod is tracked.")
+    ap.add_argument("--keep-going", dest="keep_going", action="store_true",
+                    help="`run` over several videos: log a failing video and "
+                         "continue with the next instead of stopping")
     ap.add_argument("--budget", type=float, default=None,
                     help="hard USD cap for `remote` (auto-terminates the pod); "
                          "default runpod.budget_usd")
@@ -520,6 +604,8 @@ def main() -> None:
         vids = a.rest[1:]
         if not vids:
             ap.error(f"remote {task} needs a video path")
+        if task == "run":
+            sys.exit(0 if _remote_run_batch(cfg, vids, langs, a, rpi) else 1)
         ok = all(rpi.remote_run(cfg, v, langs, task, a.budget,
                                 keep_alive=a.keep_alive,
                                 reuse=a.reuse,
@@ -539,6 +625,7 @@ def main() -> None:
         return
 
     s4_idx = ORDER.index("s4_synthesize")
+    failed: list[str] = []
     for v in a.rest:  # run
         # allow running without the source video when s1/s2 are already cached
         # (the remote GPU path uploads work/ + ref/, never the 4K video)
@@ -555,16 +642,28 @@ def main() -> None:
                          "take-selection params re-apply", n, langs, v)
         logging.info("=== %s ===", v)
         started = False
-        for name in ORDER:
-            started = started or name == a.from_stage
-            if started:
-                try:
-                    STAGES[name](cfg, v, langs)
-                except subprocess.CalledProcessError as e:
-                    sys.exit(f"[{name}] external command failed: {e}")
-            if name == a.to_stage:
-                break
+        try:
+            for name in ORDER:
+                started = started or name == a.from_stage
+                if started:
+                    try:
+                        STAGES[name](cfg, v, langs)
+                    except subprocess.CalledProcessError as e:
+                        sys.exit(f"[{name}] external command failed: {e}")
+                if name == a.to_stage:
+                    break
+        except (Exception, SystemExit) as e:
+            # --keep-going: one bad video must not cost the rest of a batch
+            # its run (the remote batch does every video in one process)
+            if not a.keep_going:
+                raise
+            logging.error("=== %s FAILED (%s) — continuing with the next "
+                          "video ===", v, e)
+            failed.append(v)
+            continue
         logging.info("=== %s done ===", v)
+    if failed:
+        sys.exit(f"{len(failed)} video(s) failed: {', '.join(failed)}")
 
 
 if __name__ == "__main__":

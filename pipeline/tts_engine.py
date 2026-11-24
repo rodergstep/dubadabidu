@@ -35,6 +35,46 @@ log = logging.getLogger("dubadabidu.tts")
 _qwen_model = None
 _qwen_model_id: str | None = None   # which checkpoint _qwen_model holds
 _qwen_prompt = None   # (cache_key, prompt_items) — reused across all segments
+_declared_sr: dict[str, int | None] = {}   # checkpoint -> its declared output rate
+
+
+def declared_output_sr(model_id: str) -> int | None:
+    """The output rate a Qwen3-TTS checkpoint DECLARES
+    (speech_tokenizer/config.json output_sample_rate), or None if unreadable.
+
+    faster-qwen3-tts logs "Could not infer sample rate from base model;
+    defaulting to 24000 Hz" and returns 24000 whatever the checkpoint says.
+    A wrong rate does not fail anything: the take is written with the wrong
+    header and plays at the wrong pitch and speed. 1.7B-Base declares 24000
+    (checked 2026-11-24); this keeps a future checkpoint honest."""
+    if model_id in _declared_sr:
+        return _declared_sr[model_id]
+    import json
+    sr: int | None = None
+    try:
+        local = Path(model_id) / "speech_tokenizer" / "config.json"
+        if local.exists():
+            cfg_path = local
+        else:
+            from huggingface_hub import hf_hub_download
+            cfg_path = Path(hf_hub_download(model_id,
+                                            "speech_tokenizer/config.json"))
+        v = json.loads(cfg_path.read_text(encoding="utf-8")).get(
+            "output_sample_rate")
+        sr = int(v) if v else None
+    except Exception as e:                                   # noqa: BLE001
+        log.warning("could not read %s's declared sample rate (%s) — "
+                    "sample-rate guard skipped", model_id, e)
+    _declared_sr[model_id] = sr
+    return sr
+
+
+def check_output_sr(model_id: str, sr: int) -> None:
+    want = declared_output_sr(model_id)
+    if want and int(sr) != want:
+        raise RuntimeError(
+            f"qwen returned audio at {sr} Hz but {model_id} declares "
+            f"{want} Hz — the take would play at the wrong pitch and speed")
 QWEN_LANGS = {"en": "English", "fr": "French", "de": "German",
               "es": "Spanish", "ru": "Russian"}
 
@@ -197,6 +237,7 @@ def _synth_qwen(text: str, lang: str, out: Path, t: dict) -> None:
             f"qwen rejected tts.qwen_gen_kwargs={gen} — this build's "
             f"generate_voice_clone does not accept those names ({e})") from e
     t3 = time.perf_counter()
+    check_output_sr(_qwen_model_id or "", sr)
     dur = len(wavs[0]) / float(sr)
     # RUNAWAY GUARD. Qwen3-TTS's most common failure is the decoder never
     # emitting EOS: it fills its token budget with laughing/humming/babble.

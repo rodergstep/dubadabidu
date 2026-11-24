@@ -81,6 +81,15 @@ DEFAULTS = {
     "ssh_user": "root",
     "remote_dir": "~/dubadabidu",
     "provision_timeout_s": 420,   # wait this long for the pod to reach RUNNING+SSH
+    # HOTFIX HOLD: when the task fails on a pod that bootstrapped, keep it up
+    # this many minutes (pod-side watchdog re-armed to it) instead of
+    # terminating, so the fix is tested on the same pod with no new bootstrap.
+    # The next `remote` command reuses it automatically. 0 = terminate always.
+    "hold_on_failure_min": 30,
+    # no GPU type has capacity: re-sweep the list every capacity_retry_s for
+    # up to capacity_wait_min before failing (creating nothing costs nothing)
+    "capacity_wait_min": 15,
+    "capacity_retry_s": 60,
     # per-engine install snippets for the bake-off (git-clone challengers —
     # THIRD_PARTY.md). Each runs on the pod in that engine's OWN venv
     # (installed into .venv by engine_install_cmd — the per-engine venvs were
@@ -182,17 +191,33 @@ def create_pod(rp: dict) -> dict:
                     "— creating an on-demand pod")
     ids = rp["gpu_type_ids"]
     ids = [ids] if isinstance(ids, str) else list(ids)
+    # No type has capacity -> wait and sweep the list again instead of
+    # failing: SECURE stock churns by the minute (2026-11-24: all ten types
+    # empty at 15:38, after pods had been created on four of them in the hour
+    # before). Creating nothing costs nothing, so waiting is free.
+    wait_s = float(rp.get("capacity_wait_min", 15)) * 60
+    every = float(rp.get("capacity_retry_s", 60))
+    give_up = time.time() + wait_s
     last: Exception | None = None
-    for gid in ids:
-        try:
-            return _req("POST", "/pods", pod_payload(rp, gid))
-        except RuntimeError as e:
-            if "HTTP 400" in str(e) or "HTTP 409" in str(e):
-                log.info("no pod for %s (%s); trying next type", gid,
-                         str(e)[:160])
-                last = e
-                continue
-            raise
+    sweep = 0
+    while True:
+        sweep += 1
+        for gid in ids:
+            try:
+                return _req("POST", "/pods", pod_payload(rp, gid))
+            except RuntimeError as e:
+                if "HTTP 400" in str(e) or "HTTP 409" in str(e):
+                    log.info("no pod for %s (%s); trying next type", gid,
+                             str(e)[:160])
+                    last = e
+                    continue
+                raise
+        if time.time() + every > give_up:
+            break
+        log.warning("no capacity for any GPU type (sweep %d) — retrying in "
+                    "%.0f s (gives up in %.0f min)", sweep, every,
+                    (give_up - time.time()) / 60)
+        time.sleep(every)
     raise RuntimeError(f"no capacity for any of {ids}: {last}")
 
 
@@ -201,6 +226,11 @@ def create_pod(rp: dict) -> dict:
 
 def pod_status(p: dict) -> str:
     return str(p.get("status") or p.get("desiredStatus") or "").upper()
+
+
+def container_started(p: dict) -> bool:
+    """v2: `runtime` is null until the container is up (image pulled)."""
+    return bool(p.get("runtime"))
 
 
 def pod_price(p: dict) -> float | None:
@@ -270,6 +300,15 @@ def terminate_pod(pid: str, retries: int = 4) -> bool:
 def _save_state(d: dict) -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(d, indent=2), encoding="utf-8")
+
+
+def _held_pod() -> str | None:
+    """Pod id the state file marks as held for a hotfix, else None."""
+    try:
+        d = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return d.get("pod_id") if d.get("held_for_hotfix") else None
 
 
 def _clear_state() -> None:
@@ -618,7 +657,12 @@ def _provision_once(rp: dict, deadline: float) -> tuple[str, str, int, str]:
             # was removed). Some hosts never assign one: the pod sits RUNNING
             # with only the ssh.runpod.io proxy, which cannot carry rsync.
             # Measured 2026-11-19: 7 min RUNNING, no mapping. Give up early.
-            if status == "RUNNING":
+            # BUT v2 says RUNNING from the first second, while the image is
+            # still pulling: `runtime` stays null until the container starts,
+            # and ssh.direct arrives WITH it (measured 2026-11-24: 182 s on an
+            # L4). Clocking from status alone condemned 5 healthy pods in one
+            # afternoon as "proxy-only". Start the clock at container start.
+            if status == "RUNNING" and container_started(p):
                 running_since = running_since or time.time()
                 if time.time() - running_since > direct_wait:
                     raise _NoDirectSsh(
@@ -766,7 +810,7 @@ REMOTE_TASK = {
     # laptop for free, and translation in particular should NEVER run here —
     # it is API-latency-bound, so the pod would bill while waiting on DeepSeek.
     # Default keeps the old whole-pipeline behaviour.
-    "run": "dubadabidu run {video} --langs {langs} {stages} "
+    "run": "dubadabidu run {video} --langs {langs} {stages} --keep-going "
            "--overlay config.gpu.yaml --overlay config.deepseek.yaml",
     # preamble = prep's other half: tune R1 scores every ref candidate by real
     # ECAPA similarity on synthesized output and writes the winner (plus its
@@ -814,7 +858,11 @@ def apt_setup(with_ffmpeg: bool = True) -> str:
     a newer base image whose packages are already current. Not attempted here:
     one unvalidated change at a time.
     """
-    pkgs = "rsync ffmpeg" if with_ffmpeg else "rsync"
+    # sox: qwen_tts imports the `sox` Python wrapper, which logs "SoX could
+    # not be found!" without the binary (seen on every run 2026-11-24). The
+    # clone path never calls it — takes were fine — so this only silences the
+    # warning; it rides with ffmpeg so the bake-off's minimal apt is untouched.
+    pkgs = "rsync ffmpeg sox" if with_ffmpeg else "rsync"
     tail = "which rsync"
     if with_ffmpeg:
         tail += (" && which ffmpeg && "
@@ -907,7 +955,7 @@ def _install_engines(rp: dict, host: str, port: int, remote: str,
             log.warning("engine %s setup failed — %s", eng, fail_note)
 
 
-def remote_run(cfg: dict, video: str, langs: list[str], task: str,
+def remote_run(cfg: dict, video: str | list[str], langs: list[str], task: str,
                budget_usd: float | None = None,
                keep_alive: bool = False, reuse: bool = False,
                overlays: list[str] | None = None,
@@ -934,23 +982,39 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
     # --reuse impossible: it killed the pod ~30 lines before _live_pod() looked
     # for it (measured 2026-07-30, destroying a validated indextts install).
     # Without --reuse the behaviour is unchanged: sweep before anything starts.
+    held = None if reuse else _held_pod()
+    if held:
+        # a failed run left this pod up for exactly this: retry on it.
+        # _live_pod() still proves it is RUNNING + reachable, else a fresh
+        # pod is provisioned (and the held one is swept below).
+        log.info("pod %s is held from a failed run — reusing it (hotfix)", held)
+        reuse = True
     if not reuse:
         sweep_orphans()
     if task not in REMOTE_TASK:
         raise SystemExit(f"unknown remote task {task!r} (choose "
                          f"{list(REMOTE_TASK)})")
+    # `run` takes several videos and does them in ONE pod-side process, so
+    # the models load once (~30 s each time: qwen 7 s, the clone prompt 8.5 s,
+    # ECAPA, MOS, whisper — measured 2026-11-24) instead of once per video.
+    videos = [video] if isinstance(video, str) else list(video)
+    if not videos:
+        raise SystemExit("remote_run: no video given")
+    if len(videos) > 1 and task != "run":
+        raise SystemExit(f"remote {task} takes one video, got {len(videos)}")
+    video = videos[0]
     # the pod gets work/ + ref/ + code, NOT the source video — so s1/s2 must be
     # done locally first (their cached stems live in work/). Fail fast with a
     # clear message instead of wasting a pod.
-    if not M.manifest_path(cfg, video).exists():
-        raise SystemExit(
-            f"{video}: no cached manifest — run s1+s2 locally first "
-            f"(`dubadabidu preamble {video}`). The GPU pod never receives the "
-            f"source video; it works from work/<video>/ audio stems.")
-    wd_v = M.video_workdir(cfg, video)
-    if not (wd_v / "vocals.wav").exists():
-        raise SystemExit(f"{video}: work/{Path(video).stem}/vocals.wav missing — "
-                         f"run s1 locally first.")
+    for v in videos:
+        if not M.manifest_path(cfg, v).exists():
+            raise SystemExit(
+                f"{v}: no cached manifest — run s1+s2 locally first "
+                f"(`dubadabidu preamble {v}`). The GPU pod never receives the "
+                f"source video; it works from work/<video>/ audio stems.")
+        if not (M.video_workdir(cfg, v) / "vocals.wav").exists():
+            raise SystemExit(f"{v}: work/{Path(v).stem}/vocals.wav missing — "
+                             f"run s1 locally first.")
     # FAIL BEFORE PROVISIONING IF THE POD COULD NOT POSSIBLY DO THE WORK.
     # runpod.engine_setup lives in config.gpu.yaml, and the overlay stack is
     # asymmetric: REMOTE_TASK hardcodes `--overlay config.gpu.yaml` for the POD
@@ -1003,6 +1067,9 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
                 # local would raise UnboundLocalError inside the cleanup
     try:
         alive = _live_pod() if reuse else None
+        if reuse and not alive:
+            # nothing reusable: do not leave a tracked-but-dead pod behind
+            sweep_orphans()
         if alive:
             # REUSE a pod left up by a previous --keep-alive run: skip provision,
             # watchdog-arm and apt, all of which are already done. The saving is
@@ -1116,7 +1183,12 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
                           if (wd / n).exists()]
             _rsync_paths(rp, port, bake_paths, up)
         else:
-            rsync(rp, port, "./", up, extra_excludes=("input", "output"))
+            # code + THESE videos' work dirs only. Sending all of work/ uploaded
+            # every other lesson too (2.3 GB for a 339 MB video) and was most
+            # of a 22.6 min bootstrap on 2026-11-24.
+            rsync(rp, port, "./", up, extra_excludes=("input", "output", "work"))
+            _rsync_paths(rp, port, [str(M.video_workdir(cfg, v))
+                                    for v in videos], up)
         # 2. install + verify CUDA (fails fast if CUDA is unavailable).
         # SKIPPED on a reused pod that PROVES it is already set up. The
         # experiment queue runs 6 bake-offs back to back against one pod, and
@@ -1158,7 +1230,8 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # arguments and the run would fail after provisioning. _rsync_paths is
         # already safe: it passes a list to subprocess, never a shell.
         cmd = REMOTE_TASK[task].format(
-            video=shlex.quote(video), langs=",".join(langs),
+            video=" ".join(shlex.quote(v) for v in videos),
+            langs=",".join(langs),
             # s5, not s7 — see dub._remote_stages. Only s4 needs the GPU; s6/s7
             # are CPU work on already-synced files, and s6 needs the [master]
             # extra that pods do not install (it failed a full run 2026-08-09).
@@ -1203,7 +1276,9 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
               "./work/", check=False)
         # 5. mux LOCALLY: the source video is here, muxing is a cheap stream-copy.
         # Both run and autopilot skip the mux on the pod (--to s7 / --no-mux).
-        if task in ("run", "autopilot") and rc == 0:
+        # `run` does s6..s8 locally in dub.py (_remote_plan): muxing here
+        # would pack whatever stale dub_<lang>.m4a an older mix left behind.
+        if task == "autopilot" and rc == 0:
             from . import s8_mux
             try:
                 s8_mux.run(cfg, video, langs)
@@ -1220,14 +1295,16 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # runlog.py for why this is not hand-maintained.
         try:
             from . import runlog
-            man_p = M.manifest_path(cfg, video)
             vid_min = segs = None
-            if man_p.exists():
-                _m = json.loads(man_p.read_text(encoding="utf-8"))
-                vid_min = round(float(_m.get("duration") or 0) / 60, 3) or None
-                segs = len(_m.get("utterances") or []) or None
+            for v in videos:
+                man_p = M.manifest_path(cfg, v)
+                if man_p.exists():
+                    _m = json.loads(man_p.read_text(encoding="utf-8"))
+                    vid_min = (vid_min or 0) + float(_m.get("duration") or 0) / 60
+                    segs = (segs or 0) + len(_m.get("utterances") or [])
+            vid_min = round(vid_min, 3) if vid_min else None
             runlog.append({
-                "video": Path(video).stem, "task": task, "langs": list(langs),
+                "video": ",".join(Path(v).stem for v in videos), "task": task, "langs": list(langs),
                 "stages": stages or None, "reuse": bool(reuse),
                 "ok": rc == 0, "rc": rc,
                 "wall_s": round(time.time() - _t0, 1),
@@ -1249,7 +1326,29 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # install and fires at the deadline even if this process dies, and the
         # state file is deliberately LEFT IN PLACE so `remote kill` (and the
         # sweep at the start of the next remote command) will collect it.
-        if keep_alive and pid:
+        hold_min = float(rp.get("hold_on_failure_min") or 0)
+        st_hold = None
+        if not keep_alive and pid and rc not in (None, 0) and hold_min > 0:
+            try:
+                st_hold = ssh_target(get_pod(pid))
+            except RuntimeError:
+                st_hold = None
+        if st_hold:
+            # the task ran and failed on a working pod: HOLD it for a hotfix.
+            # Bounded by the re-armed pod-side watchdog, so walking away costs
+            # at most hold_on_failure_min of pod time.
+            secs = min(hold_min * 60, max(deadline - time.time(), 60))
+            arm_pod_watchdog(rp, st_hold[0], st_hold[1], secs)
+            _save_state({"pod_id": pid, "created_at": time.time(),
+                         "held_for_hotfix": True})
+            log.warning("task FAILED (rc=%s) — pod %s HELD for a hotfix, "
+                        "self-destructs in ~%.0f min (billing meanwhile).",
+                        rc, pid, secs / 60)
+            log.warning("  fix the code locally, then re-run the SAME command: "
+                        "it reuses this pod (rsyncs only changed files, skips "
+                        "setup).")
+            log.warning("  give up instead:  dubadabidu remote kill")
+        elif keep_alive and pid:
             st = ssh_target(get_pod(pid)) if pid else None
             # free this run's engine venv so a --reuse run does not inherit
             # a disk already full of the previous challenger's torch

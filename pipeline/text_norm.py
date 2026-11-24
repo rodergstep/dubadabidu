@@ -159,10 +159,28 @@ def localize_numbers(text: str, lang: str) -> str:
 # hypothesis, not a restoration of known-good behaviour — gate it on
 # tts.ru_stress and let an A/B decide. The 2026-07-08 finding that plus notation
 # BREAKS generation still stands: convert to acutes, never pass "дер+евья".
-NORM_VERSIONS = {"ru": 1}
+# ru 2 (2026-11-24): Title-case words lowercased before RUAccent (below).
+NORM_VERSIONS = {"ru": 2}
 _ruaccent = None
 _PLUS = re.compile(r"\+(.)")
 ACUTE = "\u0301"
+
+
+# a Cyrillic word with an upper-case first letter and lower-case rest
+_TITLE_RU = re.compile(r"\b[А-ЯЁ][а-яё]*\b")
+
+
+def lower_title_ru(text: str) -> str:
+    """Lowercase Title-case Russian words; ALL-CAPS (acronyms) are left alone.
+
+    The ru-stress fine-tune's card (siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-
+    cf): RUAccent stresses a capitalized word worse than the same word in lower
+    case («Ка́кая сегодня погода», «По́том мы пошли») — right on 95.2% of
+    capitalized words as written vs 97.4% lowercased, measured against what
+    Russian LibriSpeech readers said. Case does not change how the TTS reads a
+    word, and with a checkpoint that follows marks this faithfully RUAccent's
+    errors are what is left, so the text goes to the engine lowercased too."""
+    return _TITLE_RU.sub(lambda m: m.group(0).lower(), text)
 
 
 def plus_to_acute(text: str) -> str:
@@ -180,7 +198,7 @@ def accent_ru(text: str) -> str:
             log.info("loading RUAccent (turbo3.1) ...")
             _ruaccent = RUAccent()
             _ruaccent.load(omograph_model_size="turbo3.1", use_dictionary=True)
-        return plus_to_acute(_ruaccent.process_all(text))
+        return plus_to_acute(_ruaccent.process_all(lower_title_ru(text)))
     except Exception as e:
         log.warning("RUAccent unavailable (%s); synthesizing unaccented", e)
         return text

@@ -29,3 +29,7 @@ work/.runpod_active.json
 
 # per-video audio-hash memo (derived; work/ is ignored anyway)
 .audio_sig.json
+
+# packaging artifacts (`uv build`)
+build/
+dist/

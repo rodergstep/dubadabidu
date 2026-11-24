@@ -60,3 +60,34 @@ def test_marks_on_a_stress_trained_checkpoint_or_forced_are_allowed() -> None:
     T._refuse_marks_on_untrained_model(_cfg(ru_stress=True, qwen_model_dir=FT), "ru", "qwen")
     T._refuse_marks_on_untrained_model(_cfg(ru_stress=True, ru_stress_force=True), "ru", "qwen")
     T._refuse_marks_on_untrained_model(_cfg(ru_stress=False), "ru", "qwen")
+
+
+def test_sample_rate_guard_rejects_a_mismatch(tmp_path):
+    """faster-qwen3-tts assumes 24000 Hz; a checkpoint declaring anything else
+    must fail the take, not ship it at the wrong pitch."""
+    import json
+    import pytest
+    from pipeline import tts_engine as T
+    ck = tmp_path / "ckpt"
+    (ck / "speech_tokenizer").mkdir(parents=True)
+    (ck / "speech_tokenizer" / "config.json").write_text(
+        json.dumps({"output_sample_rate": 22050}), encoding="utf-8")
+    T._declared_sr.pop(str(ck), None)
+    assert T.declared_output_sr(str(ck)) == 22050
+    with pytest.raises(RuntimeError, match="wrong pitch"):
+        T.check_output_sr(str(ck), 24000)
+    T.check_output_sr(str(ck), 22050)
+    # unreadable -> guard skipped, never a false failure
+    T._declared_sr.pop(str(tmp_path / "nope"), None)
+    T._declared_sr[str(tmp_path / "nope")] = None
+    T.check_output_sr(str(tmp_path / "nope"), 24000)
+
+
+def test_title_case_is_lowercased_before_ruaccent_but_acronyms_are_not():
+    """Model-card recommendation: RUAccent marks capitalized words worse."""
+    from pipeline.text_norm import NORM_VERSIONS, lower_title_ru
+    assert lower_title_ru("Какая сегодня погода. Потом мы пошли") == \
+        "какая сегодня погода. потом мы пошли"
+    assert lower_title_ru("Краски ООО и РФ") == "краски ООО и РФ"
+    assert lower_title_ru("Paint Red") == "Paint Red"      # not Cyrillic
+    assert NORM_VERSIONS["ru"] >= 2, "the marked text changed: salt the cache"
