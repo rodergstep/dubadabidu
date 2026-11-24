@@ -2,6 +2,8 @@
 name = "dubadabidu"
 version = "0.4.0"
 description = "Ukrainian -> multilingual AI video dubbing with voice cloning (Qwen3-TTS)"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 requires-python = ">=3.11,<3.13"   # 3.11 = Mac venv, 3.12 = pod + CI; numpy 2.4 dropped 3.10
 dependencies = [
   "faster-whisper==1.2.1",
@@ -85,7 +87,7 @@ dev = ["pytest==9.1.1"]   # ruff runs via `uvx ruff@<ver>` (CI), not from the en
 dubadabidu = "dub:main"
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]   # 77: SPDX `license` string (PEP 639)
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
