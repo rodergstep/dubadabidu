@@ -810,7 +810,7 @@ REMOTE_TASK = {
     # laptop for free, and translation in particular should NEVER run here —
     # it is API-latency-bound, so the pod would bill while waiting on DeepSeek.
     # Default keeps the old whole-pipeline behaviour.
-    "run": "dubadabidu run {video} --langs {langs} {stages} "
+    "run": "dubadabidu run {video} --langs {langs} {stages} --keep-going "
            "--overlay config.gpu.yaml --overlay config.deepseek.yaml",
     # preamble = prep's other half: tune R1 scores every ref candidate by real
     # ECAPA similarity on synthesized output and writes the winner (plus its
@@ -955,7 +955,7 @@ def _install_engines(rp: dict, host: str, port: int, remote: str,
             log.warning("engine %s setup failed — %s", eng, fail_note)
 
 
-def remote_run(cfg: dict, video: str, langs: list[str], task: str,
+def remote_run(cfg: dict, video: str | list[str], langs: list[str], task: str,
                budget_usd: float | None = None,
                keep_alive: bool = False, reuse: bool = False,
                overlays: list[str] | None = None,
@@ -994,18 +994,27 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
     if task not in REMOTE_TASK:
         raise SystemExit(f"unknown remote task {task!r} (choose "
                          f"{list(REMOTE_TASK)})")
+    # `run` takes several videos and does them in ONE pod-side process, so
+    # the models load once (~30 s each time: qwen 7 s, the clone prompt 8.5 s,
+    # ECAPA, MOS, whisper — measured 2026-11-24) instead of once per video.
+    videos = [video] if isinstance(video, str) else list(video)
+    if not videos:
+        raise SystemExit("remote_run: no video given")
+    if len(videos) > 1 and task != "run":
+        raise SystemExit(f"remote {task} takes one video, got {len(videos)}")
+    video = videos[0]
     # the pod gets work/ + ref/ + code, NOT the source video — so s1/s2 must be
     # done locally first (their cached stems live in work/). Fail fast with a
     # clear message instead of wasting a pod.
-    if not M.manifest_path(cfg, video).exists():
-        raise SystemExit(
-            f"{video}: no cached manifest — run s1+s2 locally first "
-            f"(`dubadabidu preamble {video}`). The GPU pod never receives the "
-            f"source video; it works from work/<video>/ audio stems.")
-    wd_v = M.video_workdir(cfg, video)
-    if not (wd_v / "vocals.wav").exists():
-        raise SystemExit(f"{video}: work/{Path(video).stem}/vocals.wav missing — "
-                         f"run s1 locally first.")
+    for v in videos:
+        if not M.manifest_path(cfg, v).exists():
+            raise SystemExit(
+                f"{v}: no cached manifest — run s1+s2 locally first "
+                f"(`dubadabidu preamble {v}`). The GPU pod never receives the "
+                f"source video; it works from work/<video>/ audio stems.")
+        if not (M.video_workdir(cfg, v) / "vocals.wav").exists():
+            raise SystemExit(f"{v}: work/{Path(v).stem}/vocals.wav missing — "
+                             f"run s1 locally first.")
     # FAIL BEFORE PROVISIONING IF THE POD COULD NOT POSSIBLY DO THE WORK.
     # runpod.engine_setup lives in config.gpu.yaml, and the overlay stack is
     # asymmetric: REMOTE_TASK hardcodes `--overlay config.gpu.yaml` for the POD
@@ -1174,11 +1183,12 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
                           if (wd / n).exists()]
             _rsync_paths(rp, port, bake_paths, up)
         else:
-            # code + THIS video's work dir only. Sending all of work/ uploaded
+            # code + THESE videos' work dirs only. Sending all of work/ uploaded
             # every other lesson too (2.3 GB for a 339 MB video) and was most
             # of a 22.6 min bootstrap on 2026-11-24.
             rsync(rp, port, "./", up, extra_excludes=("input", "output", "work"))
-            _rsync_paths(rp, port, [str(M.video_workdir(cfg, video))], up)
+            _rsync_paths(rp, port, [str(M.video_workdir(cfg, v))
+                                    for v in videos], up)
         # 2. install + verify CUDA (fails fast if CUDA is unavailable).
         # SKIPPED on a reused pod that PROVES it is already set up. The
         # experiment queue runs 6 bake-offs back to back against one pod, and
@@ -1220,7 +1230,8 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # arguments and the run would fail after provisioning. _rsync_paths is
         # already safe: it passes a list to subprocess, never a shell.
         cmd = REMOTE_TASK[task].format(
-            video=shlex.quote(video), langs=",".join(langs),
+            video=" ".join(shlex.quote(v) for v in videos),
+            langs=",".join(langs),
             # s5, not s7 — see dub._remote_stages. Only s4 needs the GPU; s6/s7
             # are CPU work on already-synced files, and s6 needs the [master]
             # extra that pods do not install (it failed a full run 2026-08-09).
@@ -1284,14 +1295,16 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         # runlog.py for why this is not hand-maintained.
         try:
             from . import runlog
-            man_p = M.manifest_path(cfg, video)
             vid_min = segs = None
-            if man_p.exists():
-                _m = json.loads(man_p.read_text(encoding="utf-8"))
-                vid_min = round(float(_m.get("duration") or 0) / 60, 3) or None
-                segs = len(_m.get("utterances") or []) or None
+            for v in videos:
+                man_p = M.manifest_path(cfg, v)
+                if man_p.exists():
+                    _m = json.loads(man_p.read_text(encoding="utf-8"))
+                    vid_min = (vid_min or 0) + float(_m.get("duration") or 0) / 60
+                    segs = (segs or 0) + len(_m.get("utterances") or [])
+            vid_min = round(vid_min, 3) if vid_min else None
             runlog.append({
-                "video": Path(video).stem, "task": task, "langs": list(langs),
+                "video": ",".join(Path(v).stem for v in videos), "task": task, "langs": list(langs),
                 "stages": stages or None, "reuse": bool(reuse),
                 "ok": rc == 0, "rc": rc,
                 "wall_s": round(time.time() - _t0, 1),

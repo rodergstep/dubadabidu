@@ -359,7 +359,8 @@ def test_run_upload_sends_only_this_videos_workdir():
     from pathlib import Path
     src = (Path(__file__).resolve().parent.parent
            / "pipeline" / "runpod_infra.py").read_text(encoding="utf-8")
-    assert "_rsync_paths(rp, port, [str(M.video_workdir(cfg, video))], up)" in src
+    assert ("_rsync_paths(rp, port, [str(M.video_workdir(cfg, v))\n"
+            "                                    for v in videos], up)") in src
     assert 'extra_excludes=("input", "output"))' not in src
 
 
@@ -921,26 +922,26 @@ def test_no_capacity_anywhere_waits_and_resweeps(monkeypatch):
 
 
 class _FakeRpi:
-    """Stands in for pipeline.runpod_infra in the batch tests."""
-    DEFAULTS = {"budget_usd": 10.0, "assumed_price_per_hr": 0.70}
+    """Stands in for pipeline.runpod_infra in the batch tests: records the
+    call and marks the pod stages done in each "synced-back" manifest."""
 
-    def __init__(self, fail: frozenset[str] = frozenset(),
-                 raise_on: str | None = None) -> None:
-        self.calls: list[tuple[str, bool, bool, float]] = []
-        self.swept = 0
+    def __init__(self, tmp_path, fail: frozenset[str] = frozenset()) -> None:
+        self.tmp = tmp_path
+        self.calls: list[tuple[list[str], str, bool, bool]] = []
         self.fail = fail
-        self.raise_on = raise_on
 
-    def remote_run(self, cfg: dict, v: str, langs: list[str], task: str,
-                   budget: float, keep_alive: bool, reuse: bool,
-                   overlays: list[str], stages: str) -> bool:
-        self.calls.append((v, keep_alive, reuse, budget))
-        if v == self.raise_on:
-            raise RuntimeError("boom")
-        return v not in self.fail
-
-    def sweep_orphans(self) -> None:
-        self.swept += 1
+    def remote_run(self, cfg: dict, videos: list[str], langs: list[str],
+                   task: str, budget: float | None, keep_alive: bool,
+                   reuse: bool, overlays: list[str], stages: str) -> bool:
+        import json
+        self.calls.append((list(videos), stages, keep_alive, reuse))
+        for v in videos:
+            st = {} if v in self.fail else {
+                f"s{n}_{lg}": "done" for n in (4, 5) for lg in langs}
+            d = self.tmp / v
+            d.mkdir(exist_ok=True)
+            (d / "manifest.json").write_text(json.dumps({"stages": st}))
+        return not self.fail
 
 
 def _batch_args(**kw: object):
@@ -951,49 +952,68 @@ def _batch_args(**kw: object):
     return argparse.Namespace(**base)
 
 
-def test_multi_video_remote_run_shares_one_pod(monkeypatch):
-    """Every call but the last keeps the pod, every call but the first reuses
-    it; local stages run for all videos before (s3) and after (s6..s8)."""
+def test_multi_video_remote_run_is_one_pod_one_call(monkeypatch, tmp_path):
+    """All videos go to the pod in ONE remote_run (one process: models load
+    once); s3 runs locally for all first, s6..s8 for all after."""
     import dub
     local: list[tuple[str, tuple[str, ...]]] = []
     monkeypatch.setattr(dub, "_run_local",
                         lambda cfg, v, langs, st: local.append((v, tuple(st))))
-    rpi = _FakeRpi()
-    ok = dub._remote_run_batch({}, ["a", "b", "c"], ["en"], _batch_args(), rpi)
-    assert ok
-    assert [(v, k, r) for v, k, r, _ in rpi.calls] == [
-        ("a", True, False), ("b", True, True), ("c", False, True)]
-    assert [v for v, st in local[:3]] == ["a", "b", "c"]          # s3 first
-    assert all(st == ("s3_translate",) for _, st in local[:3])
-    assert all(st[0] == "s6_mix" for _, st in local[3:])
-    assert rpi.swept == 0, "the last call terminates the pod itself"
+    rpi = _FakeRpi(tmp_path)
+    cfg = {"work_dir": str(tmp_path)}
+    assert dub._remote_run_batch(cfg, ["a", "b", "c"], ["en"], _batch_args(), rpi)
+    assert rpi.calls == [(["a", "b", "c"], "--from s4_synthesize --to s5_fit",
+                          False, False)]
+    assert [v for v, st in local if st == ("s3_translate",)] == ["a", "b", "c"]
+    assert [v for v, st in local if st[:1] == ("s6_mix",)] == ["a", "b", "c"]
 
 
-def test_batch_failure_skips_that_videos_finish_and_continues(monkeypatch):
+def test_batch_video_that_did_not_finish_on_the_pod_skips_its_finish(
+        monkeypatch, tmp_path):
     import dub
     local: list[str] = []
     monkeypatch.setattr(dub, "_run_local",
-                        lambda cfg, v, langs, st: local.append(f"{v}:{st[0]}"))
-    rpi = _FakeRpi(fail=frozenset({"b"}))
-    assert not dub._remote_run_batch({}, ["a", "b", "c"], ["en"],
+                        lambda cfg, v, langs, st: local.append(f"{v}:{st[0]}")
+                        if st else None)
+    rpi = _FakeRpi(tmp_path, fail=frozenset({"b"}))
+    cfg = {"work_dir": str(tmp_path)}
+    assert not dub._remote_run_batch(cfg, ["a", "b", "c"], ["en"],
                                      _batch_args(), rpi)
-    assert len(rpi.calls) == 3
-    assert "b:s6_mix" not in local and "c:s6_mix" in local
+    assert "a:s6_mix" in local and "c:s6_mix" in local
+    assert "b:s6_mix" not in local
 
 
-def test_batch_exception_kills_the_pod_kept_for_the_next_video(monkeypatch):
+def test_pod_command_keeps_going_and_carries_every_video():
+    """The pod-side `run` must not stop at the first bad video, and every
+    path is quoted (lesson names have spaces)."""
+    import shlex
+    from pipeline.runpod_infra import REMOTE_TASK
+    assert "--keep-going" in REMOTE_TASK["run"]
+    vids = ["input/a b.mp4", "input/c.mp4"]
+    cmd = REMOTE_TASK["run"].format(
+        video=" ".join(shlex.quote(v) for v in vids), langs="en", stages="")
+    assert "'input/a b.mp4' input/c.mp4" in cmd
+
+
+def test_run_keep_going_continues_past_a_failing_video(monkeypatch, tmp_path):
+    """dub.py run with --keep-going: video 1 raises, video 2 still runs, and
+    the process exits non-zero naming the failure."""
+    import sys
     import pytest
     import dub
-    monkeypatch.setattr(dub, "_run_local", lambda cfg, v, langs, st: None)
-    rpi = _FakeRpi(raise_on="b")
-    with pytest.raises(RuntimeError):
-        dub._remote_run_batch({}, ["a", "b", "c"], ["en"], _batch_args(), rpi)
-    assert rpi.swept == 1
+    seen: list[str] = []
 
-
-def test_batch_budget_is_shared(monkeypatch):
-    import dub
-    monkeypatch.setattr(dub, "_run_local", lambda cfg, v, langs, st: None)
-    rpi = _FakeRpi()
-    dub._remote_run_batch({}, ["a", "b"], ["en"], _batch_args(budget=3.0), rpi)
-    assert rpi.calls[0][3] <= 3.0 and rpi.calls[1][3] <= rpi.calls[0][3]
+    def stage(cfg, v, langs):
+        seen.append(v)
+        if v.endswith("bad.mp4"):
+            raise RuntimeError("synth exploded")
+    monkeypatch.setattr(dub, "STAGES", {n: stage for n in dub.ORDER})
+    for n in ("bad", "good"):
+        (tmp_path / f"{n}.mp4").write_bytes(b"")
+    monkeypatch.setattr(sys, "argv", [
+        "dubadabidu", "run", str(tmp_path / "bad.mp4"), str(tmp_path / "good.mp4"),
+        "--langs", "en", "--from", "s4_synthesize", "--to", "s4_synthesize",
+        "--keep-going"])
+    with pytest.raises(SystemExit, match="1 video"):
+        dub.main()
+    assert seen == [str(tmp_path / "bad.mp4"), str(tmp_path / "good.mp4")]

@@ -359,59 +359,47 @@ def _remote_stages(a) -> str:
     return f"--from {pod[0]} --to {pod[-1]}"
 
 
+def _pod_stages_done(cfg: dict, video: str, langs: list[str],
+                     stages: list[str]) -> bool:
+    """Did every pod stage finish for every language? Read from the manifest
+    the pod synced back (stage keys are s4_<lang>, s5_<lang>)."""
+    p = M.manifest_path(cfg, video)
+    if not p.exists():
+        return False
+    import json
+    done = json.loads(p.read_text(encoding="utf-8")).get("stages", {})
+    return all(done.get(f"{st.split('_')[0]}_{lg}") == "done"
+               for st in stages for lg in langs)
+
+
 def _remote_run_batch(cfg: dict, vids: list[str], langs: list[str], a,
                       rpi) -> bool:
-    """`remote run` over one or many videos on ONE pod (_remote_plan's split).
+    """`remote run` over one or many videos: ONE pod, ONE pod-side process.
 
       1. local `before` stages (translation) for EVERY video first, so the pod
          never bills while DeepSeek answers;
-      2. the pod slice video by video on the same pod: every call but the last
-         keeps it alive, every call but the first reuses it. A pod per video
-         paid ~4.5 min of setup each (2026-11-24: 4.5 min setup vs 1.5 min of
-         synthesis for a 1-min lesson) and re-rolled capacity 20 times;
-      3. local `after` stages (mix, subtitles, mux) for the videos that
-         succeeded.
-
-    --budget is the cap for the WHOLE batch: each call gets what is left,
-    priced at runpod.assumed_price_per_hr (the same worst case the deadline
-    uses). A failing video does not stop the others."""
-    import time
+      2. one remote_run with all videos: setup is paid once (4.5 min vs 1.5
+         min of synthesis per 1-min lesson, 2026-11-24) and the models load
+         once (~30 s per process). The pod runs `run --keep-going`, so one bad
+         video does not stop the others;
+      3. local `after` stages (mix, subtitles, mux) for every video whose pod
+         stages are recorded done in its synced-back manifest.
+    """
     before, pod, after = _remote_plan(a)
     for v in vids:
         _run_local(cfg, v, langs, before)
-    if not pod:
+    if pod:
+        rpi.remote_run(cfg, vids, langs, "run", a.budget,
+                       keep_alive=bool(a.keep_alive), reuse=bool(a.reuse),
+                       overlays=a.overlay or [],
+                       stages=f"--from {pod[0]} --to {pod[-1]}")
+        done = [v for v in vids if _pod_stages_done(cfg, v, langs, pod)]
         for v in vids:
-            _run_local(cfg, v, langs, after)
-        return True
-    rp = {**rpi.DEFAULTS, **(cfg.get("runpod") or {})}
-    total = float(a.budget if a.budget is not None else rp["budget_usd"])
-    price = max(float(rp["assumed_price_per_hr"]), 0.01)
-    t0 = time.time()
-    last = len(vids) - 1
-    done: list[str] = []
-    pod_left_up = False          # by US (keep-alive between videos), not the user
-    try:
-        for i, v in enumerate(vids):
-            left = total - (time.time() - t0) / 3600 * price
-            if left <= 0:
-                logging.error("batch budget $%.2f spent — %d video(s) not "
-                              "synthesized: %s", total, len(vids) - i,
-                              ", ".join(Path(x).name for x in vids[i:]))
-                break
-            keep = bool(a.keep_alive) or i < last
-            pod_left_up = keep and not a.keep_alive
-            if rpi.remote_run(cfg, v, langs, "run", left,
-                              keep_alive=keep, reuse=bool(a.reuse) or i > 0,
-                              overlays=a.overlay or [],
-                              stages=f"--from {pod[0]} --to {pod[-1]}"):
-                done.append(v)
-            if not keep:
-                pod_left_up = False
-    finally:
-        # a break (budget) or an exception between videos would otherwise
-        # leave the pod we kept alive for the NEXT video running
-        if pod_left_up:
-            rpi.sweep_orphans()
+            if v not in done:
+                logging.error("%s: GPU stages did not finish — skipping its "
+                              "local finish", Path(v).name)
+    else:
+        done = list(vids)
     for v in done:
         _run_local(cfg, v, langs, after)
     return len(done) == len(vids)
@@ -471,6 +459,9 @@ def main() -> None:
                          "and took anywhere from 4 to 60 min depending on the "
                          "pod's route to PyPI. Falls back to provisioning if "
                          "no live pod is tracked.")
+    ap.add_argument("--keep-going", dest="keep_going", action="store_true",
+                    help="`run` over several videos: log a failing video and "
+                         "continue with the next instead of stopping")
     ap.add_argument("--budget", type=float, default=None,
                     help="hard USD cap for `remote` (auto-terminates the pod); "
                          "default runpod.budget_usd")
@@ -634,6 +625,7 @@ def main() -> None:
         return
 
     s4_idx = ORDER.index("s4_synthesize")
+    failed: list[str] = []
     for v in a.rest:  # run
         # allow running without the source video when s1/s2 are already cached
         # (the remote GPU path uploads work/ + ref/, never the 4K video)
@@ -650,16 +642,28 @@ def main() -> None:
                          "take-selection params re-apply", n, langs, v)
         logging.info("=== %s ===", v)
         started = False
-        for name in ORDER:
-            started = started or name == a.from_stage
-            if started:
-                try:
-                    STAGES[name](cfg, v, langs)
-                except subprocess.CalledProcessError as e:
-                    sys.exit(f"[{name}] external command failed: {e}")
-            if name == a.to_stage:
-                break
+        try:
+            for name in ORDER:
+                started = started or name == a.from_stage
+                if started:
+                    try:
+                        STAGES[name](cfg, v, langs)
+                    except subprocess.CalledProcessError as e:
+                        sys.exit(f"[{name}] external command failed: {e}")
+                if name == a.to_stage:
+                    break
+        except (Exception, SystemExit) as e:
+            # --keep-going: one bad video must not cost the rest of a batch
+            # its run (the remote batch does every video in one process)
+            if not a.keep_going:
+                raise
+            logging.error("=== %s FAILED (%s) — continuing with the next "
+                          "video ===", v, e)
+            failed.append(v)
+            continue
         logging.info("=== %s done ===", v)
+    if failed:
+        sys.exit(f"{len(failed)} video(s) failed: {', '.join(failed)}")
 
 
 if __name__ == "__main__":
