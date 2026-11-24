@@ -39,6 +39,7 @@
 # on the shipped reference is the only one that transfers.
 tts:
   ru_stress: true       # THE axis under test — nothing else may differ
+  ru_stress_force: true   # REFUTED arm, kept reproducible: marks on the BASE model (synthesize refuses this otherwise)
 
 bakeoff:
   tune:

@@ -13,12 +13,15 @@ stretch" stack from the automatic-dubbing literature.
 s1_extract     ffmpeg audio extraction + BS-RoFormer vocal/background separation
                (audio-separator; ~12.9 dB vocal SDR vs htdemucs' ~9 — Demucs
                stays as the fallback backend, separation.backend: demucs)
-s2_transcribe  faster-whisper large-v3 (uk) → utterance manifest (EDIT THIS BY HAND!)
+s2_transcribe  Whisper large-v3 (uk; mlx-whisper on Apple Silicon, faster-whisper
+               elsewhere) → utterance manifest (EDIT THIS BY HAND!)
 s3_translate   LLM translation, ±10% isometric constraint, glossary, per-segment
 s4_synthesize  Qwen3-TTS 12Hz Base (tts.qwen_fast), cloned from your reference
                clip via the speaker-embedding-only path (UA ref, no transcript)
-s5_fit         place segments on timeline; atempo ≤ 1.12; else request shorter variant
-s6_mix         dubbed vocals + original background stem, loudnorm -16 LUFS
+s5_fit         soft-anchor timeline (dub may drift ≤ fit.drift_max_s); rubberband
+               stretch ≤ 1.12 (atempo fallback); else a shorter variant
+s6_mix         per-segment level match + light master + ducked background stem,
+               two-pass loudnorm -16 LUFS
 s7_subtitles   per-language SRT from fitted segments
 s8_mux         one MP4: video copy + N audio tracks + N mov_text subtitle tracks
 qc/backcheck   re-transcribe each dubbed track, WER vs. source text (hallucination catch)
@@ -29,37 +32,41 @@ The central data structure is `work/<video>/manifest.json` — one editable JSON
 (idea borrowed from Softcatala/open-dubbing's utterance_metadata). Fix a mistranslation
 there, re-run from s4, and only the changed segments are re-synthesized (content-hash cache).
 
-## Verified versions (checked 2026-08-03; pyproject.toml is the source of truth)
+## Verified versions (2026-11-19; pyproject.toml declares, uv.lock pins)
 
 | Component | Version | Notes |
 |---|---|---|
-| Python | 3.11.x | recommended |
-| torch / torchaudio | **2.11.0 / 2.11.0** | installed by the pod bootstrap from the cu128 index, NOT pinned in pyproject. 2.11 is the ceiling: torchaudio stopped there and the two ship version-locked. Moves together with `runpod.allowed_cuda_versions` |
+| Python | 3.11 (Mac) / 3.12 (pod, CI) | `requires-python >=3.11,<3.13` |
+| torch / torchaudio | **2.11.0 / 2.11.0** | declared in pyproject, locked in uv.lock; `+cu128` on Linux. 2.11 is the ceiling (torchaudio stopped there). Moves together with `runpod.min_cuda_version` |
 | faster-whisper | 1.2.1 | model `large-v3` |
 | whisperx | 3.8.6 | optional, word-level alignment for tighter subs |
-| audio-separator | 0.44.5 | BS-RoFormer separation, `.[sep]` extra (s1, LOCAL only). Install WITH the torch pins on one command line — it declares torch>=2.3 with no upper bound |
+| audio-separator | 0.44.5 | BS-RoFormer separation, `.[sep]` extra (s1, LOCAL only) |
 | demucs | 4.1.0 | fallback separation backend (`htdemucs`), `.[sep]` extra — never installed on a pod |
 | faster-qwen3-tts | 0.3.2 | CUDA-graph decode for qwen (GPU); 5.9x measured (THIRD_PARTY.md) |
 | qwen_tts | git-clone | Qwen3-TTS bake-off engine (GPU); Apache-2.0, ~4 GB VRAM (THIRD_PARTY.md) |
 | edge-tts | 7.2.8 | free fallback voices (no cloning) |
 | openai SDK | 2.52.0 | universal client → DeepSeek / OpenAI / LM Studio / Ollama via `base_url` |
-| jiwer | latest | WER for QC |
+| jiwer | 4.0.0 | WER for QC |
 | ffmpeg | 7.x system binary | required in PATH |
 
 ## Install (macOS or Linux)
 
+Dependencies are locked (`uv.lock`); install with [uv](https://docs.astral.sh/uv/):
+
 ```bash
-cd /Users/diadumenoss/Documents/projects/dubadabidu
-python3.11 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,sep]"          # tool + deps, console command `dubadabidu`
-                                     # add ,mac on Apple Silicon (mlx-whisper)
-                                     # drop ,sep on a GPU box — s1 is local-only
-brew install ffmpeg                  # macOS; apt install ffmpeg on Linux
-dubadabidu doctor                    # validates everything before you start
+cd dubadabidu
+uv sync --extra dev --extra sep --extra mac   # Apple Silicon; --extra master for
+                                              # the s6 mastering chain (GPLv3 opt-in)
+uv sync --extra dev                           # GPU box: s1 (sep) stays local
+brew install ffmpeg                           # macOS; apt install ffmpeg on Linux
+uv run dubadabidu doctor                      # validates everything before you start
 ```
 
+Change a dependency in `pyproject.toml`, then `uv lock` and
+`scripts/export_requirements.sh` (`requirements.txt` is generated; CI checks it).
+
 ### macOS reality check
-Your Mac has no CUDA. For ASR, `pip install .[mac]` pulls in **mlx-whisper**
+Your Mac has no CUDA. For ASR, `uv sync --extra mac` pulls in **mlx-whisper**
 (Whisper via Apple's Metal/ANE, ~4-5× vs CPU int8) and `asr.backend: auto`
 picks it up automatically — makes local transcription of full lessons
 tolerable. mlx-whisper has no VAD, but s1 already isolates vocals so that gap
@@ -98,24 +105,16 @@ rsync -avz --exclude .venv --exclude __pycache__ --exclude .env \
   ./ user@GPU_HOST:~/dubadabidu/
 ```
 
-**2. Install on the GPU box.** torch comes from the cu128 index, not plain PyPI:
-PyPI serves a `+cu130` build that needs a 13.0 driver, and the CUDA filter also
-admits 12.8/12.9 hosts. Pinning the LOWEST admitted version makes every host in
-the pool valid. This mirrors `runpod_infra.REMOTE_SETUP` — keep them in sync.
+**2. Install on the GPU box** — the same locked environment the pod bootstrap
+installs (`runpod_infra.REMOTE_SETUP`); torch resolves to the cu128 build:
 
 ```bash
-sudo apt install -y --no-install-recommends ffmpeg   # --no-install-recommends
-                                                     # or apt swaps the C runtime
-                                                     # and kills sshd mid-run
-python3.11 -m venv .venv && source .venv/bin/activate
-pip install --upgrade pip                            # the old resolver backtracks
-                                                     # for ~26 min on this graph
-pip install torch==2.11.0 torchaudio==2.11.0 \
-  --index-url https://download.pytorch.org/whl/cu128
-pip install -e ".[dev]"                              # no .[sep]: s1 stays local
+sudo apt install -y --no-install-recommends ffmpeg   # recommends would swap the
+                                                     # C runtime and kill sshd
+pip install uv && uv sync --frozen --extra dev       # no sep: s1 stays local
 # qwen: git-clone engine, pinned by SHA — see runpod.engine_setup in config.gpu.yaml
-python -c "import torch; print('CUDA:', torch.cuda.is_available())"   # must print True
-dubadabidu doctor                       # should report 'torch device: cuda'
+uv run python -c "import torch; print('CUDA:', torch.cuda.is_available())"   # True
+uv run dubadabidu doctor                             # 'torch device: cuda'
 ```
 
 **3. Run.** Translations are cached in `work/<video>/manifest.json`, so start at s4 to
@@ -135,22 +134,6 @@ or run LM Studio / a remote provider on that box.
 rsync -avz user@GPU_HOST:~/dubadabidu/work/   ./work/
 rsync -avz user@GPU_HOST:~/dubadabidu/output/ ./output/
 ```
-
-## Old install section (reference)
-
-```bash
-# system
-sudo apt install ffmpeg
-# env
-uv venv --python 3.11 && source .venv/bin/activate
-# torch on the SAME line as the separation extra: audio-separator declares
-# torch>=2.3 with no upper bound and will otherwise pull 2.13, breaking the
-# torchaudio pairing (torchaudio stopped at 2.11).
-uv pip install -e '.[dev,sep]' torch==2.11.0 torchaudio==2.11.0
-```
-
-GPU: NVIDIA 8–12 GB VRAM (CUDA 12.x). Stages run sequentially so ASR and TTS
-never share VRAM.
 
 ## Reference voice
 
@@ -176,7 +159,7 @@ export TRANSLATE_API_KEY=...   # real key for remote; any non-empty string for l
 
 | Provider | `base_url` | `model` | `response_format` | `TRANSLATE_API_KEY` |
 |---|---|---|---|---|
-| **DeepSeek (remote, DEFAULT)** | `https://api.deepseek.com` | `deepseek-v4-flash` | `json_object` | real key |
+| **DeepSeek (remote, DEFAULT)** | `https://api.deepseek.com` | `deepseek-flash` | `json_object` | real key |
 | OpenAI (remote) | `https://api.openai.com/v1` | `gpt-5-mini` | `json_object` | real key |
 | LM Studio (local) | `http://127.0.0.1:1234/v1` | e.g. `google/gemma-4-e4b` | `json_schema` | any non-empty string |
 | Ollama (local) | `http://localhost:11434/v1` | e.g. `qwen3:32b` | `json_object` | any non-empty string |
@@ -228,15 +211,17 @@ dubadabidu verdicts input/a.mp4 ratings_a_en_x.json  # ingest review-page verdic
 ```
 
 **GPU on RunPod (M2 — automated lifecycle):** `dubadabidu remote <task> <video>`
-provisions a spot pod, runs the task, syncs results back, and ALWAYS terminates
-(hard budget cap + independent pod-side self-destruct watchdog). The source
-video never uploads — s1/s2 run locally, the pod works from `work/` audio stems,
-and the mux runs locally after sync-back. Requires `RUNPOD_API_KEY` in `.env` and
-your SSH key registered with RunPod.
+provisions an on-demand pod (RunPod REST v2), runs the task, syncs results back,
+and ALWAYS terminates (hard budget cap + independent pod-side self-destruct
+watchdog). The source video never uploads — s1/s2 run locally, the pod works from
+`work/` audio stems, and the mux runs locally after sync-back. Requires
+`RUNPOD_API_KEY` in `.env` and an SSH key at `runpod.ssh_key` (its `.pub` is sent
+to the pod as `PUBLIC_KEY`). A prebuilt image (`docker/Dockerfile`, built by
+`.github/workflows/image.yml`) cuts the ~11-min bootstrap; see `runpod.image`.
 
 ```bash
 dubadabidu remote smoke                            # ~$0.02 lifecycle check
-dubadabidu remote setup-check                      # ~$0.30: dry-run the bake-off
+dubadabidu remote setup-check                      # ~$0.02-0.05: dry-run the
                                                    #   installs, report which
                                                    #   engines import (do this
                                                    #   BEFORE a real bakeoff)
@@ -252,10 +237,9 @@ Recommended workflow per video:
    candidates from the video's own vocals), then pauses. **Hand-review the
    Ukrainian text in the manifest** (art terminology — one fix here propagates
    to all languages).
-2. `dubadabidu preamble input/lesson01.mp4` again — translates the tune language,
-   runs tune-lite R1 over this video's refs, and stores the winning ref in the
-   manifest's `tts_overrides` (s4/s5/evaluate pick it up automatically; no
-   config.yaml edit per video).
+2. `dubadabidu preamble input/lesson01.mp4` again — translates the tune language
+   and runs tune-lite R1. The curated `tts.reference_wav` stays in force unless
+   `tune.per_video_ref_override` is on (FINDINGS §2.2: per-video references lost).
 3. `run --from s3_translate` the rest. 4. `qc`. 5. Fix flagged segments in the
    manifest, re-`run` from s4.
 
@@ -269,6 +253,21 @@ Recommended workflow per video:
   install stays permissive.
 - Do NOT ship XTTS-v2 output commercially (Coqui CPML is non-commercial), and keep
   Fish-Speech weights (CC-BY-NC) out; neither is wired in here, on purpose.
+
+## New in v0.5 (review release, PLAN_v0.5.md)
+
+- RunPod client moved to **REST v2** (v1 was retired 2026-11-15): one GPU type per
+  create with an in-order fallback, `minCudaVersion` driver floor, `startSsh`.
+- **uv.lock** pins the whole stack (torch cu128 on Linux); the pod runs
+  `uv sync --frozen`; `requirements.txt` is generated; ruff + `uv lock --check` in CI.
+- Prebuilt pod image (`docker/Dockerfile`) reused only when its lock stamp matches.
+- Translation model `deepseek-flash` (v4-flash retired); `doctor` checks the
+  endpoint serves it; the answering checkpoint is recorded per language.
+- ru-stress fine-tune A/B wired (`experiments.yaml` `ru-ft-*`, human-gated);
+  per-language qwen checkpoint (`tts.qwen_model_dir_by_lang`); marks on a
+  checkpoint not trained on them are refused.
+- `qc/judge.py`: Audiobox Aesthetics validated against the 72 rated groups —
+  refuted (FINDINGS §2.1s).
 
 ## New in v0.4 (quality + flywheel release)
 

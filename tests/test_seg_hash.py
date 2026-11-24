@@ -110,3 +110,17 @@ def test_review_page_source_sorts_by_id_not_by_score():
     key_block = key_block[:key_block.index("hexdigest")]
     assert 'sorted(us, key=lambda u: u["id"])' in key_block, (
         "review_page is hashing the worst-first display order again")
+
+
+def test_config_cleanup_did_not_move_any_cache_key():
+    """PLAN_v0.5 P6 removed the chatterbox knobs (cfg_weight, exaggeration)
+    from config.yaml. synth_hash still keys on their old defaults, so every
+    cached take keeps its hash. Golden values measured before the removal."""
+    import yaml
+    from pipeline.logic import deep_merge
+    from pipeline.manifest import synth_hash
+    with open("config.yaml", encoding="utf-8") as a, \
+            open("config.gpu.yaml", encoding="utf-8") as b:
+        t = deep_merge(yaml.safe_load(a), yaml.safe_load(b))["tts"]
+    assert synth_hash("Hello world.", "en", t) == "5999f900"
+    assert synth_hash("Привет.", "ru", t) == "bfab9b5c"

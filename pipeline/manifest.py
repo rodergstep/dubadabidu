@@ -28,7 +28,76 @@ s4 — hash mismatch re-synthesizes automatically), and re-run from s4.
 from __future__ import annotations
 import json, hashlib
 from pathlib import Path
+from typing import TypedDict
+
 from .text_norm import NORM_VERSIONS, NUM_VERSIONS
+
+
+# ---------- manifest shape (PLAN_v0.5 P7) ----------
+# Documents the JSON in work/<video>/manifest.json. total=False because every
+# stage adds its own keys as it runs; a key here is OPTIONAL until that stage
+# has written it. Stages still use plain dict access — these are annotations.
+
+class Take(TypedDict, total=False):
+    """One synthesized take with its selection metrics (tr.takes[])."""
+    path: str
+    dur: float
+    mos: float
+    mos_min: float
+    f0st: float
+    sim: float
+    wer: float
+    score: float
+
+
+class Adequacy(TypedDict, total=False):
+    score: int            # LLM-judged faithfulness, 1-5
+    issue: str
+
+
+class Translation(TypedDict, total=False):
+    """u["tr"][lang] — written by s3 (text), s4 (synth), s5/s6 (fit/mix), qc."""
+    text: str
+    variants: list[str]
+    adequacy: Adequacy
+    synth: str
+    synth_dur: float
+    synth_engine: str
+    takes: list[Take]
+    fitted: str
+    fitted_text: str
+    tempo: float
+    fit: str              # as_is | stretch | shortened | overflow
+    placed: str
+    placed_start: float
+    placed_end: float
+    drift: float
+    drift_exceeded: bool
+    norm_gain_db: float
+    human_rating: int
+    human_verdict: str    # accept | reject
+
+
+class Utterance(TypedDict, total=False):
+    id: str               # u0001 ...
+    start: float
+    end: float
+    text_uk: str
+    tr: dict[str, Translation]
+
+
+class TtsOverrides(TypedDict, total=False):
+    reference_wav: str
+    reference_text: str
+
+
+class Manifest(TypedDict, total=False):
+    video: str
+    duration: float
+    utterances: list[Utterance]
+    stages: dict[str, str]                       # "<stage>_<lang>" -> "done" | "i/n"
+    translation_models: dict[str, list[str]]     # lang -> checkpoints that answered
+    tts_overrides: TtsOverrides
 
 
 def video_workdir(cfg: dict, video: str | Path) -> Path:
@@ -41,14 +110,14 @@ def manifest_path(cfg: dict, video: str | Path) -> Path:
     return video_workdir(cfg, video) / "manifest.json"
 
 
-def load(cfg: dict, video: str | Path) -> dict:
+def load(cfg: dict, video: str | Path) -> Manifest:
     p = manifest_path(cfg, video)
     if not p.exists():
         raise SystemExit(f"No manifest at {p} — run s2_transcribe first.")
     return json.loads(p.read_text(encoding="utf-8"))
 
 
-def save(cfg: dict, video: str | Path, man: dict) -> None:
+def save(cfg: dict, video: str | Path, man: Manifest) -> None:
     p = manifest_path(cfg, video)
     tmp = p.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(man, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -216,6 +285,23 @@ def edge_langs(man: dict, langs: list[str]) -> list[str]:
                    for u in man["utterances"])]
 
 
+DEFAULT_QWEN_MODEL = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+# Checkpoints TRAINED on U+0301 stress marks. Marks on any other qwen
+# checkpoint destroy the audio (FINDINGS 2.1b: WER 0.068 -> 0.811), so
+# synthesize() refuses that combination unless tts.ru_stress_force is set.
+STRESS_TRAINED_MODELS = frozenset({
+    "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+})
+
+
+def resolve_qwen_model(tts_cfg: dict, lang: str) -> str:
+    """Effective qwen checkpoint for a language: tts.qwen_model_dir_by_lang,
+    else tts.qwen_model_dir, else the base model. Mirrors resolve_engine."""
+    by_lang = tts_cfg.get("qwen_model_dir_by_lang") or {}
+    return (by_lang.get(lang) or tts_cfg.get("qwen_model_dir")
+            or DEFAULT_QWEN_MODEL)
+
+
 def resolve_engine(tts_cfg: dict, lang: str) -> str:
     """Effective engine for a language: per-lang override, else the default."""
     return tts_cfg.get("engine_by_lang") and \
@@ -263,27 +349,9 @@ def synth_hash(text: str, lang: str, tts_cfg: dict) -> str:
         # model against itself. The bake-off never hit it because it writes to
         # per-variant seg/ paths rather than hash-named ones; s4 would have.
         # Non-default only, so existing caches stay valid.
-        mdl = tts_cfg.get("qwen_model_dir")
-        if mdl and mdl != "Qwen/Qwen3-TTS-12Hz-1.7B-Base":
+        mdl = resolve_qwen_model(tts_cfg, lang)
+        if mdl != DEFAULT_QWEN_MODEL:
             key_data["mdl"] = mdl
-    # NORM_VERSIONS salted the key for chatterbox's acute RU stress marks. That
-    # normalisation was chatterbox-only and left with it (2026-08-02); no
-    # surviving engine applies it, so nothing salts on it.
-    # number localization is applied to EVERY engine, so its version salts all
-    # engines' hashes (v1/absent adds no key -> pre-existing caches stay valid)
-    # ru_stress changes the TEXT the engine sees, so it must salt the key or
-    # accented audio would be served from the unaccented cache (and vice versa).
-    if lang == "ru" and tts_cfg.get("ru_stress"):
-        key_data["rustress"] = NORM_VERSIONS.get("ru", 1)
-    # NORM_VERSIONS salted the key for chatterbox's acute RU stress marks. That
-    # normalisation was chatterbox-only and left with it (2026-08-02); no
-    # surviving engine applies it, so nothing salts on it.
-    # number localization is applied to EVERY engine, so its version salts all
-    # engines' hashes (v1/absent adds no key -> pre-existing caches stay valid)
-    # ru_stress changes the TEXT the engine sees, so it must salt the key or
-    # accented audio would be served from the unaccented cache (and vice versa).
-    if lang == "ru" and tts_cfg.get("ru_stress"):
-        key_data["rustress"] = NORM_VERSIONS.get("ru", 1)
     # NORM_VERSIONS salted the key for chatterbox's acute RU stress marks. That
     # normalisation was chatterbox-only and left with it (2026-08-02); no
     # surviving engine applies it, so nothing salts on it.

@@ -1,9 +1,7 @@
 """Pure-logic tests: config overlay merge, per-lang engine routing, cache-safe
 hashing for the GPU phase."""
-import time
 from pathlib import Path
 
-import pytest
 
 from pipeline.logic import deep_merge
 from pipeline.manifest import resolve_engine, synth_hash
@@ -61,7 +59,6 @@ def test_gpu_profile_actually_routes_production_to_qwen():
     synthesizing five languages with the wrong engine. Silently, since
     chatterbox installs in the base venv: wrong output, not a crash."""
     import yaml
-    from pathlib import Path
     from pipeline.logic import deep_merge
     root = Path(__file__).resolve().parents[1]
     cfg = deep_merge(yaml.safe_load((root / "config.yaml").read_text()),
@@ -79,7 +76,6 @@ def test_no_isolation_machinery_survives():
     SECOND ~2.5 GB torch download per pod and bought nothing. Removed
     2026-08-02 — this fails if it creeps back without the engines that
     justified it."""
-    from pathlib import Path
     root = Path(__file__).resolve().parents[1]
     assert not (root / "pipeline" / "engine_client.py").exists()
     assert not (root / "pipeline" / "engine_worker.py").exists()

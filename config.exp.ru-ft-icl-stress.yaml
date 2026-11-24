@@ -1,0 +1,15 @@
+# PLAN_v0.5 P4 — arm 3 of 3, RUN ONLY IF arm 2 fails on stress adherence.
+# The fine-tune was trained in ICL layout (reference audio + transcript); ours is
+# a Ukrainian reference, so this tests whether ICL recovers adherence. Reference
+# and marked transcript copied verbatim from config.exp.ru-icl-stress.yaml so
+# the only difference from that refuted base-model arm is the checkpoint.
+tts:
+  qwen_model_dir: siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf
+  ru_stress: true
+  qwen_x_vector_only: false
+  reference_wav: ref/sketch_ref_08.trim12s.wav
+  reference_max_s: 0
+  reference_text: "Насту́пна ста́дія присвя́чується більш дета́льній проце́сі ме́нших форм. Ме́нші фо́рми в на́шому етю́ді – це де́рево,"
+bakeoff:
+  tune:
+    enabled: false

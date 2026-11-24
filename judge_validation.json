@@ -1,0 +1,66 @@
+{
+  "en": {
+    "CE": {
+      "hits": 9,
+      "groups": 22,
+      "rate": 0.409,
+      "chance": 0.3333,
+      "p": 0.293
+    },
+    "CU": {
+      "hits": 9,
+      "groups": 22,
+      "rate": 0.409,
+      "chance": 0.3333,
+      "p": 0.293
+    },
+    "PC": {
+      "hits": 4,
+      "groups": 22,
+      "rate": 0.182,
+      "chance": 0.3333,
+      "p": 0.9649
+    },
+    "PQ": {
+      "hits": 11,
+      "groups": 22,
+      "rate": 0.5,
+      "chance": 0.3333,
+      "p": 0.0787
+    }
+  },
+  "ru": {
+    "CE": {
+      "hits": 37,
+      "groups": 72,
+      "rate": 0.514,
+      "chance": 0.4444,
+      "p": 0.1399
+    },
+    "CU": {
+      "hits": 30,
+      "groups": 72,
+      "rate": 0.417,
+      "chance": 0.4444,
+      "p": 0.7249
+    },
+    "PC": {
+      "hits": 36,
+      "groups": 72,
+      "rate": 0.5,
+      "chance": 0.4444,
+      "p": 0.2
+    },
+    "PQ": {
+      "hits": 34,
+      "groups": 72,
+      "rate": 0.472,
+      "chance": 0.4444,
+      "p": 0.3581
+    }
+  },
+  "_gate": {
+    "p_max": 0.05,
+    "axes_passing_every_language": []
+  }
+}

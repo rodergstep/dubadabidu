@@ -32,7 +32,7 @@ from collections import defaultdict
 from statistics import pstdev
 
 sys.path.insert(0, "/Users/diadumenoss/Documents/projects/dubadabidu")
-from qc.refit import spearman, usable, cv_rho, fit, _ranks, KEYS
+from qc.refit import spearman, usable, cv_rho, fit, _ranks
 
 FEATS = ("qc_sim2", "qc_mos", "qc_f0st")
 RNG = random.Random(20260809)
@@ -89,7 +89,7 @@ def main():
             for _ in range(1000):
                 sh = labels[:]
                 RNG.shuffle(sh)
-                perm = [{**r, "variant": s} for r, s in zip(rows, sh)]
+                perm = [{**r, "variant": s} for r, s in zip(rows, sh, strict=True)]
                 null.append(spread(per_round_rho(perm, feat)))
             p = sum(1 for x in null if x >= obs) / len(null)
             verdict = "rounds DISAGREE" if p < 0.05 else "inside chance"
@@ -103,13 +103,13 @@ def main():
         base_cv = cv_rho(u, max_tempo)
 
         within = []
-        for v, rs in by.items():
+        for _v, rs in by.items():
             rs = [r for r in usable(rs)]
             if len(rs) < 6 or len({r["rating"] for r in rs}) < 2:
                 continue
             rk = _ranks([r["rating"] for r in rs])
             n = len(rk)
-            for r, k in zip(rs, rk):
+            for r, k in zip(rs, rk, strict=True):
                 within.append({**r, "rating": k / n})   # 0..1 within its round
         w_w, in_w = fit(within, max_tempo)
         cv_w = cv_rho(within, max_tempo)

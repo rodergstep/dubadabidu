@@ -2,25 +2,25 @@
 name = "dubadabidu"
 version = "0.4.0"
 description = "Ukrainian -> multilingual AI video dubbing with voice cloning (Qwen3-TTS)"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.11,<3.13"   # 3.11 = Mac venv, 3.12 = pod + CI; numpy 2.4 dropped 3.10
 dependencies = [
   "faster-whisper==1.2.1",
-  # torch/torchaudio are pinned 2.11.0 by the pod bootstrap (runpod_infra
-  # REMOTE_SETUP), which installs them from the cu128 index BEFORE this
-  # project, so nothing here may pin them. They used to arrive via the `clone`
-  # extra (chatterbox-tts), which was removed with chatterbox on 2026-08-02.
-  # 2.11.0 is the torchaudio ceiling; the CUDA 12.4 driver that once forced
-  # 2.6.0 is filtered out by runpod.allowed_cuda_versions. Locally, install
-  # torch on the same command line as .[sep] — audio-separator declares
-  # torch>=2.3 with no upper bound and will happily pull 2.13.
+  # torch/torchaudio: DECLARED and LOCKED since v0.5 (uv.lock). On Linux they
+  # resolve from the cu128 index ([tool.uv.sources] below) — the wheel must
+  # match the OLDEST driver runpod.allowed_cuda_versions admits (plain PyPI
+  # serves +cu130). On macOS they come from PyPI. 2.11.0 is the torchaudio
+  # ceiling (the two ship version-locked). Declaring them here also stops
+  # audio-separator's unbounded torch>=2.3 from pulling 2.13.
+  "torch==2.11.0",
+  "torchaudio==2.11.0",
   "edge-tts==7.2.8",
   "srt==3.5.3",
   "soundfile==0.14.0",
   "librosa==0.11.0",
   "pydub==0.25.1",
   "openai==2.52.0",
-  "jiwer",
-  "num2words",            # digit->word expansion in backcheck WER normalization
+  "jiwer==4.0.0",
+  "num2words==0.5.14",    # digit->word expansion in backcheck WER normalization
   # Russian lexical stress (RUAccent, Apache-2.0, context-aware homographs).
   # Needed wherever SYNTHESIS runs, i.e. the pod, so core rather than an extra.
   # Gated at runtime by tts.ru_stress.
@@ -34,9 +34,13 @@ dependencies = [
   # A whole ru-stress A/B measured nothing and cost a pod. Declaring the version
   # the engine needs makes the constraint explicit instead of emergent.
   "transformers==4.57.3",
+  # faster-qwen3-tts (installed later from runpod.engine_setup) requires <1.0;
+  # declaring it keeps the lock and the engine install agreeing.
+  "huggingface-hub>=0.36,<1.0",
   "speechbrain==1.1.0",   # ECAPA-TDNN speaker similarity (qc), Apache-2.0
   "distillmos==0.9.1",    # neural MOS naturalness proxy (qc), MIT
-  "pyyaml",
+  "pyyaml==6.0.3",
+  "pydantic==2.14.2",   # config schema (pipeline/config_schema.py)
 ]
 
 [project.optional-dependencies]
@@ -67,12 +71,15 @@ sep = ["audio-separator[cpu]==0.44.5", "demucs==4.1.0"]
 # Apple-Silicon-only ASR accel: Whisper via MLX (Metal/ANE), ~4-5x vs CPU int8.
 # mlx is macOS/arm64-only — keep it OUT of core requirements (it won't resolve on
 # the Linux CUDA box, which auto-uses faster-whisper anyway).
-mac = ["mlx-whisper"]
+mac = ["mlx-whisper==0.4.3; sys_platform == 'darwin' and platform_machine == 'arm64'"]
 # s6 mastering chain (mix.master.enabled). pedalboard is GPLv3 — kept opt-in so
 # the default install stays permissive; it only processes audio, so the mixed
 # WAV output is not a derivative and course output stays unencumbered.
-master = ["pedalboard"]
-dev = ["pytest"]
+master = ["pedalboard==0.9.24"]
+# Offline QC judges (PLAN_v0.5 P5) — LOCAL only, never on the pod. Meta's
+# Audiobox Aesthetics (CC-BY-4.0): per-clip PQ/CE/CU/PC axes.
+judge = ["audiobox_aesthetics==0.0.4"]
+dev = ["pytest==9.1.1"]   # ruff runs via `uvx ruff@<ver>` (CI), not from the env
 
 [project.scripts]
 dubadabidu = "dub:main"
@@ -84,3 +91,39 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 py-modules = ["dub"]
 packages = ["pipeline", "qc"]
+
+# torch from the CUDA 12.8 index on Linux (the pod), PyPI elsewhere (the Mac).
+# cu128, not the PyPI default cu130: drivers are backward- but not forward-
+# compatible, and allowed_cuda_versions admits 12.8 hosts. Asserted by
+# tests/test_runpod.py::test_torch_wheel_matches_the_oldest_allowed_driver.
+[tool.uv]
+# The two machines this runs on: the Apple-Silicon Mac and the Linux pod.
+# (Intel macOS cannot satisfy torch 2.11 + demucs and is not a target.)
+# Supply-chain guard: never lock a release younger than this date. Bump it
+# deliberately (then `uv lock --upgrade`), never to chase a same-day release.
+exclude-newer = "2026-11-05T00:00:00Z"
+environments = [
+  "sys_platform == 'darwin' and platform_machine == 'arm64'",
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux'" }]
+torchaudio = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux'" }]
+
+[tool.ruff]
+target-version = "py311"
+extend-exclude = ["third_party", "venvs", "work"]
+
+[tool.ruff.lint]
+# Correctness only. Style is not enforced on a codebase this comment-dense.
+select = ["F", "B"]
+# B023 (closure over a loop variable): every hit is a closure CALLED inside the
+# same iteration (e.g. s5_fit.seg_wav), where late binding cannot bite.
+# B008 is FastAPI-style noise we don't have; kept off explicitly.
+ignore = ["B023", "B008"]

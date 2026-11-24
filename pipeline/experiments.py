@@ -91,7 +91,8 @@ def main() -> int:
 
     if a.dry_run:
         for e in queue:
-            print(" ".join(_cmd(video, e["langs"], e.get("overlays") or [])))
+            print(" ".join(_cmd(e.get("video", video), e["langs"],
+                                e.get("overlays") or [])))
         return 0
 
     started = time.time()
@@ -107,7 +108,9 @@ def main() -> int:
             print(f"\n{'='*70}\n[experiments] {e['name']}  "
                   f"({elapsed_min:.0f}/{budget_min:.0f} min used)\n{'='*70}")
             t0 = time.time()
-            rc = subprocess.run(_cmd(video, e["langs"],
+            # an entry may name its own video (the ru-stress arms need the
+            # 46-segment lesson; sketch60 has four utterances)
+            rc = subprocess.run(_cmd(e.get("video", video), e["langs"],
                                      e.get("overlays") or []), cwd=ROOT).returncode
             dt = (time.time() - t0) / 60
             # keep going on failure — one bad overlay must not cost the others

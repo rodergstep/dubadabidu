@@ -1,0 +1,11 @@
+# PLAN_v0.5 P4 — ru-stress fine-tune, arm 1 of 3: the fine-tune with NO marks.
+# Asks: does swapping the checkpoint alone hurt ordinary Russian? Compare
+# against config.exp.ru-control.yaml (base model, unmarked). ONE axis: model.
+# Model card: https://huggingface.co/siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf (Apache-2.0 weights; training-TEXT
+# licence caveat is a human decision, PLAN_v0.5 P4.0 — settle it before use).
+tts:
+  qwen_model_dir: siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf
+  ru_stress: false
+bakeoff:
+  tune:
+    enabled: false        # fixes the reference: this run tests ONE axis.

@@ -95,7 +95,7 @@ def build_variant_dict(words: set[str], base: dict, out_path: Path) -> dict:
             continue
         index[w] = allv
         seen = set()
-        for slot, cands in allv.items():
+        for _slot, cands in allv.items():
             for ph in cands:
                 key = " ".join(ph)
                 if key in seen:
@@ -186,7 +186,7 @@ def validate(labels_json: str, truth_json: str, wd: str,
     """Score against the 28 human-labelled takes. Bar: beat AUC 0.647 (WER)."""
     from statistics import mean
     from ruaccent import RUAccent
-    from qc.stress_detect import expected_stress_index, VOWELS_CYR
+    from qc.stress_detect import expected_stress_index
 
     workdir = workdir or Path("work/_mfa")
     workdir.mkdir(parents=True, exist_ok=True)

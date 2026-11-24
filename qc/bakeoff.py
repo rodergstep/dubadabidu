@@ -162,6 +162,13 @@ def variant_key(engine: str, t: dict, lang: str) -> str:
     # destroying the control it is being compared against, in the same run.
     if lang == "ru" and t.get("ru_stress"):
         suffix += "+stress"
+    # A non-default checkpoint (e.g. the ru-stress fine-tune, PLAN_v0.5 P4) is a
+    # different model: without a suffix its row and audio would OVERWRITE the
+    # base model's — the control it is being compared against.
+    from pipeline.manifest import DEFAULT_QWEN_MODEL, resolve_qwen_model
+    mdl = resolve_qwen_model(t, lang)
+    if eng == "qwen" and mdl != DEFAULT_QWEN_MODEL:
+        suffix += "+m:" + str(mdl).rstrip("/").rsplit("/", 1)[-1]
     # tts.variant_label — an arbitrary tag for a row that must NOT merge with an
     # identically-configured one. The use is a CONTROL run: synthesize the same
     # config twice and diff the scorecard, which is the only way to measure the
@@ -205,7 +212,7 @@ def _grid_points(grid: dict[str, list]) -> list[dict]:
     keys = sorted(k for k, v in grid.items() if v)
     if not keys:
         return [{}]
-    return [dict(zip(keys, combo))
+    return [dict(zip(keys, combo, strict=True))
             for combo in itertools.product(*(grid[k] for k in keys))]
 
 
@@ -349,11 +356,9 @@ def _mean_stat(rows: list[dict], key: str) -> float:
 def run(cfg: dict, video: str, langs: list[str]) -> None:
     import statistics
     import torch
-    import soundfile as sf
     from pipeline.tts_engine import release_models, synthesize
     from pipeline.tune import _subset
     from qc import metrics as X
-    from qc.backcheck import segment_wer
     from qc.evaluate import _ua_slices
     from qc.review_page import _ua_slice
 

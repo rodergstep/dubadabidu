@@ -37,6 +37,7 @@
 # (config.exp.ru-icl-plain.yaml) is what separates those two effects.
 tts:
   ru_stress: true                 # marked TARGET
+  ru_stress_force: true   # REFUTED arm, kept reproducible: marks on the BASE model (synthesize refuses this otherwise)
   qwen_x_vector_only: false       # full ICL: ref audio + ref transcript
   reference_wav: ref/sketch_ref_08.trim12s.wav
   # TRIM OFF: the file above IS the trimmed clip, and the transcript covers all

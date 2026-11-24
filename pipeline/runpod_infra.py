@@ -2,7 +2,7 @@
 
 Provision a spot GPU pod -> rsync the project up -> run a task remotely ->
 rsync results back -> ALWAYS terminate. The pod is cattle; all state returns to
-this repo. Uses the REST v1 API (rest.runpod.io/v1, Bearer auth).
+this repo. Uses the REST v2 API (api.runpod.io/v2, Bearer auth).
 
 SAFETY — layered so no single failure leaks a billing pod:
   1. The pod id is persisted to work/.runpod_active.json the instant it is
@@ -41,7 +41,12 @@ from . import manifest as M
 
 log = logging.getLogger("dubadabidu.runpod")
 
-BASE = "https://rest.runpod.io/v1"
+# REST v2 since 2026-11-19. v1 (rest.runpod.io/v1) was RETIRED 2026-11-15 and
+# its host no longer resolves; every `remote` command failed on DNS until this
+# moved. v2 nests the create body (gpu/mounts), takes ONE gpu id per request,
+# has no spot pods and reports state as `status`. Migration guide:
+# https://docs.runpod.io/api-reference-v2/migrate-from-v1
+BASE = "https://api.runpod.io/v2"
 STATE_FILE = Path("work/.runpod_active.json")
 
 DEFAULTS = {
@@ -60,11 +65,14 @@ DEFAULTS = {
     # TRADE-OFF: every entry removed here shrinks the host pool, and this project
     # has lost runs to capacity before. Widen this list first if provisioning
     # starts failing with "no instances currently available".
-    "allowed_cuda_versions": ["12.8", "12.9", "13.0"],
+    "min_cuda_version": "12.8",   # driver floor = torch's cu-build in uv.lock
+    "allowed_cuda_versions": [],  # v1-style exact list; mutually exclusive (400)
     "container_disk_gb": 30,
     "volume_gb": 0,               # ephemeral; all state rsync'd back
-    "cloud_type": "COMMUNITY",
-    "interruptible": True,        # spot — cheapest, fine (resumable + cached)
+    "cloud_type": "SECURE",       # COMMUNITY had no on-demand capacity (FINDINGS §3)
+    # REST v2 has NO spot pods. Kept as a key only so an old overlay that sets
+    # it is reported instead of silently ignored (create_pod warns).
+    "interruptible": False,
     "ports": ["22/tcp"],
     "budget_usd": 10.0,           # hard session cap (overridden by --budget / spec)
     "assumed_price_per_hr": 0.25, # conservative: deadline = budget / this
@@ -104,51 +112,121 @@ def _req(method: str, path: str, body: dict | None = None) -> object:
             return json.loads(txt) if txt.strip() else {}
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"RunPod {method} {path} -> HTTP {e.code}: "
-                           f"{e.read().decode()[:300]}")
+                           f"{e.read().decode()[:300]}") from e
 
 
-def create_pod(rp: dict) -> dict:
-    payload = {
-        "name": rp.get("name", "dubadabidu"),
-        "imageName": rp["image"],
-        "gpuTypeIds": rp["gpu_type_ids"],
-        # "custom" honours the ORDER of gpu_type_ids; "availability" picks
-        # whichever type is free and ignores the order entirely. We shipped
-        # "availability" alongside a carefully cheapest-first list, so the
-        # ordering did nothing and every run landed on a 4090 — 7% GPU, 7% CPU
-        # and 17% RAM utilisation on a card we were paying top rate for.
-        # UNVERIFIED: whether "custom" falls back to later entries when the
-        # first has no capacity. If provisioning starts failing with "no
-        # instances currently available", set runpod.gpu_type_priority back to
-        # "availability" and trim the expensive types out of the list instead —
-        # that achieves the same thing by construction.
-        "gpuTypePriority": rp.get("gpu_type_priority", "custom"),
-        "gpuCount": rp["gpu_count"],
-        "cloudType": rp["cloud_type"],
-        "interruptible": rp["interruptible"],
-        "containerDiskInGb": rp["container_disk_gb"],
-        "ports": rp["ports"],
-        "supportPublicIp": True,
-    }
-    # Only send it when set — an empty list would filter to nothing.
+def pod_payload(rp: dict, gpu_id: str) -> dict:
+    """REST v2 create body for ONE gpu type. v2 is strict (unknown keys -> 422),
+    so only documented fields are sent."""
+    gpu: dict = {"id": gpu_id, "count": int(rp["gpu_count"])}
+    # Only send it when set — an empty list would filter to nothing. The wheel
+    # in uv.lock (cu128) must match min() of this list; tests assert it.
+    # v2 rejects both together (400). The floor is preferred: an exact list
+    # excludes every newer driver, which v2's catalog showed leaves no capacity.
     if rp.get("allowed_cuda_versions"):
-        payload["allowedCudaVersions"] = list(rp["allowed_cuda_versions"])
+        gpu["allowedCudaVersions"] = [str(v) for v in rp["allowed_cuda_versions"]]
+    elif rp.get("min_cuda_version"):
+        gpu["minCudaVersion"] = str(rp["min_cuda_version"])
+    payload: dict = {
+        "name": rp.get("name", "dubadabidu"),
+        "image": rp["image"],
+        "gpu": gpu,
+        "cloud": rp["cloud_type"],
+        "disk": int(rp["container_disk_gb"]),
+        # v1 defaulted to "8888/http,22/tcp"; v2 has no default, and without
+        # 22/tcp there is no ssh.direct mapping at all.
+        "ports": list(rp["ports"]),
+    }
+    if rp.get("registry_auth_id"):
+        # private image (P3): RunPod container-registry credential id
+        payload["registry"] = {"authId": rp["registry_auth_id"]}
     if rp.get("network_volume_id"):
-        # persistent volume mounted at /workspace — keeps .venv across runs so
-        # the ~15min torch install happens once (REMOTE_SETUP skips reinstall
-        # when torch already imports). remote_dir moves onto it.
-        payload["networkVolumeId"] = rp["network_volume_id"]
-        payload["volumeMountPath"] = "/workspace"
+        # persistent volume at /workspace — remote_dir moves onto it
+        payload["mounts"] = {"network": [{"volumeId": rp["network_volume_id"],
+                                          "path": "/workspace"}]}
     elif rp.get("volume_gb"):
-        payload["volumeInGb"] = rp["volume_gb"]
-        payload["volumeMountPath"] = "/workspace"
+        payload["mounts"] = {"persistent": {"size": max(10, int(rp["volume_gb"])),
+                                            "path": "/workspace"}}
     # inject ONLY the low-privilege translation key into the pod env (encrypted
     # in transit) so s3 can run on the pod. The RunPod full-access key is never
     # sent — it stays local, used only to drive this API.
+    env: dict[str, str] = {}
     tk = os.environ.get("TRANSLATE_API_KEY")
     if tk:
-        payload["env"] = {"TRANSLATE_API_KEY": tk}
-    return _req("POST", "/pods", payload)
+        env["TRANSLATE_API_KEY"] = tk
+    # SSH. v1 started sshd implicitly; v2 only injects PUBLIC_KEY when
+    # startSsh is true AND keys are registered on the account — otherwise the
+    # pod comes up RUNNING with a port mapping and sshd never answers (measured
+    # 2026-11-19: 9 min, "SSH never became reachable"). Sending the PUBLIC half
+    # of the key this client connects with makes it independent of account
+    # state; RunPod images start sshd from PUBLIC_KEY.
+    pub = Path(str(rp.get("ssh_key", "~/.ssh/id_ed25519_runpod")) + ".pub").expanduser()
+    if pub.exists():
+        env["PUBLIC_KEY"] = pub.read_text(encoding="utf-8").strip()
+    payload["startSsh"] = True
+    if env:
+        payload["env"] = env
+    return payload
+
+
+def create_pod(rp: dict) -> dict:
+    """Create a pod, trying gpu_type_ids IN ORDER (cheapest first).
+
+    v1 took the whole list plus gpuTypePriority "custom" and did the fallback
+    server-side; v2 takes exactly one gpu id, so the ordering now lives here —
+    which also settles the old "does custom fall back?" doubt by construction.
+    A 400 is capacity (or a cross-field rule) for that type: try the next one.
+    422 is a schema error and 402 is no balance: never retry those."""
+    if rp.get("interruptible"):
+        log.warning("runpod.interruptible is set, but REST v2 has no spot pods "
+                    "— creating an on-demand pod")
+    ids = rp["gpu_type_ids"]
+    ids = [ids] if isinstance(ids, str) else list(ids)
+    last: Exception | None = None
+    for gid in ids:
+        try:
+            return _req("POST", "/pods", pod_payload(rp, gid))
+        except RuntimeError as e:
+            if "HTTP 400" in str(e) or "HTTP 409" in str(e):
+                log.info("no pod for %s (%s); trying next type", gid,
+                         str(e)[:160])
+                last = e
+                continue
+            raise
+    raise RuntimeError(f"no capacity for any of {ids}: {last}")
+
+
+# ---- pod-object accessors: one place that knows the response shape ----
+# v2 names first, v1 names as fallback so a cached/test object still reads.
+
+def pod_status(p: dict) -> str:
+    return str(p.get("status") or p.get("desiredStatus") or "").upper()
+
+
+def pod_price(p: dict) -> float | None:
+    v = p.get("cost", p.get("costPerHr"))
+    return None if v is None else float(v)
+
+
+def pod_vcpu(p: dict) -> float | None:
+    return (p.get("gpu") or p.get("cpu") or {}).get("vcpuCount", p.get("vcpuCount"))
+
+
+def pod_ram_gb(p: dict) -> float | None:
+    return (p.get("gpu") or p.get("cpu") or {}).get("memory", p.get("memoryInGb"))
+
+
+def list_pods() -> list[dict]:
+    """Every pod on the account, following v2 cursor pagination."""
+    out: list[dict] = []
+    cursor = None
+    while True:
+        page = _req("GET", "/pods" + (f"?cursor={cursor}" if cursor else ""))
+        out.extend(page.get("pods", []) if isinstance(page, dict) else [])
+        pg = page.get("pagination", {}) if isinstance(page, dict) else {}
+        cursor = pg.get("nextCursor")
+        if not (pg.get("hasNextPage") and cursor):
+            return out
 
 
 def get_pod(pid: str) -> dict:
@@ -173,8 +251,7 @@ def terminate_pod(pid: str, retries: int = 4) -> bool:
             continue
         # DELETE returned OK — verify the pod really left RUNNING
         try:
-            st = (get_pod(pid).get("desiredStatus")
-                  or get_pod(pid).get("status") or "").upper()
+            st = pod_status(get_pod(pid))
         except RuntimeError as e:
             if "HTTP 404" in str(e):            # confirmed gone
                 log.info("terminated pod %s (confirmed)", pid)
@@ -239,6 +316,19 @@ def ssh_target(pod: dict) -> tuple[str, int] | None:
     shape is publicIp + portMappings {"22": <publicPort>}; other shapes are
     tolerated as fallbacks. Returns None until SSH is exposed. Never raises on
     an unexpected shape (a crash here used to leak the pod)."""
+    direct = (pod.get("ssh") or {}).get("direct") or {}
+    if direct.get("host") and direct.get("port"):          # REST v2
+        try:
+            return str(direct["host"]), int(direct["port"])
+        except (TypeError, ValueError):
+            pass
+    for rpt in (pod.get("runtime") or {}).get("ports") or []:   # v2 runtime
+        if (isinstance(rpt, dict) and str(rpt.get("private")) == "22"
+                and rpt.get("ip") and rpt.get("public")):
+            try:
+                return str(rpt["ip"]), int(rpt["public"])
+            except (TypeError, ValueError):
+                pass
     ip = pod.get("publicIp") or pod.get("ip")
     pm = pod.get("portMappings")
     if isinstance(pm, dict):                       # {"22": 10345}
@@ -396,7 +486,7 @@ def _live_pod() -> tuple[str, str, int] | None:
         if not pid:
             return None
         p = get_pod(pid)
-        status = (p.get("desiredStatus") or p.get("status") or "").upper()
+        status = pod_status(p)
         if status and status != "RUNNING":
             log.info("state-file pod %s is %s, not RUNNING", pid, status)
             return None
@@ -496,28 +586,44 @@ def _deadline(rp: dict, budget_usd: float) -> float:
     return time.time() + hours * 3600
 
 
-def provision(rp: dict, deadline: float) -> tuple[str, str, int]:
-    """Create a pod and wait for SSH. Writes state BEFORE waiting so a hang is
-    recoverable. Returns (pod_id, host, port). Terminates + raises on timeout."""
+class _NoDirectSsh(RuntimeError):
+    """The host gave the pod no public TCP mapping — a property of the HOST,
+    so the remedy is a different pod, not a longer wait."""
+
+
+def _provision_once(rp: dict, deadline: float) -> tuple[str, str, int, str]:
+    """One create + wait. Returns (pod_id, host, port, gpu_id). Terminates the
+    pod (via the state file) on ANY failure, so nothing can leak."""
     pod = create_pod(rp)
     pid = pod.get("id") or pod.get("podId")
     if not pid:
         raise RuntimeError(f"no pod id in create response: {str(pod)[:200]}")
+    gpu_id = str((pod.get("gpu") or {}).get("id") or "")
     _save_state({"pod_id": pid, "created_at": time.time()})
-    log.info("pod %s created; waiting for RUNNING + SSH ...", pid)
-    # any failure past this point terminates the pod (via the state file) so a
-    # crash — including an unexpected pod shape — can never leak a live box
+    log.info("pod %s created (%s); waiting for RUNNING + SSH ...", pid, gpu_id)
     try:
         end = min(deadline, time.time() + rp["provision_timeout_s"])
+        direct_wait = float(rp.get("direct_ssh_wait_s", 150))
+        running_since: float | None = None
         target = None
         while time.time() < end:
             p = get_pod(pid)
-            status = p.get("desiredStatus") or p.get("status")
+            status = pod_status(p)
             target = ssh_target(p)
             if target:
                 break
-            if status in ("EXITED", "TERMINATED", "FAILED"):
+            if status in ("EXITED", "TERMINATED", "FAILED", "ERROR"):
                 raise RuntimeError(f"pod entered {status} before SSH came up")
+            # REST v2 has no way to REQUIRE a public IP (v1's supportPublicIp
+            # was removed). Some hosts never assign one: the pod sits RUNNING
+            # with only the ssh.runpod.io proxy, which cannot carry rsync.
+            # Measured 2026-11-19: 7 min RUNNING, no mapping. Give up early.
+            if status == "RUNNING":
+                running_since = running_since or time.time()
+                if time.time() - running_since > direct_wait:
+                    raise _NoDirectSsh(
+                        f"pod {pid} ({gpu_id}) RUNNING {direct_wait:.0f}s with "
+                        f"no public SSH mapping (proxy-only host)")
             time.sleep(10)
         if not target:
             raise RuntimeError("pod did not expose SSH within provision_timeout_s")
@@ -527,6 +633,33 @@ def provision(rp: dict, deadline: float) -> tuple[str, str, int]:
     except BaseException:
         _terminate_tracked()   # crash-safe: reads pid from state, not a local var
         raise
+    return pid, host, port, gpu_id
+
+
+def provision(rp: dict, deadline: float) -> tuple[str, str, int]:
+    """Create a pod and wait for SSH. Returns (pod_id, host, port).
+
+    A proxy-only host is retried on the NEXT gpu type (a different host pool),
+    up to runpod.provision_attempts; every failed attempt's pod is terminated
+    before the next is created."""
+    attempts = max(1, int(rp.get("provision_attempts", 3)))
+    ids = rp["gpu_type_ids"]
+    ids = [ids] if isinstance(ids, str) else list(ids)
+    for attempt in range(1, attempts + 1):
+        try:
+            pid, host, port, used = _provision_once({**rp, "gpu_type_ids": ids},
+                                                    deadline)
+            break
+        except _NoDirectSsh as e:
+            if attempt == attempts or time.time() >= deadline:
+                raise
+            # rotate past the type that landed on a proxy-only host
+            if used_type := next((i for i in ids if f"({i})" in str(e)), None):
+                ids = ids[ids.index(used_type) + 1:] + ids[:ids.index(used_type) + 1]
+            else:
+                ids = ids[1:] + ids[:1]
+            log.warning("%s — retrying (%d/%d) starting from %s",
+                        e, attempt + 1, attempts, ids[0])
     # WHAT ARE WE PAYING? Nothing recorded this before, so the only way to know
     # was the RunPod dashboard — which is how every run silently landing on a
     # 4090 (7% GPU / 7% CPU / 17% RAM at top rate) went unnoticed for a week
@@ -539,25 +672,28 @@ def provision(rp: dict, deadline: float) -> tuple[str, str, int]:
     # GPU tier, so an oversized instance shows up here too.
     try:
         info = get_pod(pid)
-        price = info.get("costPerHr")
+        price = pod_price(info)
         budgeted = float(rp.get("assumed_price_per_hr", 0) or 0)
         over = (price is not None and budgeted and float(price) > budgeted)
         log.info("pod %s SSH ready at %s:%d — $%s/h, %s vCPU, %s GB RAM%s",
-                 pid, host, port, price, info.get("vcpuCount"),
-                 info.get("memoryInGb"),
+                 pid, host, port, price, pod_vcpu(info),
+                 pod_ram_gb(info),
                  f"  [OVER the budgeted ${budgeted}/h]" if over else "")
         # Stash the ACTUAL price/shape for the run ledger. This is the only
         # place the real rate is known — the API reports costPerHr per pod, and
         # rp["assumed_price_per_hr"] is deliberately the worst case (0.7), so
         # costing a run from config would overstate it ~2.5x. See runlog.py.
         _LAST_POD.update({"pod_id": pid, "price_per_hr": price,
-                          "vcpu": info.get("vcpuCount"),
-                          "ram_gb": info.get("memoryInGb")})
+                          "vcpu": pod_vcpu(info),
+                          "ram_gb": pod_ram_gb(info)})
     except Exception as e:      # never fail a run over a log line
         log.info("pod %s SSH ready at %s:%d (price unknown: %s)",
                  pid, host, port, e)
     return pid, host, port
 
+
+# uv pinned on the pod to the version that wrote uv.lock (lock format drifts).
+UV_VERSION = "0.8.15"
 
 REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     "set -e; cd {dir}; "
@@ -576,6 +712,14 @@ REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     # NOTE the doubled braces: REMOTE_SETUP is a .format() template, so a literal
     # shell `{ ...; }` group must be written {{ ...; }} or format() reads it as a
     # placeholder and raises KeyError. Caught by the tests, before a pod.
+    # PREBUILT IMAGE (docker/Dockerfile, PLAN_v0.5 P3): link its venv in when
+    # its stamp matches THIS project's uv.lock; anything else (no image, old
+    # image, edited lock) falls through to the normal build below.
+    "if [ ! -e .venv ] && [ -f /opt/venv/.uv-lock-sha256 ] && "
+    "[ \"$(cat /opt/venv/.uv-lock-sha256)\" = \"$(sha256sum uv.lock | cut -c1-64)\" ]; "
+    "then ln -s /opt/venv .venv; "
+    "echo '[setup] prebuilt image venv matches uv.lock — linked'; fi; "
+    "[ -x .venv/bin/python ] || "
     "python3 -m venv .venv || {{ echo '[setup] no venv module — installing'; "
     "apt-get install -y -q python3-venv && python3 -m venv .venv; }}; "
     ". .venv/bin/activate; "
@@ -590,50 +734,19 @@ REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     # engine_install_cmd already did this; the bootstrap did not, purely because
     # the engine path happened to fail first and get hardened first.
     "pip install -q --upgrade pip; "
-    # skip the ~15min reinstall when deps are already present (persistent-volume
-    # reuse across runs — see runpod.network_volume_id)
-    # torch/torchaudio for the qc stack (speechbrain ECAPA, Distill-MOS,
-    # resampling). The old 2.6.0 pin arrived via chatterbox-tts; chatterbox was
-    # removed 2026-08-02 and with it diffusers, s3tokenizer, resemble-perth,
-    # conformer, spacy-pkuseg and the exact pins (transformers==5.2.0,
-    # diffusers==0.29.0) that made pip backtrack.
-    #
-    # 2.11.0, reached by fixing the HOST rather than the pin. A first attempt at
-    # this bump failed on a pod: "The NVIDIA driver on your system is too old
-    # (found version 12040)", CUDA: False — torch 2.11's oldest build is cu126
-    # (no 2.11+cu124 wheel exists) and the scheduler had handed us a CUDA 12.4
-    # driver. The fix is runpod.allowed_cuda_versions (POST /pods
-    # `allowedCudaVersions`, enum 11.8..13.0) plus the cu129 image, so the driver
-    # is new enough by construction. If that filter is ever emptied, this pin
-    # MUST drop back to 2.6.0 — they change together.
-    #
-    # 2.11.0 is the ceiling above this: torchaudio stopped there (it did not
-    # follow torch to 2.12/2.13) and the two ship as version-locked pairs. The
-    # single remaining torchaudio call is functional.resample; dropping it would
-    # open 2.13, at the cost of re-validating every metric against a different
-    # resampler.
-    #
-    # Nothing in OUR code pins us any more: qc/metrics.py reads via
-    # soundfile instead of torchaudio.load (which needs the separate torchcodec
-    # package from 2.9 on), faster-qwen3-tts wants >=2.5.1 and speechbrain
-    # >=2.1.0. torchaudio's own latest is 2.11.0 — it did not follow torch to
-    # 2.12/2.13 and the two are version-locked — so 2.11 is the ceiling above
-    # this one. qc metrics are bit-identical across 2.6/2.11 (verified), so a
-    # later bump will not move any historical scorecard.
-    "if ! python -c 'import torch' 2>/dev/null; then "
-    # --index-url cu128 is LOAD-BEARING, not cargo-culting. Plain PyPI serves
-    # torch 2.11.0+cu130 (it pulls cuda-toolkit 13.0.2 / nvidia-*-cu13), which
-    # needs a 13.0 DRIVER — while allowed_cuda_versions also admits 12.8 and
-    # 12.9 hosts. Measured 2026-08-02: the default wheel came up `cuda True`
-    # only because that pod happened to draw a 13.0 driver. A cu128 build runs
-    # on 12.8, 12.9 AND 13.0 (drivers are backward compatible with older CUDA
-    # runtimes), so pinning the LOWEST admitted version makes every host in the
-    # filter valid instead of one in three.
-    # Keep this in sync with min(allowed_cuda_versions) — asserted by
-    # test_torch_wheel_matches_the_oldest_allowed_driver.
-    "pip install --progress-bar off torch==2.11.0 torchaudio==2.11.0 "
-    "--index-url https://download.pytorch.org/whl/cu128 && "
-    "pip install --progress-bar off -e '.[dev]'; fi; "
+    # v0.5: ONE resolver run, from the lock. uv.lock pins every package
+    # including torch 2.11.0+cu128 on Linux (pyproject [tool.uv.sources]), so
+    # the pod installs exactly what was locked instead of whatever PyPI served
+    # that morning — the failure behind the transformers-5.x incident. uv
+    # lives INSIDE the venv (the ubuntu2404 system python is PEP-668 managed)
+    # and `sync` is a fast no-op on a reused pod, so the old "skip if torch
+    # imports" guard is gone. --inexact keeps what engine_setup added later
+    # (qwen_tts, faster-qwen3-tts) on --reuse; --frozen refuses a stale lock.
+    # torch pin + cu128 index are asserted from pyproject/uv.lock by
+    # tests/test_runpod.py (the wheel must match the OLDEST allowed driver).
+    "pip install -q 'uv==" + UV_VERSION + "'; "
+    "UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_HTTP_TIMEOUT=120 "
+    "uv sync --frozen --inexact --extra dev --python .venv/bin/python; "
     # FAIL if CUDA is missing — otherwise the run would silently synth on CPU,
     # which is uselessly slow and defeats the point of renting a GPU
     "python -c 'import torch,sys; ok=torch.cuda.is_available(); "
@@ -910,9 +1023,9 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
             try:
                 info = get_pod(pid)
                 _LAST_POD.update({"pod_id": pid,
-                                  "price_per_hr": info.get("costPerHr"),
-                                  "vcpu": info.get("vcpuCount"),
-                                  "ram_gb": info.get("memoryInGb"),
+                                  "price_per_hr": pod_price(info),
+                                  "vcpu": pod_vcpu(info),
+                                  "ram_gb": pod_ram_gb(info),
                                   "reused": True})
             except Exception as e:   # never fail a run over a ledger field
                 log.info("reused pod price unknown: %s", e)
@@ -1076,7 +1189,7 @@ def remote_run(cfg: dict, video: str, langs: list[str], task: str,
         rc = ssh_exec(rp, host, port, full, timeout=secs + 120)
         if rc != 0:   # spot pods can be reclaimed mid-run — name it clearly
             try:
-                st = (get_pod(pid).get("desiredStatus") or "").upper()
+                st = pod_status(get_pod(pid))
             except Exception:
                 st = "UNREACHABLE"
             if st in ("EXITED", "TERMINATED", "UNREACHABLE", ""):
@@ -1303,10 +1416,10 @@ def status() -> None:
     else:
         print("state file:", st or "(none)")
     try:
-        pods = _req("GET", "/pods")
+        pods = list_pods()
         print(f"pods on account: {len(pods)}")
-        for p in (pods if isinstance(pods, list) else []):
-            print(f"  {p.get('id')}  {p.get('name')}  "
-                  f"{p.get('desiredStatus') or p.get('status')}")
+        for p in pods:
+            print(f"  {p.get('id')}  {p.get('name')}  {pod_status(p)}  "
+                  f"${pod_price(p)}/h")
     except Exception as e:
         print("could not list pods:", e)

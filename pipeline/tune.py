@@ -22,6 +22,10 @@ from .tts_engine import synthesize
 
 log = logging.getLogger("dubadabidu.tune")
 
+# engines whose output depends on cfg_weight/exaggeration (R2's grid). Empty
+# since chatterbox left (2026-08-02).
+R2_ENGINES: frozenset[str] = frozenset()
+
 DEFAULTS = {
     "subset_size": 8,
     "refs_glob": "ref/*.wav",
@@ -168,6 +172,10 @@ def run(cfg: dict, video: str, langs: list[str]) -> dict:
 
     # was hardcoded to chatterbox; tune must sweep whatever we actually ship
     base = dict(cfg["tts"], engine=cfg["tts"]["engine"])
+    # chatterbox-era knobs: no current engine reads them, but synth_hash still
+    # keys on their old defaults so cached takes keep their hashes.
+    base.setdefault("cfg_weight", 0.0)
+    base.setdefault("exaggeration", 0.55)
     results = []  # (round, ref, cfg_weight, exaggeration, take, metrics)
     w = tn["r1_weights"]
     r1_takes = max(1, int(tn.get("r1_takes", 1)))
@@ -189,8 +197,13 @@ def run(cfg: dict, video: str, langs: list[str]) -> dict:
         log.info("R1 %s -> %s", ref, m)
     best_ref = max((r for r in results), key=lambda r: r[5]["score"])[1]
 
-    # R2: param grid on the winning ref
-    if "R2" in rounds:
+    # R2: param grid on the winning ref — ONLY for an engine that reads these
+    # knobs. qwen does not: sweeping them re-rolls the same distribution 8 times
+    # at full GPU price and "picks" noise (the hash differs, the audio does not).
+    if "R2" in rounds and base["engine"] not in R2_ENGINES:
+        log.info("R2 skipped: engine %s ignores cfg_weight/exaggeration",
+                 base["engine"])
+    elif "R2" in rounds:
         for cw in tn["cfg_weights"]:
             for ex in tn["exaggerations"]:
                 if cw == base["cfg_weight"] and ex == base["exaggeration"]:

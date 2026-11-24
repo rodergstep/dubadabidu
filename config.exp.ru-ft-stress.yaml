@@ -1,0 +1,11 @@
+# PLAN_v0.5 P4 — arm 2 of 3, THE CANDIDATE: fine-tune + RUAccent marks
+# (U+0301 after the vowel, which is the format the fine-tune was trained on).
+# x_vector-only like production. vs ru-ft-plain isolates the marks; vs
+# ru-control is the shipping decision. The base model with these marks went
+# WER 0.068 -> 0.811 (FINDINGS 2.1b) — the WER gate catches a repeat at once.
+tts:
+  qwen_model_dir: siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf
+  ru_stress: true
+bakeoff:
+  tune:
+    enabled: false

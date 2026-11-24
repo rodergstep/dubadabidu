@@ -12,21 +12,12 @@ loop needs exactly those properties. What's missing is policy, not plumbing.
 ### 1. Spec layer — specification-driven, specs are DATA not prose
 `specs/batch.yaml` — acceptance criteria the agent must satisfy per video/lang:
 
-```yaml
-accept:
-  mean_score_min: 0.60      # per language
-  flagged_pct_max: 5        # segments below qc.eval.score_flag
-  wer_bad_max: 0            # after fixes
-  overflow_max: 0
-  overlap_max: 0
-budget:
-  usd_per_video_max: 3.0
-  gpu_hours_per_video_max: 1.5
-policy:
-  translation_model: deepseek-v4-flash
-  engines_allowed: [chatterbox, qwen]
-  never: [publish, delete work/, change eval weights without human ack]
-```
+The live spec is **`specs/batch.yaml`** — read it there, it is not copied here
+(a copy drifted: it still listed chatterbox and a 0.60 bar long after both
+changed). It has three blocks: `accept` (per video/lang thresholds on
+qc_score, flagged %, WER, overflow/overlap), `budget` (mechanical re-roll
+rounds; the pod's dollar cap is `runpod.budget_usd`), and `policy` (`never`:
+publish, delete work/, edit eval weights, edit the spec).
 
 The agent's contract: make every row of `dubadabidu batch` satisfy `accept`
 within `budget`, or stop and escalate with a reason + options. The human

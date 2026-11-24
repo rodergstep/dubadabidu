@@ -1,3 +1,6 @@
+> **SUPERSEDED by [PLAN_v0.5.md](PLAN_v0.5.md) (2026-11-19).** Kept as the record of
+> the GPU phase; its open items are carried there or closed in FINDINGS.md.
+
 # dubadabidu — GPU-Phase Plan (RunPod + DeepSeek)
 
 Status (2026-07-08, v0.3.x): the local pipeline is validated end-to-end on

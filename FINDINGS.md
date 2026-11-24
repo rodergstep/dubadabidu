@@ -76,6 +76,7 @@ would reach 4 of 9 (§2.1k.6). Not the refuted U+0301 route (§2.1b/2.1bb).
 | Mixed rating axes as refit's problem | refuted by permutation test | 2.1d |
 | "More ratings will fix refit" | no — the audio is uniformly good now | 2.0 |
 | **Re-fitting qc.eval.weights at all** | **72 length-free groups: every metric at chance** | **2.1p** |
+| Audiobox Aesthetics as a take judge | no axis above chance in en or ru | 2.1s |
 
 ### Method rules earned the hard way
 - **Compute the binomial before believing a small blind test.** A 2-of-3 has a
@@ -922,6 +923,37 @@ route starts from it.
 the engine (§2.1c, absent) or a stress-aware cloning TTS. **ru ships with the
 defect**, which is where §2.1j left it and where it stays.
 
+### 2.1s Audiobox Aesthetics does not hear what the listener picks (2026-11-19)
+
+**CLAIM** (§2.1p's reopen condition) A learned perceptual judge — Meta's
+Audiobox Aesthetics, CC-BY-4.0, four axes (PQ production quality, CE content
+enjoyment, CU usefulness, PC complexity) — agrees with the listener's
+within-sentence pick where the existing metrics did not.
+
+**EVIDENCE** `python -m qc.judge` (`judge_validation.json`). Same groups and
+statistic as §2.1p: argmax agreement inside a same-sentence group, every clip
+RMS-matched to −20 dBFS first (judges are known to prefer louder audio).
+Nothing fitted, so the result is out-of-sample and the null is exact
+(Poisson-binomial over group sizes).
+
+| lang | groups | chance | PQ | CE | CU | PC |
+|---|---|---|---|---|---|---|
+| en | 22 | 0.333 | 0.500 (p 0.079) | 0.409 (0.29) | 0.409 (0.29) | 0.182 (0.96) |
+| ru | 72 | 0.444 | 0.472 (0.36) | 0.514 (0.14) | 0.417 (0.72) | 0.500 (0.20) |
+
+**VERDICT** **REFUTED.** No axis clears p < 0.05 in either language, before
+any correction for testing eight axis×language cells. Not wired into
+`qc/metrics.py`; `refit` is unchanged.
+**READ WITH §2.0.** This is the same picture as §2.1p from a fourth, unrelated
+model family: when the listener rates the audio near-uniformly good, there is
+little left for an acoustic-quality judge to rank. The remaining defect is
+Russian stress, which no acoustic judge measures — the stress route (§2.1r,
+PLAN_v0.5 P4) is where the signal is.
+**NOT TESTED** SpeechJudge-GRM (pairwise, ~7B): needs a GPU and the both-orders
+protocol for its documented position-B bias. `qc/judge.py`'s `ClipScorer`
+interface is where it would plug in; given this result and §2.0, it is low
+priority.
+
 ### 2.1c No zero-shot cloning TTS handles Russian stress (survey, 2026-08-09)
 
 **CLAIM** Some other open model solves this and we can swap engines for ru via
@@ -1212,7 +1244,35 @@ was one command from being checked.
 
 ---
 
+**RunPod REST v1 was retired 2026-11-15; v2 behaves differently (2026-11-19).**
+`rest.runpod.io` stopped resolving, so every `remote` command failed on DNS. The
+v2 client (`pipeline/runpod_infra.py`) had to learn four things, each measured:
+(1) one GPU id per create — the cheapest-first fallback is now ours, and on
+this day every type below the 4090 returned "no instances"; (2) an exact
+`allowedCudaVersions` match had NO capacity, a `minCudaVersion` floor did;
+(3) without `startSsh` + `PUBLIC_KEY` sshd never answers (9 min, unreachable);
+(4) some hosts never assign a public port — RUNNING with only the
+`ssh.runpod.io` proxy, which cannot carry rsync — so provision retries such a
+host after 150 s. `remote setup-check` then passed: `[probe] OK qwen`, torch
+2.11.0+cu128, CUDA True.
+
+**uv cut the bootstrap ~5x before any prebuilt image.** Same path as the
+ledger's `bootstrap_s` (apt + rsync + REMOTE_SETUP + engine install + weights):
+**~2.3 min** from SSH-ready to probe on 2026-11-19, against 694 s / 732 s in
+`runs.jsonl` with pip. n=1 on a different host class (4090), so read it as an
+order of magnitude, not a number; the next ledgered run measures it properly.
+`uv sync --frozen`: 114 packages prepared in 50 s, installed in 3 s.
+
 ## 5. Open questions, ranked
+
+**Translation model renamed upstream (recorded 2026-11-19).** DeepSeek retired
+`deepseek-v4-flash` on 2026-09-10 and routes the name to V4.1 Flash only
+"temporarily"; the current alias is `deepseek-flash` (V4.1-Flash-1017 since
+2026-10-17). Every translation on disk predates the switch. Config now says
+`deepseek-flash`, `doctor` fails if a configured name is not listed by the
+endpoint, and s3 records the checkpoint that ANSWERED in the manifest
+(`translation_models`). The batch videos are the first translated by V4.1 —
+compare one video's adequacy scores against sketch60 before trusting it.
 
 1. **RU wrong stress — SOLVABLE, and the path is now known (§2.1f).** Errors are
    stochastic per take: 8 of 14 sentences had exactly one bad take and NONE had

@@ -27,19 +27,29 @@ is decided by the bake-off (qc/bakeoff.py), not by reputation.
 from __future__ import annotations
 import asyncio, logging, subprocess, time
 from pathlib import Path
-from .device import torch_device, require_gpu
-from .manifest import resolve_engine
+from .device import require_gpu
+from .manifest import STRESS_TRAINED_MODELS, resolve_engine, resolve_qwen_model
 from .text_norm import localize_numbers, normalize_for_tts
 
 log = logging.getLogger("dubadabidu.tts")
 _qwen_model = None
+_qwen_model_id: str | None = None   # which checkpoint _qwen_model holds
 _qwen_prompt = None   # (cache_key, prompt_items) — reused across all segments
 QWEN_LANGS = {"en": "English", "fr": "French", "de": "German",
               "es": "Spanish", "ru": "Russian"}
 
 
-def _load_qwen(t: dict):
-    global _qwen_model
+def _load_qwen(t: dict, lang: str | None = None):
+    """The qwen model for `lang`'s checkpoint (tts.qwen_model_dir_by_lang).
+    Keyed on the checkpoint: a run whose languages resolve to DIFFERENT
+    checkpoints (ru -> the stress fine-tune) releases and reloads instead of
+    silently synthesizing every language with whichever loaded first."""
+    global _qwen_model, _qwen_model_id
+    want = resolve_qwen_model(t, lang) if lang else (
+        t.get("qwen_model_dir") or "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
+    if _qwen_model is not None and _qwen_model_id != want:
+        log.info("qwen checkpoint %s -> %s: reloading", _qwen_model_id, want)
+        release_models()
     if _qwen_model is None:
         # tts.qwen_fast -> faster-qwen3-tts (MIT), a drop-in that wraps the same
         # weights in CUDA Graphs + StaticCache. Qwen3-TTS is kernel-LAUNCH bound,
@@ -63,12 +73,12 @@ def _load_qwen(t: dict):
                    "qwen_tts — git clone https://github.com/QwenLM/Qwen3-TTS "
                    "(pin the commit), pip install -e .")
             raise FileNotFoundError(
-                f"{pkg} not importable. See THIRD_PARTY.md. ({e})")
+                f"{pkg} not importable. See THIRD_PARTY.md. ({e})") from e
         # NOT torch_device() — a CPU-only torch in venvs/qwen used to degrade
         # silently to fp32-on-CPU at 126 s/take (vs 2.9 s for voxcpm on the same
         # pod). require_gpu turns that into a loud install error.
         dev = require_gpu("qwen", bool(t.get("allow_cpu_fallback", False)))
-        model_id = t.get("qwen_model_dir", "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
+        model_id = want
         if fast:
             # faster-qwen3-tts documents from_pretrained(model_id) only — it
             # manages device/dtype itself, and an unknown kwarg would fail the
@@ -86,6 +96,7 @@ def _load_qwen(t: dict):
         log.info("loading Qwen3-TTS from %s on %s (fast=%s) ...",
                  model_id, dev, fast)
         _qwen_model = Qwen3TTSModel.from_pretrained(model_id, **kw)
+        _qwen_model_id = model_id
         if fast:
             # captures the CUDA graphs up front. Without it the first calls pay
             # capture cost lazily, which is how a benchmark reads 1.49 wall/audio
@@ -161,7 +172,7 @@ def _synth_qwen(text: str, lang: str, out: Path, t: dict) -> None:
     # `gen` recurs — but the split is what says whether a slow run is a slow
     # model or a cold start.
     t0 = time.perf_counter()
-    m = _load_qwen(t)
+    m = _load_qwen(t, lang)
     t1 = time.perf_counter()
     prompt = _qwen_clone_prompt(m, t)
     t2 = time.perf_counter()
@@ -184,7 +195,7 @@ def _synth_qwen(text: str, lang: str, out: Path, t: dict) -> None:
             raise
         raise RuntimeError(
             f"qwen rejected tts.qwen_gen_kwargs={gen} — this build's "
-            f"generate_voice_clone does not accept those names ({e})")
+            f"generate_voice_clone does not accept those names ({e})") from e
     t3 = time.perf_counter()
     dur = len(wavs[0]) / float(sr)
     # RUNAWAY GUARD. Qwen3-TTS's most common failure is the decoder never
@@ -236,8 +247,8 @@ def release_models() -> None:
     without it, models accumulate in VRAM
     (qwen ~4 GB per worker) and a 16 GB card OOMs mid-comparison.
     The next synthesize() through a released engine just reloads it."""
-    global _qwen_model, _qwen_prompt
-    _qwen_model = _qwen_prompt = None
+    global _qwen_model, _qwen_prompt, _qwen_model_id
+    _qwen_model = _qwen_prompt = _qwen_model_id = None
     try:
         import torch
         if torch.cuda.is_available():
@@ -552,6 +563,22 @@ def synth_best_of(text: str, lang: str, out: Path, t: dict,
     return winner[1]["mos_min"]
 
 
+def _refuse_marks_on_untrained_model(tts_cfg: dict, lang: str, engine: str) -> None:
+    """Stress marks on a checkpoint not trained on them destroy the audio
+    (FINDINGS 2.1b: 97% unusable by ear). Refuse loudly — before any GPU time —
+    unless tts.ru_stress_force keeps a refuted experiment reproducible."""
+    if not (lang == "ru" and tts_cfg.get("ru_stress") and engine == "qwen"):
+        return
+    model = resolve_qwen_model(tts_cfg, lang)
+    if model in STRESS_TRAINED_MODELS or tts_cfg.get("ru_stress_force"):
+        return
+    raise RuntimeError(
+        f"tts.ru_stress is on but ru resolves to {model}, which was not trained "
+        f"on stress marks (FINDINGS 2.1b). Route ru to one that was via "
+        f"tts.qwen_model_dir_by_lang, or set tts.ru_stress_force: true to "
+        f"reproduce the refuted experiment on purpose.")
+
+
 def synthesize(text: str, lang: str, out: Path, tts_cfg: dict,
                retries: int = 2) -> None:
     """Synthesize with retry (autoregressive TTS occasionally glitches; a retry
@@ -583,6 +610,7 @@ def synthesize(text: str, lang: str, out: Path, tts_cfg: dict,
     # was TRAINED on combining acutes and qwen was not — so this is a hypothesis
     # to A/B, not known-good behaviour being reinstated.
     text = normalize_for_tts(text, lang, tts_cfg)
+    _refuse_marks_on_untrained_model(tts_cfg, lang, engine)
     # write to a .part file and rename on success: a killed run must never
     # leave a truncated wav that the hash cache would accept as a good take
     tmp = out.with_name(out.stem + ".part.wav")
