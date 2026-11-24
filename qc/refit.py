@@ -624,9 +624,8 @@ def group_rows(rows: list[dict], warn: bool = False) -> list[list[dict]]:
         if not all(k in r and r[k] is not None for k in NEEDED):
             missing += 1
             continue
-        if True:
-            by.setdefault((r.get("video"), r.get("lang"), r.get("build"),
-                           r.get("group")), []).append(r)
+        by.setdefault((r.get("video"), r.get("lang"), r.get("build"),
+                       r.get("group")), []).append(r)
     if warn and missing:
         print(f"  !! {missing} comparison row(s) dropped for missing "
               f"{'/'.join(NEEDED)} — re-ingest with a current qc/compare.py")
