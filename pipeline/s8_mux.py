@@ -5,9 +5,12 @@ Note: per-language .m4a files stay in work/<video>/ — keep them for YouTube's
 multi-language audio track upload, which wants separate audio files.
 """
 from __future__ import annotations
+import logging
 import subprocess
 from pathlib import Path
 from . import manifest as M
+
+log = logging.getLogger("dubadabidu.s8")
 
 
 def run(cfg: dict, video: str, langs: list[str]) -> None:
@@ -23,9 +26,9 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     out = Path(cfg["output_dir"]) / f"{Path(video).stem}{suffix}"
     out.parent.mkdir(parents=True, exist_ok=True)
     if edge:
-        print(f"[s8] !! {', '.join(edge)} synthesized with the EDGE fallback "
-              f"(generic voice, no cloning) — do NOT judge voice quality on "
-              f"this file: {out.name}")
+        log.warning("%s synthesized with the EDGE fallback (generic voice, no "
+                    "cloning) — do NOT judge voice quality on this file: %s",
+                    ", ".join(edge), out.name)
 
     cmd = ["ffmpeg", "-y", "-i", video]                       # 0: video + ua audio
     for lang in langs:
