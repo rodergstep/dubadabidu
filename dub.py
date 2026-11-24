@@ -46,6 +46,10 @@ def doctor(cfg: dict) -> int:
         print(f"  [{'OK' if cond else '!!'}] {name}" + ("" if cond else f" — {hint}"))
         ok = ok and bool(cond)
 
+    def warn(name: str, hint: str) -> None:
+        """A degraded-but-runnable setup: shown, never fails doctor."""
+        print(f"  [w ] {name} — {hint}")
+
     print("dubadabidu doctor")
     check("ffmpeg", shutil.which("ffmpeg"), "install ffmpeg and add to PATH")
     check("ffprobe", shutil.which("ffprobe"), "comes with ffmpeg")
@@ -76,6 +80,26 @@ def doctor(cfg: dict) -> int:
         except ImportError:
             check("python: audio_separator", False,
                   'uv sync --extra sep (or separation.backend: demucs)')
+    # s6 mastering chain: on in config.yaml, but pedalboard (GPLv3) is the
+    # opt-in `.[master]` extra, so a plain `uv sync` stops at s6.
+    if cfg.get("mix", {}).get("master", {}).get("enabled"):
+        try:
+            __import__("pedalboard"); check("python: pedalboard (mix.master)", True)
+        except ImportError:
+            warn("python: pedalboard missing",
+                 "mix.master.enabled is on and s6 will stop without it: "
+                 "uv sync --extra master (or set mix.master.enabled: false)")
+    # s5 stretcher: rubberband when ffmpeg carries librubberband, else atempo
+    if cfg.get("fit", {}).get("stretcher", "auto") != "atempo" \
+            and shutil.which("ffmpeg"):
+        filters = subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
+                                 capture_output=True, text=True).stdout
+        if "rubberband" in filters:
+            check("ffmpeg: rubberband filter (s5 stretcher)", True)
+        else:
+            warn("ffmpeg: no rubberband filter",
+                 "s5 falls back to atempo (WSOLA, softer consonants); install "
+                 "an ffmpeg built with librubberband")
     engines = {cfg["tts"]["engine"], *cfg["tts"].get("engine_by_lang", {}).values(),
                *cfg.get("bakeoff", {}).get("engines", [])}
     # engines are probed in THIS venv — the only one, since the per-engine
