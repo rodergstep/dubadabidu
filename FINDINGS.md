@@ -1320,6 +1320,55 @@ ledger's `bootstrap_s` (apt + rsync + REMOTE_SETUP + engine install + weights):
 order of magnitude, not a number; the next ledgered run measures it properly.
 `uv sync --frozen`: 114 packages prepared in 50 s, installed in 3 s.
 
+---
+
+**The first real Mac → pod → Mac dub found six faults (2026-11-24).** sketch60,
+en+fr+ru, two failed rows then one clean one in `runs.jsonl` (pod
+`4qvozrsov0g4g7`, bootstrap 267 s, wall 358 s, $0.89/h ≈ **$0.09**). Each fault
+was invisible to the test suite because each lived in the seam between the two
+machines. Fixed in `3396cdb`, tested in `tests/test_runpod.py`.
+
+1. **The pod re-ran stages it cannot do well.** An untouched `--from` started
+   the pod at s2: it has no ASR cache, so it re-transcribed and threw away every
+   translation. And the local follow-up muxed without running s6, i.e. it
+   shipped August's stale `dub_<lang>.m4a` under a fresh timestamp. **Rule:**
+   split by machine, not by stage list: s3 local, s4..s5 pod, s6..s8 local
+   (`dub._remote_plan`). A stage that silently reuses a stale artefact is the
+   worst failure here, because the output plays fine.
+2. **The upload was the bootstrap.** rsync sent all of `work/` (2.3 GB for a
+   339 MB video), which took 22.6 min of the bootstrap. Uploading only that video's work dir
+   took it to **4.5 min**. The bake-off still uploads ~540 MB and shows it:
+   bootstrap 923 s and 542 s on the two ru-stress pods.
+3. **A lock split by Python version is two environments.** `uv.lock` resolved
+   av 18.1 for the Mac's 3.11 and av 19.0 for the pod's 3.12. faster-whisper
+   1.2.1 passes `metadata_errors`, which PyAV 19 removed, so ASR worked locally
+   and crashed on the pod. `constraint-dependencies = ["av<19"]`. **Check:** grep
+   the lock for any package with two versions under different markers.
+4. **v2 says RUNNING before the container exists.** `status` flips to RUNNING
+   while the image is still pulling; `runtime` stays null and `ssh.direct`
+   appears with it, at **~180 s** (probe pod, 182 s). The 150 s "proxy-only"
+   retry from 2026-11-19 was therefore killing healthy pods. The clock now
+   starts at `runtime`, not at RUNNING. The 11-19 entry above was right about
+   proxy-only hosts existing and wrong about how to spot one.
+5. **"No instances" is a moment, not an answer.** All ten GPU types in the list
+   refused at once. `create_pod` now re-sweeps every `capacity_retry_s` (60) for
+   up to `capacity_wait_min` (15) instead of failing the run.
+6. **A failure used to throw away the bootstrap.** A pod that fails its task is
+   now held for `hold_on_failure_min` (30) with the watchdog re-armed and the
+   state file flagged, and the next `remote` command reuses it. A hotfix costs
+   one re-sync instead of another bootstrap plus capacity lottery.
+
+**One process per batch.** Several videos now share one pod and ONE pod-side
+`dubadabidu run v1 v2 … --keep-going`, so qwen loads once (`84410f3`). This is
+the only idea taken from the langswap review (AGPL, ideas only). Not yet
+measured on more than one video.
+
+**A pod's reuse is cheap only if it is queued up front.** The ru-stress A/B
+paid a second ~9 min bootstrap (pod `jsvz2pj9dphhyh`) for one conditional arm
+that could have been queued on the first pod, where an extra arm costs
+~$0.03–0.05 of synthesis. **Rule:** list every arm the decision tree can reach
+and run them on one pod.
+
 ## 5. Open questions, ranked
 
 **Translation model renamed upstream (recorded 2026-11-19).** DeepSeek retired
