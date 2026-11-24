@@ -37,6 +37,10 @@ def test_loader_reloads_when_the_checkpoint_changes(monkeypatch: pytest.MonkeyPa
     import sys
     import types
     monkeypatch.setitem(sys.modules, "qwen_tts", types.SimpleNamespace(Qwen3TTSModel=Fake))
+    # CI installs no torch (by design); the loader only needs the dtype names
+    fake_torch = types.SimpleNamespace(bfloat16="bf16", float32="fp32",
+                                       cuda=types.SimpleNamespace(is_available=lambda: False))
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
     monkeypatch.setattr(T, "require_gpu", lambda *_: "cpu")
     T.release_models()
     t = _cfg(qwen_model_dir_by_lang={"ru": FT}, qwen_fast=False)
