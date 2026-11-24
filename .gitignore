@@ -40,3 +40,6 @@ dist/
 
 # engine clones (THIRD_PARTY.md installs qwen into third_party/)
 third_party/
+
+# autopilot's runtime playbook (pipeline/autopilot.py _log_fix appends to it)
+FIXES.md
