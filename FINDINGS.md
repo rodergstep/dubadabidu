@@ -418,7 +418,7 @@ independence at p=0.29: `best_of=2` → **8.2%** of segments still wrong,
 known quality defect from "no solution exists" (§2.1c) into "build the
 detector", with the payoff measured rather than hoped for.
 
-**BUT NO EXISTING METRIC DETECTS IT** — `qc/stress_wer.py`, the 28 rated takes:
+**BUT NO EXISTING METRIC DETECTS IT** — `qc/stress_wer.py` (removed in 1.0; `git show d7ffdc6:qc/stress_wer.py`), the 28 rated takes:
 
 | feature | error-take mean | clean mean | AUC | p |
 |---|---|---|---|---|

@@ -20,7 +20,8 @@ me looking at the vowels).
 That is also why wrong stress sounds so wrong to a Russian listener rather than
 merely odd, and why back-transcription WER cannot see it: Whisper is robust to
 stress and still emits the right word (measured: error takes 0.090, clean 0.089,
-AUC 0.647 — qc/stress_wer.py).
+AUC 0.647 — qc/stress_wer.py, removed in 1.0;
+`git show d7ffdc6:qc/stress_wer.py`).
 
 THE ORACLE is RUAccent, which was never the broken part. Its marks destroyed
 qwen's audio when fed IN (97% unusable), but as a source of truth for which
