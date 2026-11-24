@@ -213,8 +213,8 @@ def _measured_cps(cfg: dict, lang: str, min_samples: int = 10) -> float | None:
     the LLM aim at the actual slot instead of guessing.
 
     Samples are filtered to the engine that will synthesize THIS run (edge
-    voices pace differently from Chatterbox — Mac edge prototyping must not
-    skew GPU chatterbox budgets). Legacy samples with no engine tag are used
+    voices pace differently from qwen — Mac edge prototyping must not skew
+    GPU qwen budgets). Legacy samples with no engine tag are used
     only as a fallback when the engine-matched pool is too small."""
     import statistics
     from .manifest import resolve_engine

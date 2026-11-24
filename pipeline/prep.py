@@ -5,8 +5,8 @@ Requires s1 (separated stem) + s2 (utterance timings). Spans in the target
 length band are cut from the 44.1 kHz vocals stem, passed through a QUALITY
 GATE that rejects genuinely broken candidates (clipped, mostly-silent, noisy),
 and the survivors are kept in ref/ with work/<video>/refs.json mapping each ref
-to its transcript (CosyVoice zero-shot cloning needs the transcript; tune reads
-it too).
+to its transcript (tune passes it as tts.reference_text, which qwen's ICL mode
+uses when qwen_x_vector_only is off).
 
 The gate is a FILTER, not a ranker. A focused tune R1 (2026-07-14) showed the
 old acoustic "quality score" did NOT predict clone similarity — it mildly
