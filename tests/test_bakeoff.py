@@ -159,3 +159,27 @@ def test_verdict_names_the_actual_failure():
     imp = _verdict("qwen", {"unavailable": "qwen_tts not importable"}, None)
     assert "weights" in hub and "not installed" not in hub, hub
     assert "not installed" in imp, imp
+
+
+def test_a_non_default_checkpoint_gets_its_own_variant_row():
+    """PLAN_v0.5 P4: the ru-stress fine-tune must not overwrite the base
+    model's row and audio (the control it is compared against)."""
+    from qc.bakeoff import variant_key
+    base = {"engine": "qwen", "engine_by_lang": {}, "qwen_fast": True}
+    ft = {**base, "qwen_model_dir": "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf"}
+    default = {**base, "qwen_model_dir": "Qwen/Qwen3-TTS-12Hz-1.7B-Base"}
+    assert variant_key("qwen", base, "ru") == variant_key("qwen", default, "ru")
+    assert variant_key("qwen", ft, "ru") != variant_key("qwen", base, "ru")
+    assert "+m:qwen3-tts-12hz-1.7b-ru-stress-cf" in variant_key("qwen", ft, "ru")
+
+
+def test_ru_ft_arms_differ_in_exactly_one_axis():
+    import yaml
+    load = lambda f: yaml.safe_load(open(f, encoding="utf-8"))["tts"]  # noqa: E731
+    plain, stress = load("config.exp.ru-ft-plain.yaml"), load("config.exp.ru-ft-stress.yaml")
+    assert set(plain) == set(stress)
+    assert [k for k in plain if plain[k] != stress[k]] == ["ru_stress"]
+    icl, base_icl = load("config.exp.ru-ft-icl-stress.yaml"), load("config.exp.ru-icl-stress.yaml")
+    base_icl.pop("ru_stress_force", None)
+    assert {k: v for k, v in icl.items() if k != "qwen_model_dir"} == base_icl, (
+        "the ft ICL arm must equal the refuted base-model ICL arm except for the model")

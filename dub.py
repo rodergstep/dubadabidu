@@ -57,7 +57,7 @@ def doctor(cfg: dict) -> int:
         wdev, wct = whisper_device(cfg["asr"].get("device", "auto"))
         print(f"  [i ] torch device: {dev} | whisper: faster-whisper {wdev}/{wct}")
         if dev == "mps":
-            print("  [i ] ASR on CPU int8: `pip install .[mac]` for mlx-whisper "
+            print("  [i ] ASR on CPU int8: `uv sync --extra mac` for mlx-whisper "
                   "(~4-5x on Apple Silicon).")
     if dev != "cuda":
         print("  [i ] no CUDA: use tts.engine=edge for pipeline validation; "
@@ -66,14 +66,14 @@ def doctor(cfg: dict) -> int:
         try:
             __import__(mod); check(f"python: {mod}", True)
         except ImportError:
-            check(f"python: {mod}", False, "pip install -e '.[dev]'")
+            check(f"python: {mod}", False, "uv sync --extra dev")
     sep = cfg.get("separation", {})
     if sep.get("enabled") and sep.get("backend", "roformer") == "roformer":
         try:
             __import__("audio_separator"); check("python: audio_separator", True)
         except ImportError:
             check("python: audio_separator", False,
-                  'pip install "audio-separator[cpu]" (or separation.backend: demucs)')
+                  'uv sync --extra sep (or separation.backend: demucs)')
     engines = {cfg["tts"]["engine"], *cfg["tts"].get("engine_by_lang", {}).values(),
                *cfg.get("bakeoff", {}).get("engines", [])}
     # engines are probed in THIS venv — the only one, since the per-engine
@@ -114,6 +114,8 @@ def doctor(cfg: dict) -> int:
     check(f"env {cfg['translation']['api_key_env']}",
           os.environ.get(cfg["translation"]["api_key_env"]),
           "export it, or point translation.base_url at a local Ollama")
+    if os.environ.get(cfg["translation"]["api_key_env"]):
+        _check_translation_models(cfg["translation"], check)
     # remote (M2) readiness — informational; only needed for `dubadabidu remote`
     if os.environ.get("RUNPOD_API_KEY"):
         rp = cfg.get("runpod", {})
@@ -129,6 +131,28 @@ def doctor(cfg: dict) -> int:
     return 0 if ok else 1
 
 
+def _check_translation_models(tcfg: dict, check) -> None:
+    """Ask the endpoint which models it serves. A provider can retire a name
+    and keep routing it to a different model (DeepSeek did, 2026-09-10), so a
+    config that "works" may be translating with a model nobody evaluated.
+    Informational when the endpoint can't be reached — a laptop offline
+    should not fail doctor over the network."""
+    import os
+    from openai import OpenAI
+    from pipeline.s3_translate import missing_models
+    try:
+        client = OpenAI(base_url=tcfg["base_url"],
+                        api_key=os.environ[tcfg["api_key_env"]], timeout=15)
+        missing = missing_models(client, tcfg)
+    except Exception as e:   # offline, local server down, no /models route
+        print(f"  [i ] translation models not checked ({type(e).__name__}: {e})")
+        return
+    check("translation models listed by the endpoint", not missing,
+          f"{missing} not served by {tcfg['base_url']} — the name may be "
+          f"retired or rerouted; check the provider changelog and update "
+          f"translation.model")
+
+
 def preamble(cfg: dict, video: str, langs: list[str]) -> None:
     """Per-video preamble (IMPROVEMENT_PLAN Phase D), resumable:
     pass 1: s1 + s2 + prep, then pause for the text_uk hand-review;
@@ -136,7 +160,6 @@ def preamble(cfg: dict, video: str, langs: list[str]) -> None:
     own refs, winning ref stored in manifest tts_overrides (s4/s5/evaluate
     honor it — no config paste per video)."""
     import json
-    stem = Path(video).stem
     fresh = not M.manifest_path(cfg, video).exists()
     s1_extract.run(cfg, video)
     if fresh:
@@ -398,6 +421,10 @@ def main() -> None:
         cfg = deep_merge(cfg, yaml.safe_load(open(overlay_path, encoding="utf-8")))
     if a.engine:
         cfg["tts"]["engine"] = a.engine
+    # every key of the MERGED config must be declared (a typo used to be
+    # silently ignored and the code ran on its default) — PLAN_v0.5 P7
+    from pipeline.config_schema import validate as _validate_config
+    _validate_config(cfg)
     langs = ([x.strip() for x in a.langs.split(",") if x.strip()]
              if a.langs else cfg["languages"])
 

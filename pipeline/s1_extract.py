@@ -36,7 +36,7 @@ def _separate_roformer(sep_cfg: dict, work_dir: str, full: Path,
             'audio-separator not importable — pip install "audio-separator[cpu]" '
             "([gpu] only swaps onnxruntime; RoFormer ckpts run on torch and use "
             "CUDA/MPS either way), or set separation.backend: demucs. "
-            f"({e})")
+            f"({e})") from e
     model = sep_cfg.get("roformer_model",
                         "model_bs_roformer_ep_317_sdr_12.9755.ckpt")
     out_dir = wd / "roformer"

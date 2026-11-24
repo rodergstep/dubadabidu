@@ -143,7 +143,7 @@ def _master(inp: Path, out: Path, m: dict) -> None:
     except ImportError as e:
         raise FileNotFoundError(
             "pedalboard not importable — mix.master.enabled needs it: "
-            f"pip install .[master] (or set mix.master.enabled: false). ({e})")
+            f"pip install .[master] (or set mix.master.enabled: false). ({e})") from e
     chain = [
         HighpassFilter(cutoff_frequency_hz=m.get("hpf_hz", 80)),
         Compressor(threshold_db=m.get("comp_threshold_db", -18.0),

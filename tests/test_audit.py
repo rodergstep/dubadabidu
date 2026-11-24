@@ -108,7 +108,6 @@ So: check names against their definitions, not against intent.
         ok(f"production engine {sorted(set(prod.values()))} == bake-off roster")
 
     print("\n=== 5. engines referenced in code vs installable ===")
-    import pipeline.runpod_infra as R                          # noqa: E402
     # the dispatch dict now lives in tts_engine.synthesize (engine_worker was
     # deleted with the venv isolation, 2026-08-02). Only that dict maps names to
     # _synth_* functions; every other literal in the file is something else.

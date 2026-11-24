@@ -273,7 +273,12 @@ def shorten(cfg: dict, lang: str, text_uk: str, text: str, max_chars: int,
 
 
 def _chat(client, tcfg, sysmsg: str, user: str, retries: int = 4,
-          schema: dict = _JSON_SCHEMA, model: str | None = None) -> dict:
+          schema: dict = _JSON_SCHEMA, model: str | None = None,
+          seen: set[str] | None = None) -> dict:
+    """One chat call with retry. `seen` collects the model id the server says
+    ANSWERED (resp.model) — provider names are moving aliases (deepseek-flash
+    moved checkpoint twice in 2026), so the requested name alone does not say
+    which model produced a translation."""
     rformat = _response_format(tcfg, schema)
     delay = 2.0
     for attempt in range(retries + 1):
@@ -283,6 +288,8 @@ def _chat(client, tcfg, sysmsg: str, user: str, retries: int = 4,
                 response_format=rformat,
                 messages=[{"role": "system", "content": sysmsg},
                           {"role": "user", "content": user}])
+            if seen is not None and getattr(resp, "model", None):
+                seen.add(str(resp.model))
             return _loads(resp.choices[0].message.content)
         except Exception as e:
             if attempt == retries:
@@ -330,6 +337,20 @@ def _adequacy(ask, shared: str, batch: list, lang: str, flag: int,
         log.warning("%s: %d/%d below adequacy %d: %s", lang, len(flagged),
                     len(batch), flag,
                     ", ".join(f"{i}({sc}:{iss[:40]})" for i, sc, iss in flagged))
+
+
+def configured_models(tcfg: dict) -> list[str]:
+    """Every model name the translation block will request."""
+    names = [tcfg["model"], tcfg.get("reflect_model"), tcfg.get("adequacy_model")]
+    return sorted({n for n in names if n})
+
+
+def missing_models(client, tcfg: dict) -> list[str]:
+    """Configured model names the endpoint does not list. Catches a provider
+    retiring a name (deepseek-v4-flash, 2026-09-10) before a paid run silently
+    gets routed to an unevaluated replacement — or fails mid-batch."""
+    listed = {m.id for m in client.models.list().data}
+    return [n for n in configured_models(tcfg) if n not in listed]
 
 
 def run(cfg: dict, video: str, langs: list[str]) -> None:
@@ -403,10 +424,12 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         # list — because it grades faithfulness, not length or word choice.)
         flag = int(tcfg.get("adequacy_flag", 3))
 
+        answered: set[str] = set()
+
         def _ask(sysmsg, payload, schema=_JSON_SCHEMA, model=None):
             data = _chat(client, tcfg, sysmsg,
                          json.dumps({"segments": payload}, ensure_ascii=False),
-                         schema=schema, model=model)
+                         schema=schema, model=model, seen=answered)
             by_id = {s["id"]: s for s in data.get("segments", [])}
             dropped = [p for p in payload if p["id"] not in by_id]
             if dropped:  # small models drop segments; a singleton request is
@@ -416,7 +439,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 for p in dropped:
                     data = _chat(client, tcfg, sysmsg,
                                  json.dumps({"segments": [p]}, ensure_ascii=False),
-                                 schema=schema, model=model)
+                                 schema=schema, model=model, seen=answered)
                     by_id.update({s["id"]: s for s in data.get("segments", [])})
             missing = [p["id"] for p in payload if p["id"] not in by_id]
             if missing:
@@ -472,6 +495,9 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             log.info("%s: %d/%d", lang, min(i + bs, len(todo)), len(todo))
         with save_lock:
             man["stages"][f"s3_{lang}"] = "done"
+            # which checkpoint(s) actually answered, merged across resumed runs
+            prev = man.setdefault("translation_models", {}).get(lang, [])
+            man["translation_models"][lang] = sorted(set(prev) | answered)
             M.save(cfg, video, man)
 
     workers = max(1, int(tcfg.get("lang_workers", len(langs))))

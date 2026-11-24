@@ -81,7 +81,7 @@ def run(cfg: dict, video: str, export_file: str) -> None:
     except ValueError:
         raise SystemExit(f"malformed export key {key!r} — expected "
                          f"<video>_<lang>_<seghash> (re-export from the "
-                         f"review page).")
+                         f"review page).") from None
     if vstem != stem:
         raise SystemExit(f"export is for video {vstem!r}, not {stem!r}.")
 

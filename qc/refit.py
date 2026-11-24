@@ -79,7 +79,7 @@ def spearman(xs: list[float], ys: list[float]) -> float:
     rx, ry = _ranks(xs), _ranks(ys)
     n = len(xs)
     mx, my = sum(rx) / n, sum(ry) / n
-    num = sum((a - mx) * (b - my) for a, b in zip(rx, ry))
+    num = sum((a - mx) * (b - my) for a, b in zip(rx, ry, strict=True))
     dx = sum((a - mx) ** 2 for a in rx)
     dy = sum((b - my) ** 2 for b in ry)
     return round(num / (dx * dy) ** 0.5, 4) if dx and dy else 0.0
@@ -96,7 +96,7 @@ def simplex(step: float = 0.05, keys: tuple = KEYS) -> list[dict]:
             # rounded: v*step accumulates float noise (0.6000000000000001),
             # which leaks into the proposal printed for a human to paste
             out.append({k: round(v * step, 4)
-                        for k, v in zip(keys, acc + [left])})
+                        for k, v in zip(keys, acc + [left], strict=True)})
             return
         for v in range(left + 1):
             walk(i + 1, left - v, acc + [v])
@@ -183,7 +183,7 @@ def length_confound_warning(rows: list[dict]) -> str | None:
     dur = [r["dur"] for r in have]
     rat = [r["rating"] for r in have]
     hits = []
-    for key, feat in (("qc_mos_min", "mos"), ("qc_mos", "mos"),
+    for key, _feat in (("qc_mos_min", "mos"), ("qc_mos", "mos"),
                       ("qc_sim_cal", "sim"), ("qc_f0st", "f0")):
         vals = [r.get(key) for r in have]
         if any(v is None for v in vals):
@@ -336,7 +336,7 @@ def permutation_p(rows: list[dict], max_tempo: float, observed: float,
     for _ in range(n_perm):
         shuffled = ratings[:]
         rnd.shuffle(shuffled)
-        perm = [{**r, "rating": s} for r, s in zip(rows, shuffled)]
+        perm = [{**r, "rating": s} for r, s in zip(rows, shuffled, strict=True)]
         if cv_rho(perm, max_tempo, k, step, hold=hold) >= observed:
             hits += 1
     return (hits + 1) / (n_perm + 1)
@@ -354,7 +354,7 @@ def _load(langs: list[str]) -> tuple[list[dict], dict]:
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
-            raise SystemExit(f"{p} is not valid JSON ({e}).")
+            raise SystemExit(f"{p} is not valid JSON ({e}).") from e
         if not isinstance(data, list):
             # A {key, ratings:{id:stars}} dict is the PRE-FLYWHEEL export
             # format: stars with no qc metrics attached, so nothing to fit
@@ -438,9 +438,9 @@ def run(cfg: dict, langs: list[str]) -> int:
         cv_c = cv_agreement(groups, max_tempo, k, step, hold=hold_c)
         cv_cur_c = cv_agreement(groups, max_tempo, k, step, fixed=cur)
         print(f"\n  === WITHIN-SENTENCE COMPARISONS ({len(groups)} groups) ===")
-        print(f"  Every clip in a group is the same sentence, so length and "
-              f"content are constant\n  and the confound in FINDINGS 2.1m "
-              f"cannot occur. This is the trustworthy half.")
+        print("  Every clip in a group is the same sentence, so length and "
+              "content are constant\n  and the confound in FINDINGS 2.1m "
+              "cannot occur. This is the trustworthy half.")
         print(f"    chance (mean 1/k)      {ch:.3f}")
         print(f"    current weights        {cur_acc:.3f}  (held-out {cv_cur_c:.3f})")
         print(f"    best fit {best_c}")
@@ -464,7 +464,7 @@ def run(cfg: dict, langs: list[str]) -> int:
               "length-confounded, FINDINGS 2.1m.)")
 
     cur_rho = rho_of(rows, cur, max_tempo)
-    print(f"\n  === ABSOLUTE PER-SEGMENT RATINGS (length-confounded) ===")
+    print("\n  === ABSOLUTE PER-SEGMENT RATINGS (length-confounded) ===")
     print(f"  current weights {cur} -> Spearman {cur_rho:+.3f}")
 
     if len(rows) < min_rows:
@@ -603,7 +603,7 @@ def load_comparisons(langs: list[str]) -> list[dict]:
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
-            raise SystemExit(f"{p} is not valid JSON ({e}).")
+            raise SystemExit(f"{p} is not valid JSON ({e}).") from e
         for r in data:
             r.setdefault("lang", lang)
         out += data

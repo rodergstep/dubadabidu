@@ -1,3 +1,7 @@
+# dubadabidu base config. Overlays stack on top (config.gpu.yaml for the pod,
+# config.<provider>.yaml for translation, config.exp.*.yaml for one-axis
+# experiments). Comments say WHAT a value is; WHY lives in FINDINGS.md (§ given).
+
 work_dir: work
 output_dir: output
 
@@ -5,198 +9,73 @@ languages: [en, fr, de, es, ru]   # pl dropped (IMPROVEMENT_PLAN v0.3)
 source_language: uk
 
 asr:
-  model: large-v3            # faster-whisper 1.2.1
-  device: auto            # auto -> cuda | mps | cpu (mps unsupported by faster-whisper -> cpu)
-  # compute_type is chosen automatically: float16 on cuda, int8 on cpu
-  # backend: auto -> mlx-whisper on Apple Silicon (Metal/ANE, ~4-5x vs CPU int8;
-  # `pip install .[mac]`), faster-whisper on cuda/cpu. Force with faster | mlx.
-  # mlx has no VAD — s1 vocal separation covers that on the local prototype path.
-  backend: auto
-  # mlx_model: optional MLX Whisper HF repo override (default: mapped from `model`,
-  # e.g. large-v3 -> mlx-community/whisper-large-v3-mlx)
-  vad_filter: true
-  # segment merging. Longer units = fewer prosody resets ("reading list" effect);
-  # measured on sketch60: an 18s unit scored best-of-clip MOS 4.57, so the old
-  # 12s Chatterbox caution was too conservative for clean narration.
+  model: large-v3            # SETTLED: turbo / v2 / Parakeet measured worse (FINDINGS §1)
+  device: auto               # auto -> cuda | cpu (faster-whisper has no mps)
+  backend: auto              # auto -> mlx-whisper on Apple Silicon, faster-whisper elsewhere
+  # mlx_model: optional MLX repo override (default mapped from `model`)
+  vad_filter: true           # faster-whisper only; mlx has none (s1 separation covers it)
+  # segment merging: longer units = fewer prosody resets
   max_chars: 300
   max_seconds: 20.0
-  pause_split_s: 0.6   # split segments at word gaps > this; dub keeps source rhythm
-  # bias the decoder toward the course's domain terms (initial_prompt): the
-  # Ukrainian side of glossary/*.csv is injected automatically — the same terms
-  # you'd otherwise fix by hand in the manifest review
-  glossary_prompt: true
-  initial_prompt: ""   # optional extra style/vocabulary hint, prepended
+  pause_split_s: 0.6         # split at word gaps > this; the dub keeps source rhythm
+  glossary_prompt: true      # inject glossary/*.csv Ukrainian terms as initial_prompt
+  initial_prompt: ""         # optional extra hint, prepended
 
 separation:
-  enabled: true              # false => skip separation, use denoised original as vocals
-  # roformer (default): BS-RoFormer via audio-separator — ~12.9 dB vocal SDR vs
-  # htdemucs' ~9 dB. Pays off 4x: cleaner ASR input, cleaner ref candidates
-  # (prep slices vocals.wav!), less UA voice ghosting in background.wav, and
-  # cleaner per-segment emotion slices. demucs stays as the fallback backend.
-  # NOTE: stems are cached per video — delete work/<video>/vocals.wav +
-  # background.wav and re-run s1 to re-separate after switching backends.
-  backend: roformer          # roformer | demucs
-  # device: cpu              # force separation off the GPU. On Apple Silicon
-                             # RoFormer OOM'd on an 8-minute lesson (asked 1.19 GB
-                             # with 26.3 GB already committed, MPS ceiling 30.2)
-                             # — set this when a longer video fails, at the cost
-                             # of wall-clock. Not a quality change: same model.
+  enabled: true              # false => use the denoised original as vocals
+  backend: roformer          # roformer (~12.9 dB SDR) | demucs (~9 dB, fallback)
+  # device: cpu              # set if RoFormer OOMs on MPS for a long video
   roformer_model: model_bs_roformer_ep_317_sdr_12.9755.ckpt
-  # vocals-specialist alternative: model_mel_band_roformer_ep_3005_sdr_11.4360.ckpt
   demucs_model: htdemucs
+  # stems are cached per video: delete work/<video>/{vocals,background}.wav to redo
 
 translation:
-  # OpenAI-compatible endpoint. Examples:
-  #   DeepSeek:   base_url https://api.deepseek.com    model deepseek-v4-flash
-  #               (deepseek-chat/-reasoner are DEPRECATED 2026-07-24)
-  #   Ollama:     base_url http://localhost:11434/v1   model qwen3:32b
-  #   LM Studio:  base_url http://127.0.0.1:1234/v1   model google/gemma-4-e4b
-  #   OpenAI:     base_url https://api.openai.com/v1   model gpt-5-mini
-  # DEFAULT: DeepSeek — everything downstream (TTS, fit, subs, all 5 langs)
-  # inherits translation quality, and at <$1/video the local-model saving was
-  # the wrong trade. LM Studio/Ollama remain config-only swaps (see the LM
-  # Studio notes in README; set response_format: json_schema for it).
+  # Any OpenAI-compatible endpoint (README table): DeepSeek (default), OpenAI,
+  # LM Studio (response_format: json_schema), Ollama.
   base_url: https://api.deepseek.com
-  model: deepseek-v4-flash
-  # reflect_model: a stronger critic for the middle pass only (~1/3 of tokens;
-  # the cheapest known quality lever for the 3-pass scheme). Unset => `model`.
-  # reflect_model: deepseek-v4
+  # Moving alias (V4.1-Flash-1017 as of 2026-10-17). `doctor` checks it is
+  # served; the answering checkpoint is recorded in manifest translation_models.
+  model: deepseek-flash        # deepseek-v4-flash retired 2026-09-10 (FINDINGS §5)
+  # reflect_model: deepseek-v4-pro   # stronger critic for the middle pass only
   api_key_env: TRANSLATE_API_KEY
-  # Structured-output mode. json_object => DeepSeek/OpenAI/Ollama;
-  # json_schema => LM Studio (strict, best for small local models);
-  # text => no server enforcement, relies on the prompt.
-  response_format: json_object
+  response_format: json_object # json_object | json_schema (LM Studio) | text
   batch_size: 20
-  max_context_chars: 12000    # transcript-context cap for LOCAL endpoints only
-                              # (small models overflow silently); remote
-                              # providers always get the full transcript
-  passes: 3                   # 1 = single-pass; 3 = translate -> reflect -> adapt
-                              # (VideoLingo-style; worth it with a capable LLM)
-  adequacy_check: true        # LLM-judge each FINAL translation vs the source
-                              # (faithfulness 1-5) — catches mistranslations that
-                              # pass every AUDIO metric. Flagged on the report.
-  adequacy_flag: 3            # score below this is flagged for review
-  # adequacy_model: deepseek-v4   # optional stronger judge (defaults to `model`)
-  # Route translations around words the TTS mis-stresses (ru/uk only; the other
-  # three languages have no equivalent defect). Reads the words a native
-  # listener marked on the review page, accumulated in stress_lexicon_<lang>.json.
-  #
-  # This is the ONE remediation for Russian stress that needs no new capability
-  # anywhere: detection is closed (FINDINGS 2.1f-2.1h, four failed detectors)
-  # and so is selection (2.1i/2.1j — consensus prefers the systematic error), so
-  # what is left is per-word control, and the cheapest form is not saying the
-  # word. On the first real review pass, avoidance had a plausible synonym for
-  # 6-7 of 9 marked words; respelling reached 4 and the `ё` lever reached 0.
-  #
-  # A PREFERENCE, not a ban — a word with no natural synonym is kept, and
-  # mandatory terminology always wins. UNMEASURED trade: nobody has yet checked
-  # whether the listener prefers a correctly-stressed synonym to a mis-stressed
-  # exact word. Judge it by ear on the first video that uses this.
-  #
-  # Affects NEW translations only; s3 skips segments that already have text.
-  # Re-translate with `stage s3_translate --force` to apply it to a done video.
-  # OFF 2026-08-13, REFUTED BY EAR. See FINDINGS 2.1q. The output was rejected
-  # outright — `натюрморта хватит` came back as `постановки достаточно`, which
-  # swaps the course's own subject term for a different one. Two mechanism
-  # failures, not a tuning problem:
-  #   - the terminology guard is inflection-blind. `натюрморт` IS mandatory
-  #     terminology, but the lexicon holds the prepositional `натюрморте` and
-  #     the check tested `"натюрморте" in mandatory` — the substring runs the
-  #     wrong way round, so the one word that most needed protecting was the
-  #     one it missed;
-  #   - and where the guard DID fire (`цвета`), the model rewrote the word
-  #     anyway. "terminology wins" is a request, not a constraint.
-  # Turning this on again needs both fixed AND a fresh ear check.
+  max_context_chars: 12000     # transcript-context cap for LOCAL endpoints only
+  passes: 3                    # 1 = single; 3 = translate -> reflect -> adapt
+  adequacy_check: true         # LLM-judge each final translation vs the source
+  adequacy_flag: 3             # faithfulness (1-5) below this is flagged
+  # adequacy_model: deepseek-v4-pro  # optional stronger judge
+  # OFF — REFUTED by ear (FINDINGS §2.1q): swapped the course's own terms.
+  # Needs a deterministic substitution AND a fresh ear check before re-enabling.
   avoid_mis_stressed: false
-  avoid_min_marks: 1          # words marked at least this often. 1 = trust the
-                              # ear; a single mark may be the stochastic band
-                              # (2.1f) rather than a systematic error, but
-                              # over-inclusion is cheap because the prompt only
-                              # asks for a synonym where a natural one exists.
-                              # Raise this if translations start drifting.
-  isometric_tolerance: 0.10   # secondary char bound; primary constraint is the
-                              # per-segment "seconds" slot (duration-targeted)
-  n_short_variants: 2         # pre-generate shorter variants for overflow retries
+  avoid_min_marks: 1           # lexicon marks needed before a word is avoided
+  isometric_tolerance: 0.10    # secondary char bound; the "seconds" slot is primary
+  n_short_variants: 2          # shorter variants for overflow retries
 
 tts:
-  engine: qwen                # qwen | edge (plumbing only, no cloning)
-  engine_by_lang: {}          # per-lang override, e.g. {en: qwen} — set by
-                              # the GPU bake-off (IMPROVEMENT_PLAN.md Phase C)
-  reference_text: ""        # transcript of reference_wav; `dubadabidu prep`
-                            # fills refs.json. Unused by the UA-ref paths.
-  # Russian lexical stress via RUAccent: marks the stressed vowel with a
-  # combining acute ("дере́вья") so the engine does not have to guess. Russian
-  # stress is lexical and unmarked in writing, and homographs only resolve from
-  # context — за́мок (castle) vs замо́к (lock) — so a TTS WILL get some wrong.
-  #
-  # OFF by default, and that is a real question rather than caution: chatterbox
-  # was TRAINED on combining acutes (A/B-verified 2026-07-08 that marks fix its
-  # stress), qwen was not, so marks may help, do nothing, or be read as noise.
-  # The listener reported wrong RU stress on 2026-08-03, which is what put this
-  # back — see FINDINGS.md before flipping it on trust.
-  # Salted into synth_hash, so turning it on re-synthesizes ru rather than
-  # serving unaccented cache.
-  # KEPT FALSE, and this is settled — see FINDINGS "CLOSED" and 2.1b/2.1bb.
-  # RUAccent marks destroy qwen's Russian: 97% of clips unusable by ear with
-  # x_vector, and still WER 0.621 with an ICL-grounded reference. qwen was not
-  # trained on U+0301 and reads it as content to pronounce.
-  # Russian SHIPS with ~29% of takes carrying a stress error. That is a product
-  # decision taken 2026-08-09, not an oversight: the errors are partly
-  # SYSTEMATIC (qwen is reliably wrong on certain words), so no selection rule
-  # can reach them, and four detectors failed their validation gate. Do not
-  # re-open without per-word pronunciation control in the engine.
+  engine: qwen                 # qwen | edge (plumbing only, no cloning)
+  engine_by_lang: {}           # per-language engine override
+  # qwen_model_dir_by_lang: {} # per-language checkpoint (PLAN_v0.5 P4.5)
+  reference_text: ""           # ref transcript; only the ICL path uses it
+  # RU stress marks. OFF: on the base model they destroy the audio (FINDINGS
+  # 2.1b); synthesize() now refuses them unless ru routes to a stress-trained
+  # checkpoint. The fine-tune A/B is PLAN_v0.5 P4. Salted into synth_hash.
   ru_stress: false
-  # NOTE: the take-SELECTION params in this block (best_of, rank_takes, min_f0st,
-  # f0_reroll_max, retake_mos_below, best_of_early_accept, early_accept_*) are NOT
-  # part of synth_hash — they pick among takes, they don't change a take's inputs.
-  # So changing one and re-running does NOTHING on already-cached segments (the
-  # old winning take is reused). To actually re-apply a change, clear the takes:
-  #   dubadabidu run <video> --langs <l> --force        (or: stage s4_synthesize --force)
-  # This is essential when A/B-ing these levers, or the comparison is stale.
-  best_of: 3                  # auto-repair: re-roll low-scoring takes, keep the best
-  rank_takes: true            # synth ALL best_of takes; pick by composite
-  # monotony re-roll: if every best_of take is flatter than min_f0st (pitch std
-  # in semitones), roll up to f0_reroll_max extra takes to find a livelier read.
-  # Take variance is the lever that works here — exaggeration is NOT a reliable
-  # liveliness knob (measured). ~2.2-2.4 ≈ lively narration. 0 = off.
-  #
-  # min_f0st is measured in the DELIVERED domain since 2026-07-29: selection
-  # scores each take after s6's edge trim, the same audio evaluate's qc_f0st
-  # grades. Before that it read the raw take, which ran HIGH in 7 of sketch60's
-  # 8 segments — mean abs error 0.35 st, worst ru/u0001 at 3.45 raw vs 2.02
-  # delivered — so this floor was applied in the wrong units and takes clearing
-  # 2.2 at selection could ship near 2.0.
-  # The floor is therefore effectively STRICTER now at the same number — and it
-  # is also enforced in best_of_early_accept, which used to bypass it entirely.
-  # Both mean more takes get rolled per segment. If GPU cost matters more than
-  # the last of the monotony margin, lower this rather than disabling the gate.
-  min_f0st: 2.2       # FREE lever: prefer takes clearing this floor at selection
-  f0_reroll_max: 0    # COSTLY escalation: extra takes if all flat (marginal; off)
-                              # (windowed MOS + f0 liveliness + ECAPA sim) among
-                              # takes clearing the MOS floor. false = legacy
-                              # MOS-only early-stop (cheaper, blind to monotony
-                              # and clone drift)
-  retake_mos_below: 2.6       # threshold on WORST-3s-WINDOW MOS (systematically lower
-                              # than take-average; 3s windows score pessimistically —
-                              # the gate is deliberately eager, the pick is relative)
-  best_of_early_accept: true  # stop rolling takes once one clears a HIGH bar
-                              # (below) AND fits the slot AND passes WER AND
-                              # clears min_f0st — saves GPU time on cheap pods;
-                              # false = always synth all best_of. Quality-safe
-                              # (bar >> retake floor). The min_f0st term is not
-                              # optional: accepting early leaves a ONE-take pool,
-                              # and every later filter in synth_best_of is a
-                              # no-op on a single take.
-  early_accept_mos: 3.6       # worst-3s-window MOS that counts as "already great"
-  early_accept_sim: 0.50      # raw ECAPA cosine floor for early accept
-  reference_wav: ref/sketch_ref_08.wav   # extracted from sketch.mp4 vocals (echo-free);
-                                         # beats studio ref_04 on RAW sim + MOS — composite
-                                         # favored ref_04 only via per-ref calibration bias
-  cfg_weight: 0.0             # REQUIRED: reference is Ukrainian, targets are not
-                              # (re-validated by tune R2: 0.2/0.3 lost on sim AND mos)
-  exaggeration: 0.55          # tune winner vs 0.4 / 0.7
+  # Take SELECTION (not in synth_hash): after changing any of these, re-run
+  # with --force or the cached winner is reused.
+  best_of: 3                   # the pod profile ships 2
+  rank_takes: true             # score all takes, pick by composite
+  min_f0st: 2.2                # prefer takes above this pitch-variation floor (free)
+  f0_reroll_max: 0             # extra takes if all are flat (costly, marginal: off)
+  retake_mos_below: 2.6        # worst-3s-window MOS that triggers a re-roll
+  best_of_early_accept: true   # stop once a take clears the bar below + fits + WER + f0
+  early_accept_mos: 3.6        # chatterbox-era bar; the pod profile sets 2.8 for qwen
+  early_accept_sim: 0.50       # raw ECAPA floor for early accept
+  # Local default. The pod profile sets the trimmed clip that ships
+  # (ref/sketch_ref_08.trim12s.wav); the choice is below the ear's resolution (§2.2).
+  reference_wav: ref/sketch_ref_08.wav
   sample_rate: 24000
-  edge_voices:                # fallback engine voices (edge-tts 7.2.8)
+  edge_voices:                 # fallback engine voices (edge-tts 7.2.8)
     en: en-US-AndrewNeural
     fr: fr-FR-HenriNeural
     de: de-DE-ConradNeural
@@ -205,204 +84,89 @@ tts:
     pl: pl-PL-MarekNeural
 
 fit:
-  max_tempo: 1.12             # max speed-up (prosodic-alignment literature: keep mild)
-  soft_tempo: 1.06            # above this, prefer a shorter variant over stretching
-  stretcher: auto             # auto | rubberband | atempo. rubberband (R3) keeps
-                              # consonant transients cleaner than atempo's WSOLA;
-                              # auto uses it when ffmpeg is built with librubberband
-                              # and silently falls back to atempo otherwise
-  # soft-anchor timeline (voice-over content, loose sync): a dub may start up
-  # to drift_max_s after its source start, eating pause time instead of being
-  # stretched/shortened; drift decays to zero at real source pauses. Replaces
-  # the old borrow_gap_s hard-anchor slack.
+  max_tempo: 1.12              # max speed-up (keep mild)
+  soft_tempo: 1.06             # above this, prefer a shorter variant over stretching
+  stretcher: auto              # auto | rubberband | atempo (auto = rubberband if ffmpeg has it)
+  # soft-anchor timeline (voice-over, loose sync): a dub may start this much
+  # after its source start; drift resets at real pauses.
   drift_max_s: 1.5
-  min_gap_s: 0.15             # breath gap kept between consecutive dubs
+  min_gap_s: 0.15              # breath gap between consecutive dubs
 
 mix:
   bg_gain_db: -6
   lufs: -16
-  # duck the background under the dub voice (sidechaincompress keyed on the
-  # dub vocals). Kills the residual Ukrainian voice the separation instrumental
-  # stem still carries — the 'two voices' AI-dub tell. false = flat bg_gain_db.
+  # duck the background under the dub (kills the residual Ukrainian voice)
   duck: true
-  duck_threshold: 0.03   # key level (linear ~ -30 dB) that opens the duck
-  duck_ratio: 8          # how hard the background is pushed down under speech
+  duck_threshold: 0.03         # key level (~ -30 dB) that opens the duck
+  duck_ratio: 8
   duck_attack_ms: 5
-  duck_release_ms: 300   # how fast the background returns in gaps
-  # per-segment loudness normalization: level every utterance to target_dbfs
-  # with a pure gain shift BEFORE placement, so best_of take-to-take level
-  # drift (the 'pasted-in' tell) disappears. Dynamics INSIDE each segment are
-  # untouched (unlike a compressor) so prosody/monotony are unaffected. The
-  # loudnorm below still sets absolute program loudness. Applied gain per
-  # segment is recorded in the manifest (tr.norm_gain_db).
+  duck_release_ms: 300
+  # per-segment pure-gain level match: removes take-to-take level drift
+  # without touching prosody. Applied gain lands in tr.norm_gain_db.
   segment_norm:
     enabled: true
-    target_dbfs: -20.0     # RMS target each segment is shifted to
-  # light mastering chain on the dub vocals before the background mix
-  # (pedalboard; opt-in via `pip install .[master]`). Evens take-to-take level
-  # drift + tames TTS sibilance so segments stop sounding pasted-in. loudnorm
-  # still runs on the full mix after this. Start conservative and A/B by ear.
+    target_dbfs: -20.0
+  # light mastering chain (pedalboard, `.[master]`, GPLv3 opt-in). Measured
+  # transparent by blind ear (FINDINGS §2.0).
   master:
     enabled: true
-    hpf_hz: 80              # high-pass: drop sub-rumble/DC
-    comp_threshold_db: -18  # gentle leveling across segments
+    hpf_hz: 80
+    comp_threshold_db: -18
     comp_ratio: 2.5
     comp_attack_ms: 5
     comp_release_ms: 120
-    deess_hz: 7000          # high-shelf cut to soften sibilance
+    deess_hz: 7000
     deess_gain_db: -2.0
-    reverb_wet: 0.0         # 0 = off; try ~0.05 for a hair of room
+    reverb_wet: 0.0            # 0 = off
     reverb_room: 0.1
-    limiter_db: -1.0        # brickwall guard on the intermediate wav
+    limiter_db: -1.0
 
 mux:
   subtitle_codec: mov_text
   lang_tags: {uk: ukr, en: eng, fr: fra, de: deu, es: spa, ru: rus, pl: pol}
-  # true => ALSO write <stem>_<lang>.mp4 per language (video + that dub + its
-  # subs) alongside the multi-track file. The multi file is the better artifact
-  # — one upload, no duplicated video — but YouTube's multi-language audio is a
-  # per-channel feature with a fussier ingest, so these are the safe fallback.
-  # Video is stream-copied, so the cost is disk, not time or quality.
-  per_language: true
+  per_language: true           # also write <stem>_<lang>.mp4 (YouTube fallback)
 
 qc:
   wer_flag_threshold: 0.15
-  # Where the model-backed metrics (ECAPA, Distill-MOS) run: cpu | cuda | auto.
-  # cpu by default so scores stay bit-comparable with every manifest, ratings
-  # row and bake-off scorecard already on disk. On a rented pod this is the
-  # largest remaining cost lever that does not touch synthesis: roughly half of
-  # s4's billed wall clock is per-take scoring on a vCPU while the GPU idles at
-  # ~7%. Flip it in config.gpu.yaml only after diffing qc_score on one video —
-  # see qc/metrics.py set_device() for the two-command validation.
+  # cpu so scores stay comparable with everything on disk; the pod profile
+  # sets cuda (measured bit-comparable, FINDINGS §3).
   metrics_device: cpu
-  eval:                             # `dubadabidu evaluate` + tune objective
-    # Calibrated vs human ratings 2026-07-08 (spearman: mos +.63 f0 +.48
-    # sim -.30) — those numbers were taken under CHATTERBOX and did not survive
-    # the engine change.
-    #
-    # sim DROPPED 0.25 -> 0.0 on 2026-08-09, at the user's call, on 112 en / 114
-    # ru ratings. Permutation-tested against 5000 shuffles, sim does not predict
-    # this listener in EITHER language:
-    #     en rho -0.075 (p 0.42)    ru rho -0.136 (p 0.15)
-    # It is also weighted 0.0 in the best fit for both languages, and it has now
-    # failed to predict his judgement FIVE separate times — three reference
-    # sweeps, the ICL round (won sim by 17x the noise band, rated 15/18
-    # unusable), and the sketch_ref_08 blind test, where the ear chose the
-    # LOWEST-sim candidate. Paying 0.25 of the objective for an anti-signal.
-    #
-    # f0 RAISED 0.20 -> 0.30. It is the only feature that predicts him in BOTH
-    # languages (en rho +0.290 p 0.0016, ru +0.190 p 0.0386) and the strongest
-    # single predictor in en.
-    # NOTE THE APPARENT CONTRADICTION with qc/bakeoff.py, which deliberately
-    # EXCLUDES f0st from its score. Both are right: the bake-off ranks whole
-    # RUNS, where f0st's run-to-run band is ±0.438 and swamps any difference;
-    # this ranks TAKES inside one segment, where the ratings say it carries the
-    # signal. Same metric, different comparison, different noise.
-    #
-    # mos RAISED 0.40 -> 0.55 — significant in ru (rho +0.295, p 0.0014) though
-    # not in en (p 0.87), so it takes the remainder rather than leading.
-    # tempo unchanged at 0.15: never tested against ratings, kept as-is rather
-    # than moved on no evidence.
-    #
-    # THIS IS NOT refit's PROPOSAL. refit still says KEEP CURRENT WEIGHTS and
-    # its gates have never passed; its own best fits are unstable at this n
-    # (pooled f0 0.95 vs within-round sim 0.55 on the SAME ratings, FINDINGS
-    # 2.1d). This is a targeted removal of a feature measured to be noise, not
-    # an adopted re-fit — do not read it as the gate having cleared.
-    # FROZEN 2026-08-13 — and not because they are right. Measured against 72
-    # within-sentence comparison groups (the first length-free data the project
-    # has had, FINDINGS 2.1p), this vector agrees with the listener on which
-    # take to ship 33 of 72 times against a chance of 32. Every single metric
-    # is at chance there: f0st 0.542 (p 0.062), mos_min 0.458, sim_cal 0.458,
-    # mos 0.417 — BELOW chance.
-    #
-    # A grid search over 48 groups did find {sim 0.47, mos 0.04, f0 0.34} at
-    # held-out 0.604 and cleared all seven adoption gates. Twenty-four more
-    # groups took it to 0.472 with p 0.275. It was overfitting; nothing was
-    # applied. `dubadabidu refit` still runs and still refuses.
-    #
-    # So qc_score is a COARSE HEALTH SIGNAL, not a quality ranking. Do not tune
-    # these further against the same four metrics — that question is closed.
-    # Reopening it needs a metric that hears what these do not.
+  eval:                        # `dubadabidu evaluate` + take ranking
+    # FROZEN 2026-08-13. Not because they are right: no reachable weighting of
+    # these metrics agrees with the listener above chance (FINDINGS §2.1p,
+    # §2.1s). qc_score is a coarse health signal, not a quality ranking.
     weights: {sim: 0.0, mos: 0.55, f0: 0.30, tempo: 0.15}
-    # MOVED 0.55 -> 0.36 on 2026-08-11, with the metric, not as a judgement.
-    # composite_score now takes the worst-3s window instead of the whole-take
-    # MOS mean, and the window is systematically lower: the same 46 ru segments
-    # went from mean 0.653 to 0.486. At the old 0.55 the new score flags 31 of
-    # 46 instead of 4, which makes the review page's flag meaningless.
-    #
-    # 0.36 is BEHAVIOUR-PRESERVING — it flags the same 4 of 46 the old cut did.
-    # Chosen that way deliberately: changing the metric and the bar in one step
-    # would make any later shift impossible to attribute. Now that qc_score
-    # actually tracks the ear (+0.364 against accept/reject, where the old one
-    # was -0.205), tightening this is a real option — but it is a product
-    # decision on how much review you want, not a recalibration.
-    score_flag: 0.36                # review page flags segments below this
-    sim_floor_default: 0.35         # fallback if edge floor-synth is offline
-  refit:                            # `dubadabidu refit` — AUTOPILOT M4.
-    # Re-derives the weights above from accumulated human ratings. It PROPOSES
-    # only: specs/batch.yaml forbids the agent editing eval weights, and a
-    # scoring function that rewrites itself between videos makes every
-    # cross-video number incomparable. A human pastes the block it prints.
-    min_rows: 30        # refuse to propose below this many rated segments —
-                        # 4 free parameters fit to fewer describe the noise
-    step: 0.05          # weight lattice; weights are constrained to sum to 1
-                        # because score_flag/mean_score_min are cuts on that scale
-    folds: 5            # cross-validation folds (deterministic, by row index)
-    # Three independent adoption gates, ALL required. Each alone is defeatable.
-    min_rho: 0.30       # the fitted objective must actually track your ear
-    max_p: 0.05         # ...and not by chance: permutation test over shuffled
-    permutations: 50    #    ratings, run through the SAME fit+CV procedure.
-                        #    Required because the incumbent-comparison below is
-                        #    CONFOUNDED on weak data — a fixed weighting can sit
-                        #    at a spuriously negative correlation while the
-                        #    fitted one drifts to ~0, reading as a big "gain"
-                        #    (measured on pure noise: -0.136 -> -0.015, +0.121).
-    adopt_margin: 0.02  # ...and it must still beat the incumbent out of fold
+    # Behaviour-preserving cut for the worst-3s-window metric (flags the same
+    # 4 of 46 as the old one). Tightening it is a review-load decision.
+    score_flag: 0.36
+    sim_floor_default: 0.35    # fallback if the edge floor-synth is offline
+  refit:                       # `dubadabidu refit` — PROPOSES only, never applies
+    min_rows: 30               # refuse below this many rated segments
+    step: 0.05                 # weight lattice (weights sum to 1)
+    folds: 5
+    # all three gates required (each alone is defeatable, FINDINGS §2.1p)
+    min_rho: 0.30
+    max_p: 0.05
+    permutations: 50
+    adopt_margin: 0.02
 
-prep:                               # `dubadabidu prep` reference-clip extraction
-  # 10.0, not 12.0: upstream measures clone quality rising to ~15 s and then
-  # plateauing/degrading, so the 10-15 s window has to be REACHABLE. prep now
-  # stratifies across this band instead of keeping the longest n, so tune R1
-  # scores short vs long instead of only ever seeing the top of the range.
-  min_s: 10.0                       # candidate span length band (seconds)
+prep:                          # `dubadabidu prep` reference-clip extraction
+  min_s: 10.0                  # span length band (10-15 s window must be reachable)
   max_s: 20.0
-  n_refs: 4                         # keep the pool WIDE — tune R1 makes the call
-  max_candidates: 12                # cap gated spans (each = a cut + MOS/f0 pass)
-  # quality GATE — rejects only genuinely broken spans, does NOT rank clone
-  # quality (a focused tune R1 showed acoustic scores don't predict clone sim;
-  # `tune` R1's ECAPA similarity is the arbiter). Keep these lenient so a good
-  # ref is never filtered out.
-  clip_peak: 0.99                   # peak >= this = clipped, rejected
-  min_voiced: 0.25                  # < this fraction voiced = mostly silence, rejected
-  min_mos: 3.0                      # DistillMOS below this = noisy/artifacty, rejected
+  n_refs: 4
+  max_candidates: 12
+  # quality GATE only, not a ranker (acoustic scores don't predict clone quality)
+  clip_peak: 0.99
+  min_voiced: 0.25
+  min_mos: 3.0
 
-tune:                               # `dubadabidu tune` search space
+tune:                          # `dubadabidu tune` search space
   subset_size: 8
-  refs_glob: ref/*.wav              # record 3-4 candidates, 15-20s each
-  cfg_weights: [0.0, 0.2, 0.3]
-  exaggerations: [0.4, 0.55, 0.7]
+  refs_glob: ref/*.wav
   best_of: 3
-  # R1's OWN objective — deliberately NOT qc.eval.weights. That block ranks
-  # TAKES of one segment and carries sim: 0.0 because similarity does not
-  # predict this listener's per-take judgement. R1 picks the CLONE SOURCE,
-  # where similarity is the entire question, and it read the same block until
-  # 2026-08-11: with the shipped weights a reference at sim_cal 0.10 beat one
-  # at 0.80 (0.715 vs 0.662) on six tenths of a semitone of f0.
-  #
-  # UNVALIDATED against the ear, and that is not a placeholder. The one blind
-  # test picked the LOWEST-sim reference and the 42-judgement comparison came
-  # back 21-21 (FINDINGS 2.2). R1 makes a shortlist; the ear decides.
+  # R1's own objective (picks the CLONE SOURCE, where similarity is the
+  # question). Unvalidated against the ear: R1 shortlists, the ear decides.
   r1_weights: {sim: 0.6, mos: 0.4, f0: 0.0}
-  # Rolls averaged per reference per segment. One roll ranks the dice: measured
-  # take-to-take spread is mos +/-0.24-0.49 and f0st +/-0.438 (qc/listen.py).
-  # Cost is refs x subset_size x this.
-  r1_takes: 3
-  # Per-video reference override (manifest tts_overrides). OFF, matching the
-  # FINDINGS 2.2 verdict "the reference is now a config default, not a
-  # per-video override" — which was recorded but never actually enforced:
-  # preamble kept writing the override and s4/s5/evaluate/bakeoff kept merging
-  # it. Turning this on re-enables it, gated on override_margin AND on the
-  # curated tts.reference_wav being present in the sweep to beat.
-  per_video_ref_override: false
+  r1_takes: 3                  # rolls averaged per reference per segment
+  per_video_ref_override: false  # FINDINGS §2.2: the reference is a curated asset
   override_margin: 0.05

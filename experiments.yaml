@@ -179,3 +179,59 @@ experiments:
       also stresses what a minute cannot: s6 builds the whole timeline in pydub
       RAM, s3 batches translation against full-transcript context, and the
       manifest grows ~60x. IMPROVEMENT_PLAN Phase D, still unticked.
+
+  # ---- PLAN_v0.5 P4: the ru-stress fine-tune (FINDINGS CLOSED list, NEW
+  # evidence: siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf). One pod for all
+  # three: python -m pipeline.experiments --only ru-ft-plain ru-ft-stress
+  - name: ru-ft-plain
+    enabled: false
+    blocked_by: >
+      HUMAN GATE (PLAN_v0.5 P4.0): decide whether the fine-tune's training-text
+      licence caveat is acceptable for paid courses. Remove this line to run.
+    video: "input/complex_oil_still_life_on_canvas/Organising the colour palette and materials.mp4"
+    langs: [ru]
+    overlays: [config.exp.ru-ft-plain.yaml]
+    asks: Does the fine-tuned checkpoint alone (no marks) degrade ordinary Russian?
+    why: >
+      The candidate (ru-ft-stress) changes two things against production — the
+      checkpoint and the marks. This arm holds the marks off so a regression
+      can be attributed.
+    reads: >
+      qwen+fast+m:qwen3-tts-12hz-1.7b-ru-stress-cf vs qwen+fast+control in
+      results_ru.json: wer/mos/sim against the ru noise floor (FINDINGS §0).
+    decides: Whether the checkpoint is safe to route ru through at all.
+
+  - name: ru-ft-stress
+    enabled: false
+    blocked_by: >
+      HUMAN GATE (PLAN_v0.5 P4.0), same as ru-ft-plain.
+    video: "input/complex_oil_still_life_on_canvas/Organising the colour palette and materials.mp4"
+    langs: [ru]
+    overlays: [config.exp.ru-ft-stress.yaml]
+    asks: Does the fine-tune + RUAccent marks cut the ~29%-of-takes stress-error rate?
+    why: >
+      Every input-side route on the BASE model failed (FINDINGS 2.1b/bb/o/q)
+      because it was never trained on marks. This checkpoint was: author-
+      reported adherence 96% vs base 17% (his detector, not ears).
+    reads: >
+      WER gate first (reject the arm above 0.10). Then a blind same-sentence
+      round vs control — compare.py, >=23 pairs, stress axis on the page, the 9
+      stress_lexicon_ru.json words prioritised — plus mis-stress marks on the
+      review page for both arms.
+    decides: >
+      Adopt (PLAN_v0.5 P4.5) only if the stress-error rate falls at p<0.05 with
+      no rise in "unusable". Either way: FINDINGS §2.1r.
+
+  - name: ru-ft-icl-stress
+    enabled: false
+    blocked_by: >
+      Run ONLY if ru-ft-stress fails on adherence (PLAN_v0.5 P4.1).
+    video: "input/complex_oil_still_life_on_canvas/Organising the colour palette and materials.mp4"
+    langs: [ru]
+    overlays: [config.exp.ru-ft-icl-stress.yaml]
+    asks: Does ICL (the layout the fine-tune was trained in) recover adherence?
+    why: >
+      Trained on Russian ref + transcript; ours is a Ukrainian reference and
+      production is x_vector-only. ICL on ru was undecided, not refuted (2.1bb).
+    reads: Same as ru-ft-stress.
+    decides: Whether the ICL variant is the one to productionise.

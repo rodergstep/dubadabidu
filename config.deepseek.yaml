@@ -5,9 +5,10 @@
 
 translation:
   base_url: https://api.deepseek.com
-  # deepseek-chat / deepseek-reasoner names are DEPRECATED 2026-07-24 — use v4.
-  model: deepseek-v4-flash
-  response_format: json_object      # v4 supports json_object
+  # deepseek-v4-flash was retired 2026-09-10 and is only temporarily routed;
+  # deepseek-flash is the current (moving) alias. `doctor` checks it is listed.
+  model: deepseek-flash
+  response_format: json_object
   # DeepSeek AUTO-caches the big shared context (glossary + terms + full
   # transcript): ~98% off input on cache hits, so a lesson's context is
   # effectively free after the first batch. ~$2 for the whole 20-video batch.

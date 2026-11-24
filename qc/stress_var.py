@@ -78,7 +78,7 @@ def nuclei_stress(y: np.ndarray, n_vowels: int) -> int | None:
     if len(peaks) < n_vowels:
         # fall back to slicing the word into n_vowels equal parts
         edges = np.linspace(0, n, n_vowels + 1).astype(int)
-        peaks = np.array([int((a + b) / 2) for a, b in zip(edges, edges[1:])])
+        peaks = np.array([int((a + b) / 2) for a, b in zip(edges, edges[1:], strict=False)])
     else:
         peaks = np.sort(peaks[np.argsort(son[peaks])[-n_vowels:]])
     f0f = np.nan_to_num(f0, nan=0.0)

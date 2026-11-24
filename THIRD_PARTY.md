@@ -7,73 +7,39 @@ and isolation made those collisions structurally impossible. Three engines are
 gone and chatterbox took its pin with it (2026-08-02), and the surviving
 constraint sets agree:
 
-| package | qwen needs | base needs |
+| package | qwen needs | locked in uv.lock |
 |---|---|---|
-| torch | `>=2.5.1` (faster-qwen3-tts) | 2.6.0 for the qc stack |
-| transformers | `==4.57.3` (qwen-tts) | nothing at runtime |
-| huggingface-hub | `>=0.36,<1.0` | `>=0.8` speechbrain, `>=0.21` faster-whisper |
+| torch | `>=2.5.1` (faster-qwen3-tts) | `2.11.0` (`+cu128` on Linux) |
+| transformers | `==4.57.3` (qwen-tts) | `4.57.3` (declared in pyproject) |
+| huggingface-hub | `>=0.36,<1.0` | `>=0.36,<1.0` (declared in pyproject) |
 
-**VALIDATED on a pod 2026-08-02** (`remote setup-check`, 3m20s / ~$0.015):
-`[probe] venv: torch +cu124 | cuda True`, `[probe] OK qwen`. The three
-constraint sets resolve together for real, not just on paper.
+### The stack (current as of v0.5, 2026-11-19)
 
-### torch stays at 2.6.0 — RunPod's HOST DRIVER is the ceiling
+- **torch/torchaudio 2.11.0**, declared in `pyproject.toml` and pinned in
+  `uv.lock`. On Linux they resolve from the **cu128** index (`[tool.uv.sources]`),
+  because drivers are backward- but not forward-compatible and PyPI's default
+  2.11 wheel is cu130. 2.11 is the ceiling: torchaudio stopped there and the two
+  ship version-locked. The one torchaudio call left is `functional.resample`.
+- **Host driver floor:** `runpod.min_cuda_version: "12.8"` (REST v2
+  `gpu.minCudaVersion`) must equal torch's cu-build. History: RunPod's default
+  hosts once had a CUDA 12.4 driver, which is why torch sat at 2.6.0 until
+  2026-08-02; the filter fixed the HOST, not the pin.
+- **The pod installs the lock** (`uv sync --frozen` in `REMOTE_SETUP`), then qwen
+  from `runpod.engine_setup`. The prebuilt image (`docker/Dockerfile`) bakes the
+  same thing and is used only when its lock stamp matches.
+- Kept from the 2.6 era, still true: qc reads audio via **soundfile**, never
+  `torchaudio.load` (it delegates to torchcodec from 2.9; a static test forbids
+  it), and ECAPA + Distill-MOS scores are bit-identical across 2.6 and 2.11, so
+  historical scorecards stay comparable.
 
-A bump to 2.11.0 was attempted and **reverted the same day, on measurement**:
-`remote setup-check` installed it cleanly and then reported
+If a second cloning engine returns, revert the one-venv commit rather than
+reinventing isolation: `engine_client.py`, `engine_worker.py` and the worker pool
+are in git.
 
-```
-UserWarning: CUDA initialization: The NVIDIA driver on your system is too old
-(found version 12040)
-CUDA: False
-```
-
-RunPod's host driver is **CUDA 12.4**. torch 2.11's oldest build is `cu126`
-(there is no `2.11+cu124` wheel); 2.6.0 ships `cu124`, which is the `+cu124` we
-actually resolve. The driver belongs to the host machine, so **no container
-image and no `--index-url` reaches it**, and the REST API has no field to
-request one. Retry only after `nvidia-smi` on a fresh pod shows >=12.6.
-
-Two things were fixed on the way and KEPT, so the retry is one line + a
-~$0.015 setup-check:
-
-- **`torchaudio.load` -> soundfile** in `qc/metrics.py` (as `qc/evaluate.py`
-  already did). From 2.9 `load` delegates to the separate `torchcodec` package;
-  `hasattr` still returns True, so it breaks only when a scoring run reads a
-  file, on a pod, mid-billing. A static AST test now forbids the call.
-  `functional.resample` is all that remains of torchaudio and is pure torch.
-- The old justification for the pin was a comment claiming `torchaudio.save` is
-  native in 2.6 — **this repo has never called `torchaudio.save`.** The concern
-  was real, the API named was wrong, and the test repeated it back as fact.
-
-Above 2.6 the NEXT ceiling is torchaudio, not torch: torch is at 2.13.0
-(2026-07-08) but torchaudio stopped at **2.11.0** (2026-03-23) and the two ship
-as version-locked pairs. Dropping that one `resample` call would open 2.12/2.13.
-
-Verified harmless for the eval harness: soundfile vs `torchaudio.load` is
-bit-identical (`max|diff| = 0.0`), and ECAPA + Distill-MOS agree to every digit
-across 2.6 and 2.11 — so a future bump will not move any historical scorecard.
-
-Isolation was therefore costing a SECOND ~2.5 GB torch download on every fresh
-pod — the largest single item in the bootstrap — to prevent a collision that can
-no longer happen. If a second cloning engine returns, REVERT that commit rather
-than reinventing it: `engine_client.py`, `engine_worker.py` and the worker pool
-are in git. On the pod, `remote bakeoff`/`remote setup-check` create these
-venvs from the `runpod.engine_setup` snippets; locally, create one by hand
-(below) and the routing kicks in the moment the venv exists. The engine venv
-needs NOTHING of the project installed — the worker runs `-m
-pipeline.engine_worker` from the project root — only the engine's own deps
-(plus `soundfile`, which the automated install adds).
-
-Pin the commit you validate on (record it below) — these repos move fast and
-their inference APIs drift; `pipeline/tts_engine.py` targets the APIs noted here.
-
-**PINNED 2026-07-31.** `config.gpu.yaml` checks out qwen at a fixed SHA and
-installs `faster-qwen3-tts==0.3.2`, so a bake-off verdict is now reproducible.
-Until this was done a re-run weeks later could clone different code and the
-numbers would move for reasons the scorecard cannot show — the protocol rests on
-"the eval harness decides", and an unpinned harness decides against a moving
-target.
+**PINNED 2026-07-31.** `config.gpu.yaml` (and `docker/Dockerfile`; a test keeps
+them equal) checks out qwen at a fixed SHA and installs `faster-qwen3-tts==0.3.2`,
+so a bake-off verdict is reproducible. These repos move fast and their inference
+APIs drift; `pipeline/tts_engine.py` targets the APIs noted here.
 
 ## Removed engines — cosyvoice, voxcpm, indextts, chatterbox
 
@@ -203,28 +169,18 @@ serializes per request upstream (vllm-omni#3163).
 
 ## Running the bake-off
 
-Locally (engine venvs created by hand as above):
 ```bash
-# translations must exist first (s3). With venvs/<engine> present the pipeline
-# routes each challenger through its own venv automatically:
+# translations must exist first (s3)
 dubadabidu bakeoff input/sketch60/sketch60.mp4 --langs en --overlay config.gpu.yaml
+dubadabidu remote bakeoff input/sketch60/sketch60.mp4 --langs en   # on a pod
 ```
 
-Remotely (M2 installs the challengers automatically): put the PINNED install
-command for each engine in `runpod.engine_setup` (config.gpu.yaml). `dubadabidu
-remote bakeoff <video>` creates `venvs/<engine>` on the pod and runs the snippet
-inside it before the comparison. Each snippet must make the engine importable
-in ITS venv — either `pip install -e` the cloned repo or drop a `.pth` file
-into site-packages (the worker spawns with no PYTHONPATH). An engine whose
-snippet is empty or fails is reported unavailable and skipped, so a partial
-bake-off still runs — and a failed install can no longer damage any other
-engine's environment.
-
-Writes `work/<video>/bakeoff/bakeoff_<lang>.md` (scorecard + ADOPT/keep verdict
-vs chatterbox) and `bakeoff_<lang>.html` (every engine side by side + your real
-UA slice, for the ear test). An engine that isn't installed is reported as
-unavailable and skipped, so a partial comparison still runs. Adopt a winner by
-setting `tts.engine_by_lang`.
+On a pod, `runpod.engine_setup` (config.gpu.yaml) installs each engine in
+`bakeoff.engines` into the main venv first; an engine whose snippet is empty or
+fails is reported unavailable and skipped. Writes
+`work/<video>/bakeoff/bakeoff_<lang>.md` (scorecard + ADOPT/keep verdict vs
+`bakeoff.incumbent`) and `bakeoff_<lang>.html` (side by side + the real UA slice,
+for the ear). A non-default checkpoint gets its own row (`+m:<name>`).
 
 ## License hygiene (unchanged)
 

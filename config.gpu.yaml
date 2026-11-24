@@ -1,450 +1,82 @@
-# RunPod profile — GPU / TTS settings ONLY (translation-provider-agnostic).
-# Overlays are stackable, so compose this with a translation-provider overlay:
+# RunPod profile — GPU / TTS settings ONLY. Stack with a provider overlay:
 #   dubadabidu run video.mp4 --overlay config.gpu.yaml --overlay config.deepseek.yaml
-# Provider overlays: config.deepseek.yaml (current) | config.gemini.yaml (later).
-# (--overlay config.gpu.yaml alone leaves translation at config.yaml's default.)
+# Comments here say WHAT a value is; WHY lives in FINDINGS.md (§ given).
 
 tts:
-  # 5 -> 2 on 2026-08-01, at the user's call, on measured evidence that RANKING
-  # does not perceptibly pick the better take. Blind head-to-head of take 1
-  # against the composite's choice, on the 7 segments where they differed:
-  # ranking won 2, lost 1, tied 4, and the two sets scored an IDENTICAL
-  # [3,3,4,4,4,4,5] (mean 3.86 each). refit agrees at n=62: the composite
-  # correlates +0.186 with the ear, and its best-fit proposal cross-validates
-  # NEGATIVE. Separately, best_of 3 and best_of 5 selected the same take on all
-  # four en segments — takes 4 and 5 never won.
-  # 2 rather than 1 on purpose: best_of has a SECOND job the evidence above does
-  # not test — rejecting a disaster rather than picking a winner. Earlier blind
-  # passes produced 1s and 2s, and the WER veto plus the runaway-generation
-  # guard both need a pool to choose from. One roll has no fallback.
-  # Cost: $6.10 -> $2.44 per 1M characters.
-  # RE-TEST ON THE SCALE RUN. Seven pairs cannot measure how often the worst
-  # take ships when only two are rolled, and that is the risk this setting takes.
+  # 2 takes: ranking does not perceptibly pick a better take (FINDINGS §2,
+  # §2.1p), but a pool of 2 lets the WER veto and runaway guard reject a
+  # disaster. Re-test on the scale run (PLAN_v0.5 P9).
   best_of: 2
-
-  # --- engine bake-off candidates (GPU-only git-clone installs; THIRD_PARTY.md) ---
-  # ROSTER CUT 2026-07-31 (git history has both):
-  #   cosyvoice — REMOVED. Installed and imported but never produced a single
-  #     take in seven attempts; seven distinct causes are recorded in
-  #     THIRD_PARTY.md if anyone wants to resume it.
-  #   voxcpm    — REMOVED. Lost to qwen+fast on speed AND cost once qwen's
-  #     kernel-launch bottleneck was fixed (2.36 vs 2.92 s/take). It still led
-  #     on sim→real 0.804 vs 0.614, which was never settled by ear before the
-  #     cut — that is the one open question this removal closes off.
-  #   indextts  — REMOVED. Best measured mos (2.739 with emotion transfer) but
-  #     ~2x qwen's cost and en/zh ONLY, so it could never serve 4 of 5 targets.
-  #     No cheap speedup exists: index-tts-vllm reports no gain for IndexTTS-2's
-  #     GPT and is a vLLM server, and Faster-IndexTTS-2 (TensorRT-LLM) is a
-  #     paper, not a package. Its emotion_from_source machinery went with it.
-  # Qwen3-TTS Base — THE PRODUCTION ENGINE (all 5 targets), 3 s clone, ~4 GB
-  # VRAM, Apache-2.0. UA ref -> x_vector_only (speaker embedding only, no ref
-  # transcript). git-clone install (THIRD_PARTY.md).
-  # 1.7B, SETTLED 2026-08-01 after three runs and two blind rating passes. The
-  # 0.6B variant is not a live option and its machinery has been removed; do not
-  # re-add it without new evidence. What was measured:
-  #   - barely faster (2.16 vs 2.32 s/take) — the speed floor is the codec
-  #     decode, not the transformer, so a 3x smaller LM buys almost nothing
-  #   - mos edge SHRANK under better sampling (2.692 at 3 takes -> 2.564 at 6)
-  #   - sim penalty is real and GROWS with the language that clones best
-  #     (en -0.036, ru -0.073, both far outside the 0.010 noise band)
-  #   - its "tighter spread" was a 3-take artifact: mos± 0.345 at 6 takes sits
-  #     between two readings of the SAME 1.7B config (0.492 and 0.311)
-  #   - the en wer advantage did NOT replicate in ru
-  #   - blind ear: marginally ahead in en, last in ru — a wash
-  # Voice identity is the product; 0.6B costs it for no reliable gain.
-  qwen_model_dir: Qwen/Qwen3-TTS-12Hz-1.7B-Base
-  qwen_x_vector_only: true             # UA ref: clone from audio embedding only
-  # THE REFERENCE, decided by three sweeps (en x2, ru) on 2026-07-31/08-01.
-  # ref_03 won ALL THREE — the only conclusion here that is not inside the noise
-  # floor. It is not the reference an earlier tune picked for chatterbox
-  # (sketch_ref_08), which is the point: engines have different preferences and
-  # this one was never swept under qwen before.
-  # NOT chosen for expressiveness. ref_03 has the LOWEST f0st of our references
-  # (2.13 of 2.13-2.84) yet produces the HIGHEST output liveliness (2.76 en /
-  # 2.99 ru). Reference f0st and output f0st are INVERSELY ordered across the
-  # whole set, so the widely-repeated "use an expressive reference" advice is
-  # false for this voice; ref_03's edge is more likely its clean, continuous
-  # phonation (voiced 0.629, ref mos 4.59 — both the best we have).
-  # CHANGED 2026-08-04 by BLIND EAR TEST, which overruled everything above.
-  # Same 3 sentences, 3 references, unlabelled: sketch_ref_08.trim12s won 2 of 3
-  # and was never marked unusable; sketch_ref_07 won 1 (1 unusable); and
-  # sketch60_ref_03 — the previous default, chosen by the sweeps described above
-  # — won ZERO and was marked unusable TWICE.
-  #
-  # It also settles a disagreement between the metrics and the listener that ran
-  # all day. R1 over all 11 references ranked identity sketch_ref_07 0.678 >
-  # sketch60_ref_03 0.630 > sketch_ref_08.trim12s 0.586, and I argued for
-  # ref_07 on that basis. The ear picked the LOWEST-sim of the three. That is
-  # the fourth time in a day that sim→real failed to predict his rating, and it
-  # matches qc/refit measuring the shipped objective at Spearman +0.022 against
-  # 112 of his ratings, with sim weighted 0.0 in the best fit for BOTH languages.
-  #
-  # n=3 sentences, so treat the ORDER as provisional — but "the incumbent was
-  # never once preferred" is the part that does not need a big sample.
-  # The reference is a CURATED asset, not a per-video by-product (FINDINGS 2.2):
-  # this default applies to every lesson, and a lesson's own audio only enters
-  # the pool via `prep`, to be judged against these.
-  reference_wav: ref/sketch_ref_08.trim12s.wav
-  # reference_max_s: DELIBERATELY UNSET. It was 12 on upstream's claim that
-  # cloning quality "plateaus and degrades" past ~15 s. Our own data does not
-  # reproduce that: 18 s beat 12 s on average in all THREE sweeps (en 0.5003 vs
-  # 0.5046, ru 0.5536 vs 0.5618) and the ru winner is an 18 s point. Per
-  # reference the effect is larger (0.03-0.06) than the gaps between references,
-  # but it has no consistent SIGN — ref_02 clearly prefers 18 s in both
-  # languages, ref_08 prefers 12 s. So it is a per-reference property, kept as a
-  # sweepable axis (bakeoff.grids) rather than a global default. The trim
-  # MECHANISM stays: it is also the guard against over-long references, the
-  # documented trigger for the decoder's never-emits-EOS failure.
-  # EARLY-ACCEPT BAR, engine-relative. config.yaml sets 3.6, which was
-  # calibrated when chatterbox was the engine. Distill-MOS scores qwen lower:
-  # measured 2026-08-01 over 60 takes, qwen's worst-3s-window MOS spans
-  # 1.67-3.65, so the 3.6 bar fired on 1 of 16 segment-runs (6%) and the whole
-  # adaptive-best_of mechanism was dead weight. That is the third setting to
-  # silently stop working when the engine changed, after the adoption gate and
-  # the take-ranking weights — thresholds here must be engine-relative.
-  # 2.8 is the highest bar that is provably FREE on the takes we have: it fires
-  # on 3 of 16 (8% fewer takes) and picks the IDENTICAL take every time, zero
-  # rank loss. 2.6 saves 10% for a 0.0021 rank loss; 2.4 saves 15% but changes
-  # the pick on 31% of segments. Re-measure on real-lesson takes before going
-  # lower — 16 segment-runs cannot resolve a small quality cost.
-  early_accept_mos: 2.8
-  qwen_max_audio_s: 60                 # reject a take longer than this as a
-                                       # runaway generation (there is no
-                                       # per-call timeout, so an unbounded
-                                       # loop otherwise burns pod time and, worse,
-                                       # a merely-long babble take ships silently)
-  # qwen_flash_attn: true              # enable only if flash-attn is installed
-                                       # (NOT a speed fix — see qwen_fast)
-  # faster-qwen3-tts (MIT): same weights, CUDA Graphs + StaticCache around the
-  # decode loop. Qwen3-TTS is kernel-LAUNCH bound — ~500 tiny GPU ops per decode
-  # step dispatched from Python, card idling at 10-12% utilisation. That is why
-  # our 2026-07-31 probe found 0.6B and 1.7B equally slow and dtype irrelevant.
-  # Upstream measures 4.1x on a 4090 (0.75 -> 0.18 wall/audio); at that ratio our
-  # 14.0 s/take becomes ~3.4. MEASURED 2026-07-31: 2.36 s/take, a 5.9x win —
-  # BETTER than upstream's ratio, and it makes qwen the fastest engine we ever
-  # benchmarked. VALIDATED and now the production default. Output is not
-  # bit-identical to the stock decode loop (mos 2.112 vs 1.942, f0st 2.874 vs
-  # 2.591, sim flat) but every shift is inside the take-to-take mos± of 0.322,
-  # so read it as different takes rather than better ones. Salted into
-  # synth_hash so an A/B re-synthesizes instead of scoring stock-decoded cache.
-  qwen_fast: true
-  # qwen_warmup_len: 100               # prefill length for CUDA graph capture
-
-  # THE PRODUCTION ENGINE. This was missing until 2026-08-02 and the omission
-  # was invisible: bakeoff.engines: [qwen] drives only the BAKE-OFF's own loop,
-  # while a real `run` resolves through tts.engine — which was still inheriting
-  # chatterbox from config.yaml. So every engine decision this week (the roster
-  # cut, the pin, three reference sweeps, best_of) applied to a code path that
-  # production never took, and the first production run was minutes from
-  # synthesizing 62 segments x 5 languages with the wrong engine — successfully,
-  # since chatterbox installs in the base venv, i.e. silently wrong rather than
-  # a crash. engine_by_lang stays empty on purpose: qwen serves all five.
+  # THE production engine and checkpoint (FINDINGS §2; 0.6B: CLOSED list).
   engine: qwen
+  qwen_model_dir: Qwen/Qwen3-TTS-12Hz-1.7B-Base
+  qwen_x_vector_only: true             # UA reference: speaker embedding only
+  # Reference: chosen by blind ear 2026-08-04, then shown to be below the
+  # ear's resolution (21-21, FINDINGS §2.2). Stop sweeping it.
+  reference_wav: ref/sketch_ref_08.trim12s.wav
+  # reference_max_s: unset — per-reference property, sweepable in bakeoff.grids
+  early_accept_mos: 2.8                # engine-relative bar: free on qwen takes (§2)
+  qwen_max_audio_s: 60                 # longer = runaway generation, take rejected
+  # faster-qwen3-tts CUDA graphs: 14.0 -> 2.36 s/take (FINDINGS §2). Salted
+  # into synth_hash. qwen_flash_attn is NOT a speed fix (dispatch-bound).
+  qwen_fast: true
 
 bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
-  # chatterbox REMOVED 2026-07-30 at the user's call — its quality is already
-  # known by ear from the local sketch60 runs, and installing it on the pod costs
-  # ~5 GB of CUDA torch for a row we don't need. That silently disabled the
-  # adoption gate for a week (it was still the hardcoded incumbent, so there was
-  # never a baseline); bakeoff.incumbent below is the fix.
-  # ONE ENGINE AT A TIME (2026-07-30). Installing every candidate before testing
-  # any of them meant each download was paid for before a single result existed —
-  # and a late failure threw the lot away, repeatedly. One engine per run needs no
-  # code change (remote_run installs exactly what is listed here) and gives: disk
-  # peak of one venv, first result in minutes, and a failure that costs only its
-  # own engine. Size container_disk_gb to len(engines).
-  # ROSTER after the 2026-07-31 cut: qwen only. cosyvoice, voxcpm and indextts
-  # are gone — see the tts block above.
-  engines: [qwen]
-  # WHAT A CHALLENGER MUST BEAT. This was hardcoded to chatterbox, which meant
-  # that once engines became [qwen] the gate had no baseline and every run
-  # printed "no incumbent baseline" — advisory, while looking adjudicated. qwen
-  # is what we ship now, so it is the bar. Change this when the shipped engine
-  # changes, or the gate silently stops gating again.
-  incumbent: qwen
-  subset_size: 6               # stratified by source length
-  takes: 3                     # averaged per segment to beat TTS variance
-  # tune-lite: every engine sweeps its own grid BEFORE the head-to-head and
-  # enters at its own best point. Without this the incumbent arrived tuned
-  # (cfg_weight/exaggeration from a real tune run) and challengers arrived at
-  # library defaults — the comparison could not be lost, and "keep incumbent"
-  # would have looked like evidence. IMPROVEMENT_PLAN Phase C asked for exactly
-  # this ("tune-lite ... on BOTH engines").
+  engines: [qwen]              # one engine at a time (disk + failure isolation)
+  incumbent: qwen              # the adoption gate's baseline row
+  subset_size: 6               # comparison segments, stratified by length
+  takes: 3                     # averaged per segment to beat take variance
   tune:
     enabled: true
-    subset_size: 3             # SEPARATE from the comparison subset, and smaller:
-    takes: 4                   # cost is points x segments x takes, so it grows
-                               # fastest here. Raised 2 -> 4 on 2026-07-30: at 2
-                               # takes the sweep could not resolve its own winner.
-                               # A sweep picked a winner on mos 2.515 that the
-                               # larger comparison then measured at 2.382 — level
-                               # with the default. Take-to-take mos± was 0.374
-                               # against a grid spread of 0.46, i.e. the ranking
-                               # was noise. ALWAYS compare a grid spread against
-                               # mos± before believing a winner.
-  # Per-engine grids. A config grid REPLACES that engine's built-in default —
-  # this is how you widen a sweep or close one. Defaults live in
-  # qc/bakeoff.py ENGINE_GRIDS; only knobs that reach manifest.synth_hash are
-  # valid (otherwise the cache serves one point's audio for another) and all of
-  # them must be Ukrainian-reference safe. An empty/single-point grid means
-  # "already tuned, nothing to sweep" and costs nothing.
-  # SWEEP 2026-07-31: qwen's weakest metric is sim→real (0.614; voxcpm managed
-  # 0.804 before it was cut), and two reference-side knobs plausibly move it.
-  #   reference_wav   — RESOLVED: ref_03 won all three sweeps, and is now the
-  #     tts.reference_wav default above. Kept in the grid so a new video's own
-  #     references can be swept the same way (refs are per-video).
-  #   reference_max_s — RESOLVED as "no global answer": 18 s edged 12 s in all
-  #     three sweeps on average, but per reference the effect is larger than the
-  #     between-reference gaps AND changes sign. Swept, never defaulted.
-  # tune-lite scores on 0.5*sim→real + 0.5*mos, so it optimises exactly the
-  # metric in question. 12 points x 3 segments x 4 takes at 2.36 s/take ~ 6 min.
+    subset_size: 3             # tune-lite's own subset (cost = points x segs x takes)
+    takes: 4                   # at 2 takes tune-lite selected noise (FINDINGS §4)
   grids:
     qwen:
       reference_wav: [ref/sketch60_ref_01.wav, ref/sketch60_ref_02.wav,
                       ref/sketch60_ref_03.wav, ref/sketch_ref_06.wav,
                       ref/sketch_ref_07.wav, ref/sketch_ref_08.wav]
       reference_max_s: [12, 18]
-  #   chatterbox: {exaggeration: [0.4, 0.55, 0.7]}   # re-open the incumbent
 
-runpod:                        # M2 infra agent — `dubadabidu remote <task> <video>`
-  # SECURE cloud (2026-07-30): COMMUNITY had no on-demand capacity at all for
-  # these types ("create pod: There are no instances currently available") and
-  # its spot pods were reclaimed within 1-9 min, four times running. Secure is
-  # RunPod's own datacenters, where on-demand capacity actually exists. Costs
-  # roughly 2-3x community per hour; max_runtime_hours still bounds a run
-  # (6.0 h since 2026-08-02 — see that setting for the measurement).
-  cloud_type: SECURE
-  # ORDER MATTERS ONLY WITH gpu_type_priority: custom. With "availability"
-  # (the old hardcoded value) RunPod picks whichever type is free and the list
-  # order is ignored — which is why a cheapest-first list still landed on a
-  # 4090 every single time. The API accepts only "availability" or "custom".
-  gpu_type_priority: custom
-  # SIZING, measured 2026-08-01: qwen 1.7B bf16 is ~4 GB, faster-whisper
-  # large-v3 fp16 ~5 GB, ECAPA + Distill-MOS well under 1 GB. Peak is ~12 GB, so
-  # 16 GB is sufficient and 24 GB is comfortable. The pod ran at ~7% GPU
-  # utilisation on a 4090 — batch size 1 cannot fill a big card.
-  # A SLOWER CARD IS NO LONGER FREE, and this changed recently: before qwen_fast
-  # the model was kernel-launch bound, so GPU speed barely mattered. It is now
-  # compute-bound. But only ~43% of wall clock is synthesis (2.07 s of the 4.83 s
-  # measured per take; the rest is CPU-side scoring that a GPU swap does not
-  # touch), so a 2x slower card costs ~1.4x wall time — still a net win at 2x+
-  # cheaper, just not the "half the cost" a naive reading suggests.
-  # An unrecognised id fails the create call instantly with an API 400 and costs
-  # nothing. USEFUL TRICK: that 400 body lists the ENTIRE valid enum, which is the
-  # only way to get it — rest.runpod.io/v1 has no /gpuTypes endpoint. Send a
-  # deliberate bad id to refresh this list. ("NVIDIA A30" is NOT a valid id.)
-  # All entries below are >=16GB and mid-tier; H100/B200/A100/RTX-6000 class are
-  # omitted on purpose so gpuTypePriority=availability cannot land on one.
-  # Enum refreshed from the API 2026-08-01 (see the trick above). 16-24 GB only,
-  # cheapest-capable FIRST — now load-bearing thanks to gpu_type_priority.
-  # Utilisation on a 4090 was 7% GPU / 7% CPU / 17% RAM: on RunPod the CPU and
-  # RAM come bundled with the GPU tier, so all three are one symptom (oversized
-  # instance) with one lever (this list). RTX 2000 Ada stays DROPPED despite
-  # being cheapest — 16 GB but materially slower, and we are compute-bound now.
-  # 4080/4090 remain LAST as capacity fallbacks, not preferences.
+runpod:                        # `dubadabidu remote <task> <video>` (REST v2)
+  cloud_type: SECURE           # COMMUNITY had no on-demand capacity (FINDINGS §3)
+  # Tried IN ORDER, cheapest-capable first; create_pod falls through on no
+  # capacity. Ids checked against GET /v2/catalog/gpus 2026-11-19. 4080/4090
+  # are last-resort capacity, not preferences (7% utilisation, FINDINGS §3).
   gpu_type_ids: ["NVIDIA RTX A4000", "NVIDIA RTX 4000 Ada Generation",
                  "NVIDIA RTX A4500", "NVIDIA L4",
                  "NVIDIA RTX A5000", "NVIDIA GeForce RTX 3090",
                  "NVIDIA GeForce RTX 3090 Ti",
                  "NVIDIA GeForce RTX 4080", "NVIDIA GeForce RTX 4080 SUPER",
                  "NVIDIA GeForce RTX 4090"]
-  # UPGRADED 2026-08-02 from runpod/pytorch:2.2.0-py3.10-cuda12.1.1-ubuntu22.04,
-  # which was ~2 years old and the root of two separate ceilings:
-  #   py3.10  -> numpy capped at 2.2.6 (3.12 reaches 2.5.1)
-  #   cu12.1  -> hosts with a CUDA 12.4 driver, which caps torch at 2.6.0
-  # ubuntu2404 = python3.12; cu1290 = CUDA 12.9. Stable tag (NOT an -rc), verified
-  # on Docker Hub 2026-08-02.
-  # VERIFY THE CONTENTS, NEVER THE TAG: runpod/containers#114 shipped a
-  # "torch280" image that actually contained torch 2.4.1, because pip silently
-  # fell back when cu128 wheels were missing — and users were billed for GPUs
-  # that torch could not drive. `remote setup-check` prints the resolved torch
-  # and CUDA for ~$0.015; run it after ANY image change.
+  # Base image. To use the prebuilt one (PLAN_v0.5 P3), after .github/workflows/
+  # image.yml has pushed it: ghcr.io/<owner>/dubadabidu-pod:lock-<sha12 of uv.lock>
+  # (+ registry_auth_id if the package is private). Never trust a tag's
+  # contents — run `remote setup-check` after any change (FINDINGS §4).
   image: runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404
-  # Filters to hosts whose DRIVER supports one of these (REST `allowedCudaVersions`,
-  # enum 11.8..13.0). Without it the scheduler gave us a 12.4 driver and torch
-  # 2.11 reported "NVIDIA driver ... too old (found version 12040)", CUDA: False.
-  # MUST move together with the torch pin in runpod_infra.REMOTE_SETUP: empty
-  # this list and torch has to go back to 2.6.0.
-  # Widen it (add "12.7", "12.6") if provisioning starts failing on capacity —
-  # every entry removed shrinks the host pool.
-  allowed_cuda_versions: ["12.8", "12.9", "13.0"]
-  # 150 GB, up from the 30 GB default. THIS was the real cause of the bootstrap
-  # failures on 2026-07-30: per-engine venv isolation multiplies torch by the
-  # number of challengers, and nobody sized the disk for it. Measured/estimated:
-  #   devel CUDA base image ~20 GB, main .venv ~5 GB, and ~7-10 GB per challenger
-  #   venv (its own CUDA torch + model weights) -> ~60 GB for four, before
-  #   headroom for pip's build dirs and HF cache.
-  # At 30 GB the container ran out of space and was killed, which presented as
-  # `closed by remote host` on the next SSH connection (sshd dies with it) and as
-  # "connection interrupted" mid-wheel-download. Both looked like network or spot
-  # problems and were misdiagnosed three times before `No space left on device`
-  # surfaced from a synth call. Container disk is billed only while the pod runs,
-  # so this is nearly free; a too-small value costs an entire run.
-  # SIZE THIS TO len(bakeoff.engines). MEASURED, not estimated: three qwen-only
-  # runs on 2026-07-31/08-01 all reported "disk 43% used" at their peak, i.e.
-  # ~26 GB of the 60 provisioned — base image + .venv (now holding qwen too) +
-  # weights + HF/pip caches. 40 GB keeps ~14 GB of headroom over that peak.
-  # DO NOT cut this to ~30 GB. That was the value that broke seven consecutive
-  # runs on 2026-07-30: a container that exhausts its disk is killed, which
-  # surfaces as `closed by remote host` on the NEXT ssh connection (sshd dies
-  # with it) and as "connection interrupted" mid-download — symptoms that were
-  # misdiagnosed three times as spot preemption, apt, and libstdc++ before
-  # `No space left on device` finally surfaced. The margin is the whole point.
-  # Raise toward 150 if several engines are ever listed in one run again:
-  # per-engine venv isolation multiplies torch by the number of challengers.
+  # registry_auth_id: <RunPod container-registry credential id>
+  # Driver floor = the cu-build of torch in uv.lock (cu128). A floor, not an
+  # exact list: on 2026-11-19 an exact 12.8 match had no capacity at all.
+  min_cuda_version: "12.8"
+  # ~26 GB measured peak, so 40 keeps ~14 GB headroom. Never ~30: a full disk
+  # kills the container and looks like a network fault (FINDINGS §4).
   container_disk_gb: 40
-  # ON-DEMAND (2026-07-30). Four consecutive spot pods died mid-bootstrap with
-  # `closed by remote host` at lifetimes of 62s / 7m27s / 8m32s / 8m53s — three of
-  # them on the SAME host 213.144.200.240. Variable lifetimes rule out a
-  # deterministic step in our setup (apt was investigated and cleared: attempt 4
-  # ran `0 upgraded, 2 newly installed` and still died), and repeatedly landing on
-  # one host points at reclamation / an unhealthy box. On-demand removes that
-  # variable. Cost is irrelevant here: max_runtime_hours bounds the run, so the
-  # worst case is that cap times the hourly rate.
-  # SPOT TRIED AGAIN AND REFUTED AGAIN, 2026-08-09. Flipped to true on the
-  # reasoning that the 2026-07-30 deaths were COMMUNITY capacity plus one
-  # unhealthy host, and that SECURE would be a different pool. It is not a
-  # different outcome:
-  #   attempt 1 — EXITED before SSH came up, ~2 min
-  #   attempt 2 — RUNNING, bootstrapped for ~11 min, then `closed by remote
-  #               host` at the END of the pip install; EXITED
-  # That is 6 spot pods across two days (62s / 7m27s / 8m32s / 8m53s / ~2m /
-  # ~11m) and not one has ever reached synthesis. Disk is ruled out this time:
-  # container_disk_gb is 40 with ~14 GB measured headroom, and the identical
-  # install completes on on-demand pods routinely.
-  # THE CACHE ARGUMENT DOES NOT SAVE IT. "A preempted run resumes from the take
-  # cache" is true only for work already DONE, and every death so far has been
-  # during the ~11 min bootstrap — which caches nothing and must be paid in full
-  # again. Spot does not make a short run cheaper; it makes it never finish.
-  # Cost of learning this twice: ~13 min of billing for zero output.
-  # DO NOT FLIP THIS AGAIN without a mechanism that survives a mid-bootstrap
-  # kill — a network volume holding .venv would be the honest prerequisite,
-  # and its own trade-offs are written up under network_volume_id below.
-  interruptible: false         # on-demand; spot measured, twice (see above)
+  interruptible: false         # REST v2 has no spot pods at all (2026-11-19)
   budget_usd: 10.0             # HARD cap -> auto-terminate; override with --budget
-  assumed_price_per_hr: 0.70   # MEASURED: the 4090 pods actually billed $0.69/h,
-                               # so the old 0.60 made every budget estimate ~13%
-                               # optimistic. Set to the WORST case in gpu_type_ids
-                               # (the 4090), not the average — this divides the
-                               # budget to set the deadline, so under-stating it
-                               # buys a longer run than the budget really allows.
-                               # deadline = min(budget/this, max_runtime_hours).
-                               # Cheaper cards simply finish under budget.
-  # Absolute ceiling regardless of budget — the pod-side watchdog self-destructs
-  # here even if the client dies, so it is the last line of defence against a
-  # runaway bill. It is NOT a target: a run that finishes in 40 min is billed
-  # for 40 min.
-  #
-  # RAISED 3.0 -> 6.0 on 2026-08-02, from measurement rather than caution.
-  # MEASURED on the first production lesson: 8.13 min of video, 5 languages,
-  # 38.8 min of pod wall (30.9 min synthesis + 7.8 min bootstrap, the bootstrap
-  # being fixed cost). Scaling the synthesis to a 1-HOUR lesson gives
-  # 3.81 h + 0.13 h = ~3.94 h — which would have hit the old 3.0 h watchdog and
-  # killed the pod at roughly 76% done, after paying for all of it.
-  # 6.0 h covers a 1-hour lesson at 5 languages with ~50% headroom for a slower
-  # host or a higher best_of. Raise it further only against a fresh measurement.
-  # Note the budget still binds independently: the deadline is
-  # min(budget/assumed_price_per_hr, max_runtime_hours), so at the default
-  # $10 budget and $0.25/h assumed price the budget allows 40 h and THIS is the
-  # binding cap. Lower --budget for a tighter leash on a single run.
-  max_runtime_hours: 6.0
-  ssh_key: ~/.ssh/id_ed25519_runpod
-  # OPTIONAL and NOT recommended by default: a RunPod network-volume id to
-  # persist .venv/venvs across runs, so the per-venv torch install happens once.
-  # Do the math before enabling — it does NOT clearly save money:
-  #   - a run is capped at min(budget/assumed_price_per_hr, max_runtime_hours),
-  #     and a measured 5-language run costs well under $1 TOTAL. The install it
-  #     avoids is ~$0.17 of that.
-  #   - volume storage bills CONTINUOUSLY, including months with no runs, so
-  #     break-even needs roughly 20 runs inside one month. A 20-video batch only
-  #     reaches that if it is compressed into a single month.
-  #   - a network volume is REGION-LOCKED, so it pins the pod to one datacenter
-  #     and shrinks the spot pool that interruptible: true + four gpu_type_ids
-  #     are there to exploit. Expect more provisioning failures / waits.
-  # Enable it for WALL-CLOCK and install-flakiness reasons if you end up
-  # iterating heavily in a short window — not as a cost measure.
-  # network_volume_id: ""
-  # Install snippets for `remote bakeoff`. Each runs on the pod in the MAIN
-  # .venv (engine_install_cmd activates it) — per-engine venvs were merged
-  # 2026-08-02 once qwen was the only cloning engine, because isolation was
-  # costing a second ~2.5 GB torch download to prevent a collision that can no
-  # longer happen. The snippet MUST leave the engine importable with no
-  # PYTHONPATH — pip install -e the clone, or drop a .pth into site-packages.
-  # An empty/failing snippet => that engine is marked unavailable and skipped,
-  # so a partial bake-off still runs. It must NOT install torch: REMOTE_SETUP
-  # already pinned it and a second resolve is exactly what was cut.
-  #
-  # STATUS: VALIDATED and PINNED 2026-07-31. qwen runs at 2.36 s/take on a 4090
-  # with tts.qwen_fast. Clones are guarded with `[ -d ... ] ||` so a re-run does
-  # not fail on an existing checkout, and the checkout is by SHA so a re-clone
-  # cannot drift. Re-pin by editing the SHA below and faster-qwen3-tts's version.
+  assumed_price_per_hr: 0.70   # worst case for the deadline; real price is logged
+  max_runtime_hours: 6.0       # absolute ceiling regardless of budget
+  ssh_key: ~/.ssh/id_ed25519_runpod   # its .pub is sent as PUBLIC_KEY
+  # Network volume: REJECTED — bills while idle and is region-locked (FINDINGS §3).
   engine_setup:
-    # Qwen3-TTS: editable install makes `qwen_tts` importable; weights (HF id in
-    # tts.qwen_model_dir) auto-download at load.
-    # PINNED: 022e286 (2026-03-17, HEAD of main at validation).
-    # Qwen3-TTS declares no install_requires, so `pip install -e .` alone
-    # completed in 62 s having pulled NOTHING — exit 0, then `import qwen_tts`
-    # would fail at synthesis. Install its requirements.txt when the repo ships
-    # one, else fall back to the minimum the adapter needs (torch/torchaudio/
-    # transformers). flash-attn stays opt-in (tts.qwen_flash_attn).
-    # ONE VENV since 2026-08-02: this installs into .venv, not venvs/qwen.
-    # NO torch line here any more — REMOTE_SETUP already installed torch (2.11.0;
-    # the pod resolves the bundled CUDA variant, measured +cu124 on 2026-08-02,
-    # NOT the cu121 an earlier comment here claimed) and re-installing from an
-    # explicit CUDA index is what pulled a SECOND ~2.5 GB copy on every fresh
-    # pod. faster-qwen3-tts needs >=2.5.1, so the bootstrap's pin serves.
-    # huggingface-hub is pinned <1.0 FIRST because faster-qwen3-tts requires it
-    # and the base may carry a 1.x left by an older resolve; speechbrain (>=0.8)
-    # and faster-whisper (>=0.21) are happy either side of 1.0.
-    # qwen-tts pins transformers==4.57.3 exactly. Nothing in the qc stack
-    # requires transformers at runtime (only dev/conversion extras), so that pin
-    # is free to take — the assert prints the resolved version so a future
-    # conflict shows up in the log instead of at synthesis time.
-    # The `import ... assert torch.cuda.is_available()` makes a CPU-only torch
-    # fail HERE rather than 10 minutes later: that exact silent fallback cost a
-    # week of 126 s/take runs.
-    # WEIGHTS ARE FETCHED HERE, not at task time, since 2026-08-13. The old
-    # snippet verified `import qwen_tts` and stopped — so a run could print
-    # "qwen ok", pass every check, and then die on the ~4 GB model download
-    # with "An error happened while trying to locate the file on the Hub".
-    # That cost 11.6 min of billed bootstrap for zero measurements, and the
-    # scorecard blamed the package rather than the download.
-    #
-    # Moving the fetch here changes nothing about total bytes and everything
-    # about the failure mode: engine_install_cmd wraps this in retries, so a
-    # flaky Hub gets retried instead of ending the run, and the weights are
-    # cached before the task starts.
-    #
-    # The Xet fallback is a targeted guess, and it is worth saying so: pip
-    # (pypi.org) and the git clone (github.com) both succeeded on the pod that
-    # failed, and huggingface-hub 0.36 routes large files through hf-xet to a
-    # DIFFERENT host (the Xet CAS CDN). A host-specific block or flake would
-    # look exactly like this. HF_HUB_DISABLE_XET=1 falls back to the plain
-    # https path. If the log shows the fallback firing, that is the answer.
+    # qwen pinned at 022e286 + faster-qwen3-tts 0.3.2 (docker/Dockerfile pins
+    # the same; a test keeps them equal). qwen-tts declares no install_requires,
+    # hence the import + CUDA assert; weights are fetched HERE (with an Xet
+    # fallback) so a Hub failure is retried before the task starts.
     qwen: "pip install -q -U 'huggingface-hub<1.0' && { [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && git -C third_party/Qwen3-TTS checkout 022e286b98fbec7e1e916cb940cdf532cd9f488e && pip install -q -e third_party/Qwen3-TTS && pip install -q faster-qwen3-tts==0.3.2 && python -c 'import qwen_tts, faster_qwen3_tts, torch; assert torch.cuda.is_available(), \"CPU-only torch: \"+torch.__version__; print(\"qwen ok, torch\", torch.__version__, \"transformers\", __import__(\"transformers\").__version__)' && { python -c 'from huggingface_hub import snapshot_download as d; print(\"weights ok:\", d(\"Qwen/Qwen3-TTS-12Hz-1.7B-Base\"))' || { echo '[weights] Hub fetch failed - retrying with Xet disabled'; HF_HUB_DISABLE_XET=1 python -c 'from huggingface_hub import snapshot_download as d; print(\"weights ok (no xet):\", d(\"Qwen/Qwen3-TTS-12Hz-1.7B-Base\"))'; }; }"
   # SAFETY: pod id persisted to work/.runpod_active.json on create; terminate
-  # retries+verifies and only clears state on confirmation; an independent
-  # pod-side watchdog self-destructs at the deadline even if this process dies;
-  # `remote kill`/next call sweeps orphans. .env (RunPod key) never reaches pod.
+  # retries + verifies; a pod-side watchdog self-destructs at the deadline;
+  # `remote kill` sweeps orphans. The RunPod key never reaches the pod.
 
 qc:
-  # VALIDATED 2026-08-09, on the pod, exactly as set_device()'s docstring asks:
-  # the same 24 real takes scored twice in one process, device switched between
-  # passes, nothing else changed.
-  #   ECAPA embeddings: cosine cpu-vs-cuda 1.000000 (min AND mean) — identical
-  #   Distill-MOS:      max |delta| 0.000412, mean 0.000122, against a measured
-  #                     noise floor of 0.007 — 17x inside it
-  #   wall clock:       33.9 s -> 2.8 s, a 12.3x speedup
-  # So this is free: scores stay comparable with every manifest, ratings row and
-  # scorecard already on disk, which was the whole reason it defaulted to cpu.
-  # SCOPE, so the saving is not oversold: set_device moves the two TORCH models
-  # only. Of the bake-off's measured phase totals (sim 3% + mos 11% + f0 6% +
-  # wer 16%), this touches the 14% that is sim+mos. f0 is librosa pyin and wer
-  # is faster-whisper — both still CPU, both still worth their own look.
-  # It lives HERE and not in config.yaml on purpose: cuda is a property of the
-  # pod profile. A Mac run of the same config falls back (set_device returns the
-  # device it actually selected), so local scores stay on cpu and comparable.
-  # WART, harmless: speechbrain logs "Could not parse CUDA device string 'cuda'
-  # ... Falling back to device 0" — it wants 'cuda:0'. Device 0 is what we want
-  # anyway, and the embeddings above prove it landed correctly.
+  # ECAPA + Distill-MOS on CUDA: bit-comparable with cpu scores, 12x faster
+  # (FINDINGS §3). Pod profile only — local scores stay on cpu.
   metrics_device: cuda

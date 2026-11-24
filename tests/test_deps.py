@@ -1,97 +1,91 @@
-"""requirements.txt is a DERIVED file — pyproject.toml is the source of truth.
+"""Dependency contract: pyproject.toml declares, uv.lock pins, requirements.txt
+is EXPORTED from the lock (`uv export`), never hand-written.
 
-It exists only because `doctor` and the README hand a human one copy-pasteable
-line, and a derived file with nothing checking it drifts silently. It already
-did once, badly: the chatterbox-era requirements.txt outlived the engine's
-removal (2026-08-02) and still installed chatterbox-tts==0.1.7, whose hard pin
-would have DOWNGRADED the torch 2.11.0 the pod bootstrap installs. `doctor`
-pointed users straight at it.
-
-These tests are what the requirements.txt header claims exists.
+requirements.txt exists only because `doctor` and the README hand a human one
+copy-pasteable file. Hand-mirroring it already went wrong once, badly: the
+chatterbox-era file outlived the engine's removal (2026-08-02) and its hard pin
+would have DOWNGRADED torch. Since v0.5 it is generated, and these tests check
+it is the current export of the current lock.
 """
 import re
+import shutil
+import subprocess
+import tomllib
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
-# torch/torchaudio are deliberately in NEITHER file: the pod bootstrap installs
-# them from the cu128 index before this project, and audio-separator's
-# unbounded torch>=2.3 would otherwise pull 2.13 and break the torchaudio pair.
-NOT_DECLARED = {"torch", "torchaudio"}
+EXPORT_CMD = ["uv", "export", "--frozen", "--no-hashes", "--no-emit-project",
+              "--extra", "dev"]
+CU_INDEX_LINE = "--extra-index-url https://download.pytorch.org/whl/cu128"
 
 
 def _norm(name: str) -> str:
     return name.strip().lower().replace("_", "-")
 
 
-def _requirements() -> dict[str, str | None]:
-    out: dict[str, str | None] = {}
-    for line in (ROOT / "requirements.txt").read_text().splitlines():
-        line = line.split("#", 1)[0].strip()
-        if not line:
-            continue
-        m = re.match(r"^([A-Za-z0-9._-]+)\s*(?:==\s*([^\s;]+))?", line)
-        if m:
-            out[_norm(m.group(1))] = m.group(2)
-    return out
+def _pyproject() -> dict:
+    with open(ROOT / "pyproject.toml", "rb") as fh:
+        return tomllib.load(fh)
 
 
 def _pyproject_core() -> dict[str, str | None]:
-    """Core `dependencies` only — extras are listed as comments, not installs."""
-    text = (ROOT / "pyproject.toml").read_text()
-    # Read to the line that IS the closing bracket. Splitting on the first "]"
-    # truncated the block at a comment mentioning `.[sep]`, which silently made
-    # this test compare against three packages and pass a lie.
-    lines, block, inside = text.splitlines(), [], False
-    for line in lines:
-        if line.strip().startswith("dependencies = ["):
-            inside = True
-            continue
-        if inside:
-            if line.strip() == "]":
-                break
-            block.append(line)
+    """Core `dependencies` -> {name: exact pin or None}."""
     out: dict[str, str | None] = {}
-    for line in block:
-        line = line.split("#", 1)[0].strip().rstrip(",").strip('"').strip("'")
-        if not line:
-            continue
-        m = re.match(r"^([A-Za-z0-9._-]+)\s*(?:==\s*([^\s;]+))?", line)
+    for spec in _pyproject()["project"]["dependencies"]:
+        m = re.match(r"^([A-Za-z0-9._-]+)\s*(?:==\s*([^\s;,]+))?", spec)
         if m:
             out[_norm(m.group(1))] = m.group(2)
     return out
 
 
-def test_same_packages_in_both_files():
-    req, proj = _requirements(), _pyproject_core()
-    missing = sorted(set(proj) - set(req) - NOT_DECLARED)
-    extra = sorted(set(req) - set(proj) - NOT_DECLARED)
-    assert not missing, (
-        f"in pyproject but not requirements.txt: {missing} — a human following "
-        f"`doctor`'s hint would get an incomplete environment")
-    assert not extra, (
-        f"in requirements.txt but not pyproject: {extra} — pyproject is the "
-        f"source of truth, so this installs something the project does not "
-        f"declare (this is how chatterbox-tts outlived its own removal)")
+def _lock_versions() -> dict[str, set[str]]:
+    with open(ROOT / "uv.lock", "rb") as fh:
+        lock = tomllib.load(fh)
+    out: dict[str, set[str]] = {}
+    for pkg in lock["package"]:
+        out.setdefault(_norm(pkg["name"]), set()).add(pkg["version"])
+    return out
 
 
-def test_same_versions_in_both_files():
-    req, proj = _requirements(), _pyproject_core()
-    drift = {k: (proj[k], req[k]) for k in set(proj) & set(req)
-             if proj[k] != req[k]}
-    assert not drift, (
-        "pinned differently in pyproject vs requirements.txt "
-        f"(pyproject, requirements): {drift} — requirements.txt is DERIVED; "
-        f"change the pin in pyproject and mirror it here")
+def test_every_exact_pin_is_what_the_lock_holds():
+    """A pin edited in pyproject without `uv lock` leaves the lock stale."""
+    lock = _lock_versions()
+    drift = {}
+    for name, pin in _pyproject_core().items():
+        if pin is None:
+            continue
+        held = {v.split("+", 1)[0] for v in lock.get(name, set())}
+        if pin not in held:
+            drift[name] = (pin, sorted(held))
+    assert not drift, f"(pyproject pin, lock versions): {drift} — run `uv lock`"
 
 
-def test_torch_is_pinned_in_neither():
-    """The pod bootstrap owns the torch pin. A pin here would either fight it
-    or be silently overridden, and an UNBOUNDED torch lets audio-separator pull
-    2.13 past the torchaudio 2.11 ceiling."""
-    req, proj = _requirements(), _pyproject_core()
-    for name in NOT_DECLARED:
-        assert name not in req, f"{name} must not be pinned in requirements.txt"
-        assert name not in proj, f"{name} must not be pinned in pyproject"
+def test_requirements_txt_is_the_current_lock_export():
+    if shutil.which("uv") is None:
+        pytest.skip("uv not installed")
+    want = subprocess.run(EXPORT_CMD, cwd=ROOT, check=True, capture_output=True,
+                          text=True).stdout
+    have = (ROOT / "requirements.txt").read_text()
+    assert CU_INDEX_LINE in have, (
+        "requirements.txt lost the cu128 index line — `pip install -r` on Linux "
+        "could not find torch==2.11.0+cu128")
+    body = have.split(CU_INDEX_LINE, 1)[1].lstrip("\n")
+    assert body == want, (
+        "requirements.txt is not the current export of uv.lock — regenerate:\n"
+        "  scripts/export_requirements.sh")
+
+
+def test_torch_is_pinned_and_linux_resolves_the_cu128_build():
+    """The pin moved here from the pod bootstrap in v0.5. On Linux the wheel
+    MUST be cu128 (the oldest driver allowed_cuda_versions admits); PyPI's
+    default 2.11 wheel is cu130 and reports CUDA: False on 12.8/12.9 hosts."""
+    core = _pyproject_core()
+    assert core.get("torch") == core.get("torchaudio") == "2.11.0", (
+        "torch/torchaudio ship version-locked and 2.11.0 is torchaudio's ceiling")
+    assert "2.11.0+cu128" in _lock_versions()["torch"], (
+        "the lock has no cu128 torch for Linux — check [tool.uv.sources]")
 
 
 def test_removed_engines_stay_removed():
@@ -203,7 +197,7 @@ def test_reused_pods_reach_the_ledger_with_a_price():
     assert "_LAST_POD.update" in branch, (
         "the --reuse branch does not stamp _LAST_POD, so its runs land in "
         "runs.jsonl with price_per_hr 0 and cost $0.000")
-    assert "costPerHr" in branch, (
+    assert "pod_price(info)" in branch, (
         "the reuse branch must read the REAL rate from the API, not fall back "
         "to assumed_price_per_hr (deliberately the worst case, ~2.5x high)")
 

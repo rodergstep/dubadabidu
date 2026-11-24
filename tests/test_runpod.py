@@ -200,19 +200,70 @@ def test_provisioning_logs_the_price_not_a_gpu_name():
     from pipeline.runpod_infra import provision
     import inspect
     src = inspect.getsource(provision)
-    assert "costPerHr" in src and "OVER the budgeted" in src
+    assert "pod_price(info)" in src and "OVER the budgeted" in src
 
 
-def test_gpu_type_priority_defaults_to_custom_so_list_order_matters():
-    """With "availability" RunPod ignores the order and picks whatever is free,
-    which is why a cheapest-first list still landed on a 4090 every run (7% GPU,
-    7% CPU, 17% RAM on a top-rate card). Only "availability" and "custom" are
-    accepted by the API."""
-    from pipeline.runpod_infra import create_pod
-    import inspect
-    src = inspect.getsource(create_pod)
-    assert '"gpuTypePriority": rp.get("gpu_type_priority", "custom")' in src
-    assert '"gpuTypePriority": "availability"' not in src
+def test_gpu_types_are_tried_in_list_order_and_400_falls_through():
+    """REST v2 takes ONE gpu id per create, so the cheapest-first ordering is
+    ours to enforce. (v1's "availability" priority ignored the order and landed
+    every run on a 4090 at 7% utilisation.) A 400 means no capacity for that
+    type -> next one; a 422 is a schema bug and must NOT be retried."""
+    import pipeline.runpod_infra as R
+    from pipeline.runpod_infra import DEFAULTS
+    tried: list[str] = []
+    orig = R._req
+
+    def fake(method, path, body=None):
+        tried.append(body["gpu"]["id"])
+        if len(tried) < 3:
+            raise RuntimeError("RunPod POST /pods -> HTTP 400: no capacity")
+        return {"id": "p1"}
+    R._req = fake
+    try:
+        rp = {**DEFAULTS, "gpu_type_ids": ["a", "b", "c", "d"]}
+        assert R.create_pod(rp) == {"id": "p1"}
+        assert tried == ["a", "b", "c"]
+        tried.clear()
+
+        def schema_err(method, path, body=None):
+            tried.append(body["gpu"]["id"])
+            raise RuntimeError("RunPod POST /pods -> HTTP 422: bad field")
+        R._req = schema_err
+        import pytest
+        with pytest.raises(RuntimeError, match="422"):
+            R.create_pod(rp)
+        assert tried == ["a"], "a schema error must not be retried per GPU type"
+    finally:
+        R._req = orig
+
+
+def test_v2_payload_has_only_documented_fields():
+    """v2 rejects unknown keys with 422, so a v1 field left behind fails every
+    create. This is the shape from docs.runpod.io/api-reference-v2."""
+    from pipeline.runpod_infra import DEFAULTS, pod_payload
+    body = pod_payload({**DEFAULTS, "network_volume_id": "v1"}, "NVIDIA RTX A4000")
+    allowed = {"name", "image", "gpu", "cloud", "disk", "ports", "env",
+               "mounts", "registry", "startSsh"}
+    assert body["startSsh"] is True, "v2 starts no sshd without it"
+    assert set(body) <= allowed, set(body) - allowed
+    assert body["gpu"]["id"] == "NVIDIA RTX A4000"
+    assert "22/tcp" in body["ports"], "no 22/tcp -> no ssh.direct mapping"
+    assert body["mounts"]["network"][0]["path"] == "/workspace"
+
+
+def test_v2_pod_shapes_are_read():
+    from pipeline.runpod_infra import (pod_price, pod_ram_gb, pod_status,
+                                       pod_vcpu, ssh_target)
+    pod = {"status": "RUNNING", "cost": 0.44,
+           "gpu": {"id": "x", "count": 1, "vcpuCount": 16, "memory": 64},
+           "ssh": {"direct": {"host": "195.26.233.3", "port": 34446}},
+           "runtime": {"ports": [{"private": 22, "public": 34446,
+                                  "type": "tcp", "ip": "195.26.233.3"}]}}
+    assert pod_status(pod) == "RUNNING" and pod_price(pod) == 0.44
+    assert pod_vcpu(pod) == 16 and pod_ram_gb(pod) == 64
+    assert ssh_target(pod) == ("195.26.233.3", 34446)
+    only_runtime = {**pod, "ssh": {"direct": None}}
+    assert ssh_target(only_runtime) == ("195.26.233.3", 34446)
 
 
 def test_config_puts_cheap_gpus_first_and_4090_last():
@@ -223,7 +274,7 @@ def test_config_puts_cheap_gpus_first_and_4090_last():
     cfg = yaml.safe_load(
         (Path(__file__).resolve().parents[1] / "config.gpu.yaml").read_text())
     ids = cfg["runpod"]["gpu_type_ids"]
-    assert cfg["runpod"]["gpu_type_priority"] == "custom"
+    assert "gpu_type_priority" not in cfg["runpod"], "v1-only key; v2 has no such field"
     assert ids[0] == "NVIDIA RTX A4000"
     assert "4090" in ids[-1]
 
@@ -308,7 +359,9 @@ def test_bootstrap_pins_torch_itself_now_that_chatterbox_is_gone():
     from pipeline.runpod_infra import REMOTE_SETUP
     setup = REMOTE_SETUP.format(dir="~/d")
     assert "chatterbox" not in setup
-    assert "torch==2.11.0 torchaudio==2.11.0" in setup
+    # v0.5: the pin lives in pyproject/uv.lock and the pod installs the lock
+    assert "uv sync --frozen" in setup
+    assert '"torch==2.11.0"' in open("pyproject.toml", encoding="utf-8").read()
 
 
 def test_torch_pin_and_cuda_filter_move_together():
@@ -324,16 +377,19 @@ def test_torch_pin_and_cuda_filter_move_together():
     exact failure, and nothing else in the repo would catch it before a pod."""
     import yaml
     from pipeline.logic import deep_merge
-    from pipeline.runpod_infra import DEFAULTS, REMOTE_SETUP
+    from pipeline.runpod_infra import DEFAULTS
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
                      yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
-    setup = REMOTE_SETUP.format(dir="~/d")
+    setup = open("pyproject.toml", encoding="utf-8").read()
     import re
-    m = re.search(r"torch==(\d+)\.(\d+)\.\d+", setup)
-    assert m, "no torch pin found in REMOTE_SETUP"
+    m = re.search(r'"torch==(\d+)\.(\d+)\.\d+"', setup)
+    assert m, "no torch pin found in pyproject.toml"
     major, minor = int(m.group(1)), int(m.group(2))
-    allowed = [float(v) for v in rp.get("allowed_cuda_versions") or []]
+    # driver floor actually requested: v2 minCudaVersion, or min of an exact list
+    allowed = ([float(rp["min_cuda_version"])] if rp.get("min_cuda_version")
+               and not rp.get("allowed_cuda_versions") else
+               [float(v) for v in rp.get("allowed_cuda_versions") or []])
     if (major, minor) > (2, 6):
         assert allowed, (
             f"torch {major}.{minor} needs a CUDA>=12.6 driver, but "
@@ -360,13 +416,21 @@ def test_torch_wheel_matches_the_oldest_allowed_driver():
     import re
     import yaml
     from pipeline.logic import deep_merge
-    from pipeline.runpod_infra import DEFAULTS, REMOTE_SETUP
+    from pipeline.runpod_infra import DEFAULTS
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
                      yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
-    allowed = [float(v) for v in rp.get("allowed_cuda_versions") or []]
-    setup = REMOTE_SETUP.format(dir="~/d")
+    # driver floor actually requested: v2 minCudaVersion, or min of an exact list
+    allowed = ([float(rp["min_cuda_version"])] if rp.get("min_cuda_version")
+               and not rp.get("allowed_cuda_versions") else
+               [float(v) for v in rp.get("allowed_cuda_versions") or []])
+    # v0.5: the index is declared in pyproject [tool.uv.index] and the lock
+    # records which build Linux resolves; both must name the same cuXYZ.
+    setup = open("pyproject.toml", encoding="utf-8").read()
+    lock = open("uv.lock", encoding="utf-8").read()
     m = re.search(r"download\.pytorch\.org/whl/cu(\d)(\d+)", setup)
+    if m:
+        assert f"+cu{m.group(1)}{m.group(2)}" in lock, "uv.lock is stale vs the index"
     if not allowed:
         return                      # no filter -> torch must be 2.6.0 anyway
     assert m, (
@@ -389,10 +453,12 @@ def test_pod_payload_sends_the_cuda_filter():
     R._req = lambda method, path, body=None: sent.update(body or {}) or {}
     try:
         R.create_pod({**DEFAULTS, "allowed_cuda_versions": ["12.9"]})
-        assert sent.get("allowedCudaVersions") == ["12.9"]
+        assert sent["gpu"].get("allowedCudaVersions") == ["12.9"]
+        assert "minCudaVersion" not in sent["gpu"], "v2 400s on both together"
         sent.clear()
         R.create_pod({**DEFAULTS, "allowed_cuda_versions": []})
-        assert "allowedCudaVersions" not in sent, (
+        assert sent["gpu"].get("minCudaVersion") == "12.8"
+        assert "allowedCudaVersions" not in sent["gpu"], (
             "an empty list must be omitted, not sent — it would filter to no hosts")
     finally:
         R._req = orig
@@ -422,7 +488,6 @@ def test_engine_installs_into_the_main_venv():
     gone and chatterbox took its torch pin with it, so isolation was costing a
     SECOND ~2.5 GB torch download per pod to prevent a collision that can no
     longer happen. Removed 2026-08-02."""
-    from pipeline.runpod_infra import engine_install_cmd
     cmd = engine_install_cmd("~/dubadabidu", "qwen", "pip install -q qwen")
     assert ". .venv/bin/activate" in cmd
     assert "venvs/" not in cmd, "no per-engine venv should be created"
@@ -697,3 +762,74 @@ def test_missing_engine_setup_fails_before_provisioning():
         "the error must name the fix, not just the symptom"
     assert "if reuse:" in block, \
         "a live pod may already have the engine — reuse should warn, not refuse"
+
+
+def test_bootstrap_reuses_a_prebuilt_venv_only_when_the_lock_matches():
+    """P3: the image's venv is linked in ONLY when its uv.lock stamp equals the
+    project's. A mismatched image must fall through to a fresh build, never be
+    used — an old venv against a new lock is the silent-wrong-env failure."""
+    from pipeline.runpod_infra import REMOTE_SETUP
+    setup = REMOTE_SETUP.format(dir="~/d")
+    assert "/opt/venv/.uv-lock-sha256" in setup
+    assert "sha256sum uv.lock" in setup
+    assert setup.index("ln -s /opt/venv .venv") < setup.index("python3 -m venv .venv")
+    assert "[ -x .venv/bin/python ] ||" in setup, "venv must not be re-created"
+    assert "uv sync --frozen" in setup, "the lock still has the last word"
+
+
+def test_dockerfile_stamps_the_lock_and_pins_the_engine_like_engine_setup():
+    import re
+    import yaml
+    df = open("docker/Dockerfile", encoding="utf-8").read()
+    assert "/opt/venv/.uv-lock-sha256" in df
+    sha = re.search(r"ARG QWEN_SHA=([0-9a-f]{40})", df).group(1)
+    gpu = yaml.safe_load(open("config.gpu.yaml", encoding="utf-8"))
+    snippet = gpu["runpod"]["engine_setup"]["qwen"]
+    assert sha in snippet, "image and engine_setup pin different qwen commits"
+    fq = re.search(r"ARG FASTER_QWEN=(\S+)", df).group(1)
+    assert f"faster-qwen3-tts=={fq}" in snippet
+
+
+def test_a_ghcr_image_in_config_is_tagged_with_the_current_lock():
+    """If runpod.image points at our GHCR image, its tag must be the current
+    lock's — otherwise every pod pays the full bootstrap (stamp mismatch)."""
+    import hashlib
+    import yaml
+    gpu = yaml.safe_load(open("config.gpu.yaml", encoding="utf-8"))
+    image = gpu["runpod"]["image"]
+    if "dubadabidu-pod" not in image:
+        return
+    want = "lock-" + hashlib.sha256(open("uv.lock", "rb").read()).hexdigest()[:12]
+    assert image.endswith(":" + want), f"{image} is not built from this uv.lock ({want})"
+
+
+def test_payload_sends_only_the_public_half_of_the_ssh_key(tmp_path):
+    from pipeline.runpod_infra import DEFAULTS, pod_payload
+    key = tmp_path / "k"
+    key.write_text("PRIVATE-NEVER-SENT")
+    (tmp_path / "k.pub").write_text("ssh-ed25519 AAAA test\n")
+    body = pod_payload({**DEFAULTS, "ssh_key": str(key)}, "x")
+    assert body["env"]["PUBLIC_KEY"] == "ssh-ed25519 AAAA test"
+    assert "PRIVATE-NEVER-SENT" not in str(body)
+
+
+def test_a_proxy_only_host_is_retried_on_the_next_gpu_type(monkeypatch):
+    """REST v2 cannot require a public IP. A pod that sits RUNNING with only
+    the ssh.runpod.io proxy (no rsync possible) must be replaced by a pod on
+    the NEXT gpu type, not waited on for the whole provision timeout."""
+    import time as _t
+    import pipeline.runpod_infra as R
+    starts: list[str] = []
+
+    def fake_once(rp, deadline):
+        starts.append(rp["gpu_type_ids"][0])
+        if len(starts) == 1:
+            raise R._NoDirectSsh("pod p1 (NVIDIA RTX 4000 Ada Generation) RUNNING 150s ...")
+        return "p2", "1.2.3.4", 2222, "NVIDIA RTX A4500"
+    monkeypatch.setattr(R, "_provision_once", fake_once)
+    monkeypatch.setattr(R, "get_pod", lambda pid: {"cost": 0.25})
+    rp = {**R.DEFAULTS, "gpu_type_ids": ["NVIDIA RTX A4000",
+                                         "NVIDIA RTX 4000 Ada Generation",
+                                         "NVIDIA RTX A4500"]}
+    assert R.provision(rp, _t.time() + 3600) == ("p2", "1.2.3.4", 2222)
+    assert starts == ["NVIDIA RTX A4000", "NVIDIA RTX A4500"]

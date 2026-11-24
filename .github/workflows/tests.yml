@@ -41,10 +41,22 @@ jobs:
       # every one of those tests would pass vacuously or fail for the wrong
       # reason. Skipping them would make the corpus decorative exactly where it
       # runs unattended.
+      # uv: tests/test_deps.py checks requirements.txt is the CURRENT export of
+      # uv.lock, which needs the uv binary (not the heavy env — nothing is synced).
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.15"         # same as runpod_infra.UV_VERSION
+
+      - name: lint (ruff, correctness rules only — see pyproject [tool.ruff])
+        run: uvx ruff@0.17.5 check .
+
+      - name: lockfile is current
+        run: uv lock --check
+
       - name: install
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pyyaml soundfile numpy pydub srt num2words
+          pip install pytest pyyaml soundfile numpy pydub srt num2words pydantic
 
       - name: audit (config wiring, stage graph, cache keys, shadowed imports)
         run: pytest -q tests/test_audit.py -s
