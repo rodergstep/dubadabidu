@@ -33,3 +33,10 @@ work/.runpod_active.json
 # packaging artifacts (`uv build`)
 build/
 dist/
+
+# Claude Code local state (per-machine; never shared)
+.claude/settings.local.json
+.claude/worktrees/
+
+# engine clones (THIRD_PARTY.md installs qwen into third_party/)
+third_party/
