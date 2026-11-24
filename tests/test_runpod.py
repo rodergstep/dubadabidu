@@ -918,3 +918,82 @@ def test_no_capacity_anywhere_waits_and_resweeps(monkeypatch):
         RuntimeError("RunPod POST /pods -> HTTP 400: no capacity")))
     with pytest.raises(RuntimeError, match="no capacity"):
         R.create_pod({**rp, "capacity_wait_min": 0})
+
+
+class _FakeRpi:
+    """Stands in for pipeline.runpod_infra in the batch tests."""
+    DEFAULTS = {"budget_usd": 10.0, "assumed_price_per_hr": 0.70}
+
+    def __init__(self, fail: frozenset[str] = frozenset(),
+                 raise_on: str | None = None) -> None:
+        self.calls: list[tuple[str, bool, bool, float]] = []
+        self.swept = 0
+        self.fail = fail
+        self.raise_on = raise_on
+
+    def remote_run(self, cfg: dict, v: str, langs: list[str], task: str,
+                   budget: float, keep_alive: bool, reuse: bool,
+                   overlays: list[str], stages: str) -> bool:
+        self.calls.append((v, keep_alive, reuse, budget))
+        if v == self.raise_on:
+            raise RuntimeError("boom")
+        return v not in self.fail
+
+    def sweep_orphans(self) -> None:
+        self.swept += 1
+
+
+def _batch_args(**kw: object):
+    import argparse
+    base = {"from_stage": "s1_extract", "to_stage": "s8_mux", "budget": None,
+            "keep_alive": False, "reuse": False, "overlay": []}
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+def test_multi_video_remote_run_shares_one_pod(monkeypatch):
+    """Every call but the last keeps the pod, every call but the first reuses
+    it; local stages run for all videos before (s3) and after (s6..s8)."""
+    import dub
+    local: list[tuple[str, tuple[str, ...]]] = []
+    monkeypatch.setattr(dub, "_run_local",
+                        lambda cfg, v, langs, st: local.append((v, tuple(st))))
+    rpi = _FakeRpi()
+    ok = dub._remote_run_batch({}, ["a", "b", "c"], ["en"], _batch_args(), rpi)
+    assert ok
+    assert [(v, k, r) for v, k, r, _ in rpi.calls] == [
+        ("a", True, False), ("b", True, True), ("c", False, True)]
+    assert [v for v, st in local[:3]] == ["a", "b", "c"]          # s3 first
+    assert all(st == ("s3_translate",) for _, st in local[:3])
+    assert all(st[0] == "s6_mix" for _, st in local[3:])
+    assert rpi.swept == 0, "the last call terminates the pod itself"
+
+
+def test_batch_failure_skips_that_videos_finish_and_continues(monkeypatch):
+    import dub
+    local: list[str] = []
+    monkeypatch.setattr(dub, "_run_local",
+                        lambda cfg, v, langs, st: local.append(f"{v}:{st[0]}"))
+    rpi = _FakeRpi(fail=frozenset({"b"}))
+    assert not dub._remote_run_batch({}, ["a", "b", "c"], ["en"],
+                                     _batch_args(), rpi)
+    assert len(rpi.calls) == 3
+    assert "b:s6_mix" not in local and "c:s6_mix" in local
+
+
+def test_batch_exception_kills_the_pod_kept_for_the_next_video(monkeypatch):
+    import pytest
+    import dub
+    monkeypatch.setattr(dub, "_run_local", lambda cfg, v, langs, st: None)
+    rpi = _FakeRpi(raise_on="b")
+    with pytest.raises(RuntimeError):
+        dub._remote_run_batch({}, ["a", "b", "c"], ["en"], _batch_args(), rpi)
+    assert rpi.swept == 1
+
+
+def test_batch_budget_is_shared(monkeypatch):
+    import dub
+    monkeypatch.setattr(dub, "_run_local", lambda cfg, v, langs, st: None)
+    rpi = _FakeRpi()
+    dub._remote_run_batch({}, ["a", "b"], ["en"], _batch_args(budget=3.0), rpi)
+    assert rpi.calls[0][3] <= 3.0 and rpi.calls[1][3] <= rpi.calls[0][3]

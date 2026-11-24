@@ -345,6 +345,64 @@ def _remote_stages(a) -> str:
     return f"--from {pod[0]} --to {pod[-1]}"
 
 
+def _remote_run_batch(cfg: dict, vids: list[str], langs: list[str], a,
+                      rpi) -> bool:
+    """`remote run` over one or many videos on ONE pod (_remote_plan's split).
+
+      1. local `before` stages (translation) for EVERY video first, so the pod
+         never bills while DeepSeek answers;
+      2. the pod slice video by video on the same pod: every call but the last
+         keeps it alive, every call but the first reuses it. A pod per video
+         paid ~4.5 min of setup each (2026-11-24: 4.5 min setup vs 1.5 min of
+         synthesis for a 1-min lesson) and re-rolled capacity 20 times;
+      3. local `after` stages (mix, subtitles, mux) for the videos that
+         succeeded.
+
+    --budget is the cap for the WHOLE batch: each call gets what is left,
+    priced at runpod.assumed_price_per_hr (the same worst case the deadline
+    uses). A failing video does not stop the others."""
+    import time
+    before, pod, after = _remote_plan(a)
+    for v in vids:
+        _run_local(cfg, v, langs, before)
+    if not pod:
+        for v in vids:
+            _run_local(cfg, v, langs, after)
+        return True
+    rp = {**rpi.DEFAULTS, **(cfg.get("runpod") or {})}
+    total = float(a.budget if a.budget is not None else rp["budget_usd"])
+    price = max(float(rp["assumed_price_per_hr"]), 0.01)
+    t0 = time.time()
+    last = len(vids) - 1
+    done: list[str] = []
+    pod_left_up = False          # by US (keep-alive between videos), not the user
+    try:
+        for i, v in enumerate(vids):
+            left = total - (time.time() - t0) / 3600 * price
+            if left <= 0:
+                logging.error("batch budget $%.2f spent — %d video(s) not "
+                              "synthesized: %s", total, len(vids) - i,
+                              ", ".join(Path(x).name for x in vids[i:]))
+                break
+            keep = bool(a.keep_alive) or i < last
+            pod_left_up = keep and not a.keep_alive
+            if rpi.remote_run(cfg, v, langs, "run", left,
+                              keep_alive=keep, reuse=bool(a.reuse) or i > 0,
+                              overlays=a.overlay or [],
+                              stages=f"--from {pod[0]} --to {pod[-1]}"):
+                done.append(v)
+            if not keep:
+                pod_left_up = False
+    finally:
+        # a break (budget) or an exception between videos would otherwise
+        # leave the pod we kept alive for the NEXT video running
+        if pod_left_up:
+            rpi.sweep_orphans()
+    for v in done:
+        _run_local(cfg, v, langs, after)
+    return len(done) == len(vids)
+
+
 def _run_local(cfg: dict, video: str, langs: list[str],
                stages: list[str]) -> None:
     for name in stages:
@@ -542,20 +600,7 @@ def main() -> None:
         if not vids:
             ap.error(f"remote {task} needs a video path")
         if task == "run":
-            # local s3 -> pod s4..s5 -> local s6..s8, one command (_remote_plan)
-            before, pod, after = _remote_plan(a)
-            ok = True
-            for v in vids:
-                _run_local(cfg, v, langs, before)
-                if pod and not rpi.remote_run(
-                        cfg, v, langs, task, a.budget,
-                        keep_alive=a.keep_alive, reuse=a.reuse,
-                        overlays=a.overlay or [],
-                        stages=f"--from {pod[0]} --to {pod[-1]}"):
-                    ok = False
-                    continue
-                _run_local(cfg, v, langs, after)
-            sys.exit(0 if ok else 1)
+            sys.exit(0 if _remote_run_batch(cfg, vids, langs, a, rpi) else 1)
         ok = all(rpi.remote_run(cfg, v, langs, task, a.budget,
                                 keep_alive=a.keep_alive,
                                 reuse=a.reuse,
