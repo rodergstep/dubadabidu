@@ -39,13 +39,26 @@ from qc.stress_variants import observed_slot, variants
 
 log = logging.getLogger("dubadabidu.qc.stress_mfa")
 
-SCRATCH = Path(os.environ.get(
-    "DUB_MFA_SCRATCH",
-    "/private/tmp/claude-501/-Users-diadumenoss-Documents-projects-dubadabidu/"
-    "3eb38d6a-75ba-49d9-9436-e859d42c98b6/scratchpad"))
-MFA_BIN = SCRATCH / "mfaenv/bin/mfa"
-MFA_DATA = SCRATCH / "mfa_data"
-BASE_DICT = MFA_DATA / "pretrained_models/dictionary/russian_mfa.dict"
+def _scratch() -> Path:
+    """The directory holding the MFA install (mfaenv/) and its models
+    (mfa_data/). Research-only tooling, so it lives outside the repo and must be
+    named explicitly — it used to default to one machine's temp directory."""
+    d = os.environ.get("DUB_MFA_SCRATCH")
+    if not d:
+        raise SystemExit("set DUB_MFA_SCRATCH to the directory holding mfaenv/ "
+                         "and mfa_data/ (qc.stress_mfa is a research tool, "
+                         "FINDINGS §2.1h)")
+    return Path(d)
+
+
+def _mfa_data() -> Path:
+    return _scratch() / "mfa_data"
+
+
+def _base_dict() -> Path:
+    return _mfa_data() / "pretrained_models/dictionary/russian_mfa.dict"
+
+
 CYR = re.compile(r"[а-яёА-ЯЁ]+")
 
 
@@ -54,16 +67,16 @@ def _env() -> dict:
     are conda packages, not python imports, and MFA shells out to them. Without
     this it dies with ThirdpartyError long after accepting its arguments."""
     return {**os.environ,
-            "PATH": f"{SCRATCH / 'mfaenv/bin'}:{os.environ.get('PATH', '')}",
-            "MAMBA_ROOT_PREFIX": str(SCRATCH / "mmroot"),
-            "MFA_ROOT_DIR": str(MFA_DATA)}
+            "PATH": f"{_scratch() / 'mfaenv/bin'}:{os.environ.get('PATH', '')}",
+            "MAMBA_ROOT_PREFIX": str(_scratch() / "mmroot"),
+            "MFA_ROOT_DIR": str(_mfa_data())}
 
 
-def load_dict(path: Path = BASE_DICT) -> dict[str, list[list[str]]]:
+def load_dict(path: Path | None = None) -> dict[str, list[list[str]]]:
     """word -> list of phone strings. MFA format is
     `word \t prob \t ... \t p1 p2 p3`, with five numeric columns."""
     out: dict[str, list[list[str]]] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in (path or _base_dict()).read_text(encoding="utf-8").splitlines():
         parts = line.split("\t")
         if len(parts) < 2:
             continue
@@ -166,7 +179,7 @@ def align(pairs: list[tuple[Path, str]], workdir: Path) -> dict[str, list]:
     # one of them swallows the following argument, so the corpus path was being
     # parsed as an option value and a beam number was being parsed as the
     # corpus. The error names the wrong thing entirely; the defaults align fine.
-    cmd = [str(MFA_BIN), "align", "--clean",
+    cmd = [str(_scratch() / "mfaenv/bin/mfa"), "align", "--clean",
            str(corpus.resolve()), str(dpath.resolve()), "russian_mfa",
            str(out.resolve())]
     r = subprocess.run(cmd, env=_env(), capture_output=True, text=True)
