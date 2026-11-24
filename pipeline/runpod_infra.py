@@ -858,7 +858,11 @@ def apt_setup(with_ffmpeg: bool = True) -> str:
     a newer base image whose packages are already current. Not attempted here:
     one unvalidated change at a time.
     """
-    pkgs = "rsync ffmpeg" if with_ffmpeg else "rsync"
+    # sox: qwen_tts imports the `sox` Python wrapper, which logs "SoX could
+    # not be found!" without the binary (seen on every run 2026-11-24). The
+    # clone path never calls it — takes were fine — so this only silences the
+    # warning; it rides with ffmpeg so the bake-off's minimal apt is untouched.
+    pkgs = "rsync ffmpeg sox" if with_ffmpeg else "rsync"
     tail = "which rsync"
     if with_ffmpeg:
         tail += (" && which ffmpeg && "

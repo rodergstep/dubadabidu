@@ -60,8 +60,9 @@ def doctor(cfg: dict) -> int:
             print("  [i ] ASR on CPU int8: `uv sync --extra mac` for mlx-whisper "
                   "(~4-5x on Apple Silicon).")
     if dev != "cuda":
-        print("  [i ] no CUDA: use tts.engine=edge for pipeline validation; "
-              "run qwen synthesis on a CUDA machine (`dubadabidu remote run`).")
+        print("  [i ] no CUDA here: qwen synthesis runs on the GPU pod — "
+              "`dubadabidu remote run <video> --overlay config.gpu.yaml` "
+              "(translation, mix and mux stay local).")
     for mod in ["faster_whisper", "pydub", "soundfile", "srt", "yaml", "openai"]:
         try:
             __import__(mod); check(f"python: {mod}", True)
@@ -101,10 +102,9 @@ def doctor(cfg: dict) -> int:
             # for synthesis to happen at all.
             remote_ready = bool(os.environ.get("RUNPOD_API_KEY"))
             if dev != "cuda" and remote_ready:
-                print(f"  [i ] python: {mod} not installed locally — fine, "
-                      f"no CUDA here; the pod installs it "
-                      f"(runpod.engine_setup). Local synthesis needs "
-                      f"tts.engine=edge.")
+                print(f"  [i ] python: {mod} not installed locally — fine: "
+                      f"the pod installs it (runpod.engine_setup in "
+                      f"config.gpu.yaml).")
             else:
                 check(f"python: {mod}", False, hint)
     if engines - {"edge"}:
@@ -118,12 +118,26 @@ def doctor(cfg: dict) -> int:
         _check_translation_models(cfg["translation"], check)
     # remote (M2) readiness — informational; only needed for `dubadabidu remote`
     if os.environ.get("RUNPOD_API_KEY"):
-        rp = cfg.get("runpod", {})
-        key_path = Path(rp.get("ssh_key", "~/.ssh/id_ed25519_runpod")).expanduser()
+        from pipeline.runpod_infra import DEFAULTS as RP_DEFAULTS
+        rp = {**RP_DEFAULTS, **(cfg.get("runpod") or {})}
+        key_path = Path(rp["ssh_key"]).expanduser()
         check("remote: ssh_key", key_path.exists(),
-              f"private key {key_path} missing; register its .pub with RunPod")
-        print(f"  [i ] remote ready: RUNPOD_API_KEY set, budget cap "
-              f"${rp.get('budget_usd', 10)}")
+              f"private key {key_path} missing (ssh-keygen -t ed25519 -f "
+              f"{key_path})")
+        # its PUBLIC half is what the pod gets (PUBLIC_KEY env): without it
+        # the pod comes up and sshd never lets this client in
+        check("remote: ssh_key .pub", Path(f"{key_path}.pub").exists(),
+              f"{key_path}.pub missing (ssh-keygen -y -f {key_path} > "
+              f"{key_path}.pub)")
+        hold = float(rp["hold_on_failure_min"] or 0)
+        print(f"  [i ] remote ready: budget cap ${rp['budget_usd']} | "
+              f"no capacity: retry every {rp['capacity_retry_s']:.0f}s for "
+              f"{rp['capacity_wait_min']:.0f} min | on task failure: "
+              + (f"pod held {hold:.0f} min for a hotfix"
+                 if hold > 0 else "pod terminated (hold off)"))
+        if "runpod" not in cfg:
+            print("  [i ] runpod block not in this config: pass "
+                  "`--overlay config.gpu.yaml` to see the pod settings")
     else:
         print("  [i ] remote (`dubadabidu remote`) off: set RUNPOD_API_KEY in "
               ".env to enable GPU pod automation")
