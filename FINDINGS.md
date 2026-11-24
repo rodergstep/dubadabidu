@@ -43,6 +43,7 @@ below was tried and failed, each for a different reason:
 | Selection: 5-take consensus | ANTI-correlated — prefers the systematic error | 2.1i, 2.1j |
 | Lexical avoidance from a human-marked table | **REFUTED by ear** — swaps domain terms; guard was inflection-blind | 2.1q |
 | ru-stress fine-tune (siriusfreak, x_vector + marks) | **REFUTED by ear** — production preferred 18-5 (p 0.011), unusable 11/25 vs 3/25 | 2.1r |
+| ru-stress fine-tune, ICL layout | WER gate failed (0.155 > 0.10); identity did not recover (sim 0.636) | 2.1r |
 
 **The reason it is closed, and it is structural (§2.1j):** the errors are partly
 SYSTEMATIC. For some words qwen is reliably wrong, so the majority placement is
@@ -985,12 +986,29 @@ Picks: two-sided exact binomial **p = 0.011**. Unusable, discordant pairs 9 vs 1
 **p = 0.021**.
 **VERDICT** REFUTED by ear, both gates failed in the wrong direction. The metrics
 again did not predict it: wer and mos favoured the fine-tune.
-**OPEN — which half of the axis lost it.** The page asked about stress OR voice
-identity in one "unusable" mark, and sim says identity moved. If the listener
+**WHICH HALF LOST IT — the listener: "mostly the voice"** (2026-11-24), which
+sim corroborates. So the open question is identity, not adherence.
+The page asked about stress OR voice identity in one "unusable" mark, and sim
+says identity moved. If the listener
 heard voice drift, ICL (the layout it was trained in, `ru-ft-icl-stress`) is the
 one remaining arm; if it was stress, the fine-tune does not transfer to this
 voice and the route is closed.
-**ENCODED** `experiments.yaml` ru-ft-plain / ru-ft-stress (answered),
+**THE LAST ARM, ICL (`ru-ft-icl-stress`, same day), FAILED THE WER GATE.** ICL is
+the layout the fine-tune was trained in and, on the base model, raised sim to
+0.718 — so it was the one way the voice could come back.
+
+| | control | ft + marks | **ft + marks + ICL** |
+|---|---|---|---|
+| wer | 0.068 | 0.029 | **0.155** (gate 0.10) |
+| sim | 0.687 | 0.635 | **0.636** |
+| f0st | 2.874 | 2.492 | 2.240 |
+
+sim did not move at all: the identity loss belongs to the CHECKPOINT, not the
+cloning mode. Rejected by the gate, so no listening round. **The fine-tune route
+is CLOSED** — ru keeps shipping with the defect (§2.1j), and reopening it needs a
+stress-trained checkpoint that keeps THIS voice (e.g. a fine-tune or LoRA on
+our own speaker), not another arm on this one.
+**ENCODED** `experiments.yaml` ru-ft-plain / ru-ft-stress / ru-ft-icl-stress (answered),
 `compare_ruruft_truth.json` + the listener's export, `text_norm.lower_title_ru`.
 
 ### 2.1c No zero-shot cloning TTS handles Russian stress (survey, 2026-08-09)

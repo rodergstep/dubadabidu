@@ -231,11 +231,17 @@ experiments:
 
   - name: ru-ft-icl-stress
     enabled: false
-    blocked_by: >
-      Run ONLY if ru-ft-stress fails on adherence (PLAN_v0.5 P4.1).
+    answered: >
+      2026-11-24. WER 0.155 > 0.10 gate (control 0.068), sim 0.636 (no
+      recovery from 0.635), f0st 2.240. Rejected by the gate, no listening
+      round. Identity loss is the checkpoint's. FINDINGS 2.1r: route closed.
+    unblocked: >
+      2026-11-24: ru-ft-stress lost by ear and the listener said the unusable
+      marks were MOSTLY THE VOICE (sim 0.687 -> 0.635). ICL is the layout the
+      fine-tune was trained in, and on the base model ICL raised sim to 0.718.
     video: "input/complex_oil_still_life_on_canvas/Organising the colour palette and materials.mp4"
     langs: [ru]
-    overlays: [config.exp.ru-ft-icl-stress.yaml]
+    overlays: [config.exp.ru-ft-icl-stress.yaml, config.exp.ru-full.yaml]
     asks: Does ICL (the layout the fine-tune was trained in) recover adherence?
     why: >
       Trained on Russian ref + transcript; ours is a Ukrainian reference and
