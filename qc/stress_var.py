@@ -26,7 +26,7 @@ import numpy as np
 import soundfile as sf
 
 warnings.filterwarnings("ignore")
-sys.path.insert(0, "/Users/diadumenoss/Documents/projects/dubadabidu")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # repo root
 
 VOWELS = set("аеёиоуыэюя")
 SR = 16000

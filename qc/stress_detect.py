@@ -286,7 +286,8 @@ if __name__ == "__main__":
     import glob
     import sys
     logging.basicConfig(level=logging.INFO)
+    if len(sys.argv) != 2:
+        sys.exit("usage: python -m qc.stress_detect <compare export .json>  "
+                 "(the listener's stress-marked compare-page export)")
     wd = glob.glob("work/Organising*")[0]
-    sys.exit(validate(
-        "/Users/diadumenoss/Downloads/compare_ru_stressing.json",
-        f"{wd}/bakeoff/compare_ru_truth.json", wd))
+    sys.exit(validate(sys.argv[1], f"{wd}/bakeoff/compare_ru_truth.json", wd))
