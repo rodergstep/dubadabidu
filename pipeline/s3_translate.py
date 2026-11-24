@@ -6,6 +6,10 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 import csv, json, logging, os, re, time
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from openai import OpenAI
 from . import manifest as M
 
 log = logging.getLogger("dubadabidu.s3")
@@ -345,7 +349,7 @@ def configured_models(tcfg: dict) -> list[str]:
     return sorted({n for n in names if n})
 
 
-def missing_models(client, tcfg: dict) -> list[str]:
+def missing_models(client: OpenAI, tcfg: dict) -> list[str]:
     """Configured model names the endpoint does not list. Catches a provider
     retiring a name (deepseek-v4-flash, 2026-09-10) before a paid run silently
     gets routed to an unevaluated replacement — or fails mid-batch."""

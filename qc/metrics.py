@@ -16,6 +16,10 @@ Pure scoring helpers (no models, unit-tested in tests/test_metrics.py):
 from __future__ import annotations
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import torch
 
 log = logging.getLogger("dubadabidu.qc.metrics")
 SAMPLE_RATE = 16000
@@ -92,7 +96,7 @@ def _load_audio_16k(path: str | Path):
     return wav.to(_device)
 
 
-def ecapa_embed(path_or_wave) -> "torch.Tensor":  # noqa: F821
+def ecapa_embed(path_or_wave: str | Path | torch.Tensor) -> torch.Tensor:
     """Speaker embedding of a file path or a [1, T] 16 kHz tensor."""
     global _ecapa
     if _ecapa is None:
@@ -106,7 +110,7 @@ def ecapa_embed(path_or_wave) -> "torch.Tensor":  # noqa: F821
     return _ecapa.encode_batch(wav.to(_device)).squeeze()
 
 
-def cosine(a, b) -> float:
+def cosine(a: torch.Tensor, b: torch.Tensor) -> float:
     import torch.nn.functional as F
     return float(F.cosine_similarity(a, b, dim=0))
 

@@ -38,11 +38,11 @@ FEATS = ("qc_sim2", "qc_mos", "qc_f0st")
 RNG = random.Random(20260809)
 
 
-def per_round_rho(rows, feat):
-    by = defaultdict(list)
+def per_round_rho(rows: list[dict], feat: str) -> dict[str, tuple[float, int]]:
+    by: defaultdict[str, list[dict]] = defaultdict(list)
     for r in rows:
         by[r["variant"]].append(r)
-    out = {}
+    out: dict[str, tuple[float, int]] = {}
     for v, rs in by.items():
         if len(rs) < 6:
             continue
@@ -53,7 +53,7 @@ def per_round_rho(rows, feat):
     return out
 
 
-def spread(d):
+def spread(d: dict[str, tuple[float, int]]) -> float:
     """n-weighted sd of the per-round correlations."""
     if len(d) < 2:
         return 0.0
@@ -61,7 +61,7 @@ def spread(d):
     return pstdev(xs)
 
 
-def main():
+def main() -> None:
     for lang in ("en", "ru"):
         rows = json.load(open(f"ratings_{lang}.json", encoding="utf-8"))
         print(f"\n{'='*70}\n{lang.upper()}  n={len(rows)}")

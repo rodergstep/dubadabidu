@@ -11,6 +11,7 @@
 from __future__ import annotations
 import argparse, logging, shutil, subprocess, sys
 from pathlib import Path
+from typing import Callable
 import yaml
 
 from pipeline import s1_extract, s2_transcribe, s3_translate, s4_synthesize, \
@@ -40,7 +41,7 @@ def doctor(cfg: dict) -> int:
     import os
     ok = True
 
-    def check(name, cond, hint=""):
+    def check(name: str, cond: object, hint: str = "") -> None:
         nonlocal ok
         print(f"  [{'OK' if cond else '!!'}] {name}" + ("" if cond else f" — {hint}"))
         ok = ok and bool(cond)
@@ -145,7 +146,8 @@ def doctor(cfg: dict) -> int:
     return 0 if ok else 1
 
 
-def _check_translation_models(tcfg: dict, check) -> None:
+def _check_translation_models(tcfg: dict,
+                              check: Callable[[str, object, str], None]) -> None:
     """Ask the endpoint which models it serves. A provider can retire a name
     and keep routing it to a different model (DeepSeek did, 2026-09-10), so a
     config that "works" may be translating with a model nobody evaluated.

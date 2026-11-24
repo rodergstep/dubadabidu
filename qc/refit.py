@@ -91,7 +91,7 @@ def simplex(step: float = 0.05, keys: tuple = KEYS) -> list[dict]:
     n = int(round(1.0 / step))
     out = []
 
-    def walk(i: int, left: int, acc: list[int]):
+    def walk(i: int, left: int, acc: list[int]) -> None:
         if i == len(keys) - 1:
             # rounded: v*step accumulates float noise (0.6000000000000001),
             # which leaks into the proposal printed for a human to paste
