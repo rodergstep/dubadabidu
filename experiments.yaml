@@ -185,12 +185,17 @@ experiments:
   # three: python -m pipeline.experiments --only ru-ft-plain ru-ft-stress
   - name: ru-ft-plain
     enabled: false
-    blocked_by: >
-      HUMAN GATE (PLAN_v0.5 P4.0): decide whether the fine-tune's training-text
-      licence caveat is acceptable for paid courses. Remove this line to run.
+    answered: >
+      2026-11-24. wer 0.024 (control 0.068), mos 2.615, sim 0.633 (control
+      0.687). The checkpoint does not break ordinary Russian; it moves identity.
+    licence: >
+      P4.0 DECIDED 2026-11-24 by the owner: the training-text caveat (part of
+      the shifted-stress texts come from biggest-ru-book, no declared licence;
+      weights Apache-2.0) is accepted for paid courses.
     video: "input/complex_oil_still_life_on_canvas/Organising the colour palette and materials.mp4"
     langs: [ru]
-    overlays: [config.exp.ru-ft-plain.yaml]
+    # + ru-full: every segment x 2 takes, exactly how qwen+fast+control ran
+    overlays: [config.exp.ru-ft-plain.yaml, config.exp.ru-full.yaml]
     asks: Does the fine-tuned checkpoint alone (no marks) degrade ordinary Russian?
     why: >
       The candidate (ru-ft-stress) changes two things against production — the
@@ -203,11 +208,13 @@ experiments:
 
   - name: ru-ft-stress
     enabled: false
-    blocked_by: >
-      HUMAN GATE (PLAN_v0.5 P4.0), same as ru-ft-plain.
+    answered: >
+      2026-11-24. WER gate passed (0.029) but REFUTED by ear: control picked
+      18-5 (p 0.011), unusable 11/25 vs 3/25 (p 0.021). FINDINGS 2.1r.
+    licence: P4.0 decided 2026-11-24, see ru-ft-plain.
     video: "input/complex_oil_still_life_on_canvas/Organising the colour palette and materials.mp4"
     langs: [ru]
-    overlays: [config.exp.ru-ft-stress.yaml]
+    overlays: [config.exp.ru-ft-stress.yaml, config.exp.ru-full.yaml]
     asks: Does the fine-tune + RUAccent marks cut the ~29%-of-takes stress-error rate?
     why: >
       Every input-side route on the BASE model failed (FINDINGS 2.1b/bb/o/q)

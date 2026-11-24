@@ -81,3 +81,13 @@ def test_sample_rate_guard_rejects_a_mismatch(tmp_path):
     T._declared_sr.pop(str(tmp_path / "nope"), None)
     T._declared_sr[str(tmp_path / "nope")] = None
     T.check_output_sr(str(tmp_path / "nope"), 24000)
+
+
+def test_title_case_is_lowercased_before_ruaccent_but_acronyms_are_not():
+    """Model-card recommendation: RUAccent marks capitalized words worse."""
+    from pipeline.text_norm import NORM_VERSIONS, lower_title_ru
+    assert lower_title_ru("Какая сегодня погода. Потом мы пошли") == \
+        "какая сегодня погода. потом мы пошли"
+    assert lower_title_ru("Краски ООО и РФ") == "краски ООО и РФ"
+    assert lower_title_ru("Paint Red") == "Paint Red"      # not Cyrillic
+    assert NORM_VERSIONS["ru"] >= 2, "the marked text changed: salt the cache"

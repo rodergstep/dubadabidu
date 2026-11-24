@@ -138,7 +138,7 @@ same loader, reads U+0301 after the vowel — which `text_norm` already emits.
 Author-reported mark adherence 96% vs base 17% (his own detector, not ears).
 
 ### P4.0 Gates before spending anything
-- [ ] **License call (human).** The weights are Apache-2.0, but part of the
+- [x] **License call (human) — ACCEPTED 2026-11-24 by the owner.** The weights are Apache-2.0, but part of the
       training TEXT (biggest-ru-book) declares no license and the model card
       itself says to check before commercial use. Decide whether that is
       acceptable for paid courses BEFORE building on it.
