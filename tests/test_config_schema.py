@@ -52,3 +52,21 @@ def test_tune_round_r2_is_still_accepted() -> None:
     cfg = copy.deepcopy(_load("config.yaml"))
     cfg["tune"]["rounds"] = ["R1", "R2", "R3"]
     validate(cfg)
+
+
+@pytest.mark.parametrize("block,key,src", [
+    ("translation", "avoid_mis_stressed", "pipeline/s3_translate.py"),
+])
+def test_schema_default_matches_the_code_default(block: str, key: str,
+                                                 src: str) -> None:
+    """Stages read the raw dict, so the code's .get() default is the one that
+    applies; the schema's declared default must not claim otherwise."""
+    import re
+
+    from pipeline.config_schema import Config
+    model = Config.model_fields[block].annotation
+    declared = model.model_fields[key].default
+    code = open(src, encoding="utf-8").read()
+    found = re.findall(rf'get\("{key}", (True|False)\)', code)
+    assert found, f"{src} no longer reads {key} with a literal default"
+    assert {repr(declared)} == set(found)

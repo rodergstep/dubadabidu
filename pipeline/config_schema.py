@@ -6,10 +6,12 @@ code runs on its default and nobody notices. Every block here is
 `extra="forbid"`, and `validate()` runs on the MERGED config (base + overlays)
 in dub.py, so a typo fails at load with its full path.
 
-Scope: this VALIDATES; stages keep receiving the plain dict (`model_dump()`
-of the same values), so no stage changed in this step. Optional fields are the
-keys code reads with a default but no shipped config sets — they are declared
-so an overlay may set them.
+Scope: this VALIDATES only. dub.py discards `validate()`'s return value and
+stages keep receiving the merged plain dict, so a default declared here is
+DOCUMENTATION — the value that applies is the code's own `.get(key, default)`.
+Keep the two equal (tests/test_config_schema.py pins the ones that drifted).
+Optional fields are the keys code reads with a default but no shipped config
+sets — they are declared so an overlay may set them.
 
 Adding a config key: declare it here (with its type) in the same change.
 """
@@ -59,7 +61,7 @@ class Translation(_Block):
     passes: Literal[1, 3] = 1
     adequacy_check: bool = True
     adequacy_flag: int = 3
-    avoid_mis_stressed: bool = False
+    avoid_mis_stressed: bool = True    # s3_translate reads .get(..., True)
     avoid_min_marks: int = 1
     isometric_tolerance: Number
     n_short_variants: int
@@ -72,7 +74,7 @@ class Tts(_Block):
     qwen_model_dir: str | None = None
     qwen_model_dir_by_lang: dict[str, str] = Field(default_factory=dict)
     qwen_x_vector_only: bool = True
-    qwen_fast: bool = False
+    qwen_fast: bool = False   # the loader's default (tts_engine._load_qwen)
     qwen_flash_attn: bool = False
     qwen_warmup_len: int | None = None
     qwen_max_audio_s: Number = 60
