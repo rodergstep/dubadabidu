@@ -43,3 +43,6 @@ third_party/
 
 # autopilot's runtime playbook (pipeline/autopilot.py _log_fix appends to it)
 FIXES.md
+
+# committed test fixtures (the media patterns above would ignore them)
+!tests/fixtures/**
