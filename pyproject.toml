@@ -110,6 +110,10 @@ packages = ["pipeline", "qc"]
 # Supply-chain guard: never lock a release younger than this date. Bump it
 # deliberately (then `uv lock --upgrade`), never to chase a same-day release.
 exclude-newer = "2026-11-05T00:00:00Z"
+# Per-package exception, deliberate: av 18.1.0 was yanked (double free when
+# decoding audio with custom channel layouts) and its fix, 18.1.1, was uploaded
+# 2026-11-21. Drop this when the global date passes it.
+exclude-newer-package = { av = "2026-11-22T00:00:00Z" }
 environments = [
   "sys_platform == 'darwin' and platform_machine == 'arm64'",
   "sys_platform == 'linux' and platform_machine == 'x86_64'",

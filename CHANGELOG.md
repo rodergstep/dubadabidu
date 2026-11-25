@@ -9,8 +9,8 @@ Measured results and refuted ideas live in `FINDINGS.md`; per-run costs live in
 
 ## [1.0.0] — 2026-11-25
 
-Release cleanup. No pipeline logic, default config values, model choices or
-locked versions changed.
+Release cleanup. No pipeline logic, default config values or model choices
+changed; the only locked-version change is PyAV 18.1.0 → 18.1.1 (below).
 
 ### Added
 - `doctor` warns, without failing, when `pedalboard` is missing while
@@ -47,7 +47,10 @@ locked versions changed.
 - `av<19` is now also a `[project]` dependency, so an install from the wheel
   carries it: `[tool.uv]` constraints do not travel in package metadata, and an
   unlocked install resolved PyAV 19.0.2 on Linux/Python 3.12 (the 0.5.0 ASR
-  crash). The lock still resolves av 18.1.0.
+  crash).
+- PyAV locked at 18.1.1: 18.1.0 was yanked upstream (double free when decoding
+  audio with custom channel layouts). 18.1.1 is newer than the global
+  `exclude-newer` date, so `[tool.uv] exclude-newer-package` exempts av alone.
 - Stale comments: chatterbox/CosyVoice references in `device.py`, `prep.py`,
   `tune.py`, `s3_translate.py`; the Python range in the CI workflow; FINDINGS §5
   item 1 marked closed, duplicate paragraph removed.
