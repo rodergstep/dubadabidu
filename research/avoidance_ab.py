@@ -38,6 +38,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dubadabidu.core import manifest as M  # noqa: E402
 from dubadabidu.stages import s3_translate as S3  # noqa: E402
+from dubadabidu.core.config.loader import load as load_config
 from dubadabidu.qc.stress_words import load_avoid_list  # noqa: E402
 
 log = logging.getLogger("dubadabidu.qc.avoidance_ab")
@@ -78,7 +79,7 @@ def run(cfg: dict, video: str, lang: str, apply: bool = False) -> int:
     if not segs:
         return 0
 
-    tcfg = cfg["translation"]
+    tcfg = cfg.translation
     key = os.environ.get(tcfg["api_key_env"])
     if not key:
         raise SystemExit(f"set {tcfg['api_key_env']} — this step re-translates.")
@@ -136,11 +137,10 @@ def run(cfg: dict, video: str, lang: str, apply: bool = False) -> int:
 
 
 if __name__ == "__main__":
-    import yaml
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     if len(args) < 2:
         raise SystemExit("usage: python -m research.avoidance_ab <video> <lang> "
                          "[--apply]")
-    cfg = yaml.safe_load(open("config.yaml", encoding="utf-8"))
+    cfg = load_config(Path("."), Path("config.yaml"), [])   # validated, like the CLI
     sys.exit(0 if run(cfg, args[0], args[1], "--apply" in sys.argv) >= 0 else 1)

@@ -30,6 +30,7 @@ import pytest
 import yaml
 
 from tests.golden import api
+from tests import cfgs
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
@@ -104,7 +105,7 @@ def test_rendered_prompts(monkeypatch: pytest.MonkeyPatch) -> None:
                 out[f"{name}|{src}|{lang}"] = [_sha(text), len(text)]
             g = api.glossary_block(src, lang)
             out[f"glossary|{src}|{lang}"] = [_sha(g), len(g)]
-            cfg = {"source_language": src}
+            cfg = cfgs.settings({"source_language": src})
             tb = api.terms_block(cfg, [{"src": "ультрамарин", "tr": "ultramarine"}])
             out[f"terms|{src}|{lang}"] = tb
     _golden("prompts", out)

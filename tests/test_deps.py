@@ -444,9 +444,10 @@ def _doctor_lines(monkeypatch, *, device, runpod_key):
     from dubadabidu.core.logic import deep_merge
     cfg = deep_merge(yaml.safe_load((ROOT / "config.yaml").read_text()),
                      yaml.safe_load(config("config.gpu.yaml").read_text()))
+    from dubadabidu.core.config.schema import validate
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        rc = dub.doctor(cfg)
+        rc = dub.doctor(validate(cfg))
     return rc, buf.getvalue()
 
 

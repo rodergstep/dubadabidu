@@ -7,10 +7,11 @@ import subprocess
 from pathlib import Path
 from typing import Callable
 
+from dubadabidu.core.config.schema import Config, Translation
 from dubadabidu.core.device import torch_device, whisper_device
 
 
-def doctor(cfg: dict, project: str = "") -> int:
+def doctor(cfg: Config, project: str = "") -> int:
     import os
     ok = True
 
@@ -115,7 +116,7 @@ def doctor(cfg: dict, project: str = "") -> int:
           os.environ.get(cfg["translation"]["api_key_env"]),
           "export it, or point translation.base_url at a local Ollama")
     if os.environ.get(cfg["translation"]["api_key_env"]):
-        _check_translation_models(cfg["translation"], check)
+        _check_translation_models(cfg.translation, check)
     # remote (M2) readiness — informational; only needed for `dubadabidu remote`
     if os.environ.get("RUNPOD_API_KEY"):
         from dubadabidu.infra.remote.runpod_infra import DEFAULTS as RP_DEFAULTS
@@ -145,7 +146,7 @@ def doctor(cfg: dict, project: str = "") -> int:
     return 0 if ok else 1
 
 
-def _check_translation_models(tcfg: dict,
+def _check_translation_models(tcfg: Translation,
                               check: Callable[[str, object, str], None]) -> None:
     """Ask the endpoint which models it serves. A provider can retire a name
     and keep routing it to a different model (DeepSeek did, 2026-09-10), so a

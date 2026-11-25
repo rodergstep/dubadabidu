@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from openai import OpenAI
 from dubadabidu.core import manifest as M
+from dubadabidu.core.config.schema import Config, Translation
 from dubadabidu.core.languages import lang_name
 
 log = logging.getLogger("dubadabidu.s3")
@@ -54,12 +55,12 @@ _SHORTEN_SCHEMA = {
 }
 
 
-def _response_format(tcfg: dict, schema: dict = _JSON_SCHEMA) -> dict:
+def _response_format(tcfg: Translation, schema: dict = _JSON_SCHEMA) -> dict:
     """OpenAI `response_format` arg. Providers diverge on structured-output support:
       json_object (default) — DeepSeek / OpenAI / Ollama
       json_schema           — LM Studio (strict; best for small local models)
       text                  — no server-side enforcement; relies on the prompt."""
-    mode = tcfg.get("response_format", "json_object")
+    mode = tcfg.response_format
     if mode == "json_object":
         return {"type": "json_object"}
     if mode == "text":
@@ -98,7 +99,7 @@ def _prompt(src: str, lang: str, tol: float, n_var: int,
                .replace("{NVAR}", str(n_var)))
 
 
-def load_terms(cfg: dict, video: str, lang: str) -> list[dict] | None:
+def load_terms(cfg: Config, video: str, lang: str) -> list[dict] | None:
     """The cached terms_<lang>.json, or None before extraction. Caches written
     before the source language became configurable key the source term "uk";
     it is "src" now."""
@@ -112,15 +113,15 @@ def load_terms(cfg: dict, video: str, lang: str) -> list[dict] | None:
     return terms
 
 
-def terms_block(cfg: dict, terms: list[dict]) -> str:
+def terms_block(cfg: Config, terms: list[dict]) -> str:
     if not terms:
         return ""
-    return (f"Video-specific terminology ({lang_name(cfg['source_language'])}"
+    return (f"Video-specific terminology ({lang_name(cfg.source_language)}"
             f" -> target, mandatory):\n"
             + "\n".join(f"  {t['src']} -> {t['tr']}" for t in terms))
 
 
-def _terms(client, tcfg, cfg: dict, video: str, man: dict, lang: str) -> str:
+def _terms(client: OpenAI, tcfg: Translation, cfg: Config, video: str, man: dict, lang: str) -> str:
     """Video-specific terminology base, extracted once per video+lang (cached).
     Injected next to the static glossary so every batch translates domain terms
     and proper nouns identically — the document-level consistency lever."""
@@ -128,7 +129,7 @@ def _terms(client, tcfg, cfg: dict, video: str, man: dict, lang: str) -> str:
     if terms is None:
         cache = M.video_workdir(cfg, video) / f"terms_{lang}.json"
         transcript = "\n".join(u["text_src"] for u in man["utterances"])
-        src = lang_name(cfg["source_language"])
+        src = lang_name(cfg.source_language)
         data = _chat(client, tcfg,
                      f"From this {src} art-course transcript, extract up to "
                      f"30 domain terms and proper nouns whose {lang_name(lang)} "
@@ -143,7 +144,7 @@ def _terms(client, tcfg, cfg: dict, video: str, man: dict, lang: str) -> str:
     return terms_block(cfg, terms)
 
 
-def _avoid_block(cfg: dict, lang: str, mandatory: str) -> str:
+def _avoid_block(cfg: Config, lang: str, mandatory: str) -> str:
     """Prompt section asking the model to route around words the TTS mis-stresses.
 
     THE ONE REMEDIATION THAT NEEDS NO NEW CAPABILITY. Automated Russian stress
@@ -173,11 +174,11 @@ def _avoid_block(cfg: dict, lang: str, mandatory: str) -> str:
     across a 20-video course outranks one word's stress — and a collision is
     logged rather than silently resolved.
     """
-    tcfg = cfg["translation"]
-    if not tcfg.get("avoid_mis_stressed", True):
+    tcfg = cfg.translation
+    if not tcfg.avoid_mis_stressed:
         return ""
     from dubadabidu.qc.stress_words import load_avoid_list
-    words = load_avoid_list(lang, int(tcfg.get("avoid_min_marks", 1)))
+    words = load_avoid_list(lang, int(tcfg.avoid_min_marks))
     if not words:
         return ""
     log.info("%s: avoidance list active — %d word(s) from stress_lexicon_%s.json",
@@ -232,7 +233,7 @@ def _avoid_block(cfg: dict, lang: str, mandatory: str) -> str:
         f"  {listed}")
 
 
-def _measured_cps(cfg: dict, lang: str, min_samples: int = 10) -> float | None:
+def _measured_cps(cfg: Config, lang: str, min_samples: int = 10) -> float | None:
     """Median TTS speaking rate (chars/second) measured from past synths of
     this language across all work/*/manifest.json. The prompt's char bound is
     relative to UKRAINIAN length — a poor proxy for how long the TARGET text
@@ -245,9 +246,9 @@ def _measured_cps(cfg: dict, lang: str, min_samples: int = 10) -> float | None:
     only as a fallback when the engine-matched pool is too small."""
     import statistics
     from dubadabidu.core.manifest import resolve_engine
-    engine = resolve_engine(cfg["tts"], lang)
+    engine = resolve_engine(cfg.tts, lang)
     rates, legacy = [], []
-    for mp in Path(cfg["work_dir"]).glob("*/manifest.json"):
+    for mp in Path(cfg.work_dir).glob("*/manifest.json"):
         try:
             m = json.loads(mp.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -266,24 +267,24 @@ def _measured_cps(cfg: dict, lang: str, min_samples: int = 10) -> float | None:
     return statistics.median(rates)
 
 
-def shorten(cfg: dict, lang: str, text_src: str, text: str, max_chars: int,
+def shorten(cfg: Config, lang: str, text_src: str, text: str, max_chars: int,
             n: int = 2) -> list[str]:
     """Emergency rewrite for s5 overflow: the pre-generated variants were all
     too long, so ask the LLM for n candidates under a HARD char budget derived
     from the measured synth duration. Returns [] when the endpoint is
     unavailable (no key / offline) — s5 then degrades to the overflow flag."""
-    tcfg = cfg["translation"]
-    key = os.environ.get(tcfg["api_key_env"])
+    tcfg = cfg.translation
+    key = os.environ.get(tcfg.api_key_env)
     if not key:
         log.warning("%s not set — cannot request emergency shorter variants",
-                    tcfg["api_key_env"])
+                    tcfg.api_key_env)
         return []
     from openai import OpenAI
-    client = OpenAI(base_url=tcfg["base_url"], api_key=key)
+    client = OpenAI(base_url=tcfg.base_url, api_key=key)
     sysmsg = (
         f"You shorten dubbing lines for a painting course voice-over.\n"
         f"Rewrite the given {lang_name(lang)} line so it keeps the exact "
-        f"instructional meaning of the {lang_name(cfg['source_language'])} "
+        f"instructional meaning of the {lang_name(cfg.source_language)} "
         f"source but fits a tighter "
         f"time slot. Produce {n} candidates, EACH AT MOST {max_chars} "
         f"characters, progressively shorter. Drop filler and pleasantries "
@@ -300,7 +301,7 @@ def shorten(cfg: dict, lang: str, text_src: str, text: str, max_chars: int,
         return []
 
 
-def _chat(client, tcfg, sysmsg: str, user: str, retries: int = 4,
+def _chat(client: OpenAI, tcfg: Translation, sysmsg: str, user: str, retries: int = 4,
           schema: dict = _JSON_SCHEMA, model: str | None = None,
           seen: set[str] | None = None) -> dict:
     """One chat call with retry. `seen` collects the model id the server says
@@ -312,7 +313,7 @@ def _chat(client, tcfg, sysmsg: str, user: str, retries: int = 4,
     for attempt in range(retries + 1):
         try:
             resp = client.chat.completions.create(
-                model=model or tcfg["model"], temperature=0.3, timeout=120,
+                model=model or tcfg.model, temperature=0.3, timeout=120,
                 response_format=rformat,
                 messages=[{"role": "system", "content": sysmsg},
                           {"role": "user", "content": user}])
@@ -328,7 +329,7 @@ def _chat(client, tcfg, sysmsg: str, user: str, retries: int = 4,
 
 
 def _adequacy(ask, shared: str, batch: list, src: str, lang: str, flag: int,
-              tcfg: dict) -> None:
+              tcfg: Translation) -> None:
     """LLM-judge each FINAL translation against its source; store
     {score 1-5, issue} in tr[lang]['adequacy'] and log sub-threshold segments.
     Never fatal — a judge failure must not abort a translated batch."""
@@ -347,7 +348,7 @@ def _adequacy(ask, shared: str, batch: list, src: str, lang: str, flag: int,
                for u in batch]
     try:
         scored = ask(sysmsg, payload, schema=_ADEQUACY_SCHEMA,
-                     model=tcfg.get("adequacy_model"))
+                     model=tcfg.adequacy_model)
     except Exception as e:                     # judge is best-effort
         log.warning("%s: adequacy judge failed (%s); skipping batch", lang, e)
         return
@@ -367,13 +368,13 @@ def _adequacy(ask, shared: str, batch: list, src: str, lang: str, flag: int,
                     ", ".join(f"{i}({sc}:{iss[:40]})" for i, sc, iss in flagged))
 
 
-def configured_models(tcfg: dict) -> list[str]:
+def configured_models(tcfg: Translation) -> list[str]:
     """Every model name the translation block will request."""
-    names = [tcfg["model"], tcfg.get("reflect_model"), tcfg.get("adequacy_model")]
+    names = [tcfg.model, tcfg.reflect_model, tcfg.adequacy_model]
     return sorted({n for n in names if n})
 
 
-def missing_models(client: OpenAI, tcfg: dict) -> list[str]:
+def missing_models(client: OpenAI, tcfg: Translation) -> list[str]:
     """Configured model names the endpoint does not list. Catches a provider
     retiring a name (deepseek-v4-flash, 2026-09-10) before a paid run silently
     gets routed to an unevaluated replacement — or fails mid-batch."""
@@ -381,17 +382,17 @@ def missing_models(client: OpenAI, tcfg: dict) -> list[str]:
     return [n for n in configured_models(tcfg) if n not in listed]
 
 
-def run(cfg: dict, video: str, langs: list[str]) -> None:
+def run(cfg: Config, video: str, langs: list[str]) -> None:
     from openai import OpenAI
-    tcfg = cfg["translation"]
-    key = os.environ.get(tcfg["api_key_env"])
+    tcfg = cfg.translation
+    key = os.environ.get(tcfg.api_key_env)
     if not key:
-        raise SystemExit(f"Set {tcfg['api_key_env']} in your environment "
-                         f"(export {tcfg['api_key_env']}=sk-...).")
-    client = OpenAI(base_url=tcfg["base_url"], api_key=key)
+        raise SystemExit(f"Set {tcfg.api_key_env} in your environment "
+                         f"(export {tcfg.api_key_env}=sk-...).")
+    client = OpenAI(base_url=tcfg.base_url, api_key=key)
     man = M.load(cfg, video)
 
-    passes = int(tcfg.get("passes", 1))
+    passes = int(tcfg.passes)
     # LANGUAGES RUN CONCURRENTLY. Measured 2026-08-01 on a 62-utterance lesson:
     # 32 minutes elapsed for 1.3 languages while the process used 3.5 SECONDS of
     # CPU — it is round-trip latency almost end to end, so five languages
@@ -408,16 +409,16 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         if not todo:
             log.info("%s: cached", lang)
             return
-        tol, nvar = tcfg["isometric_tolerance"], tcfg["n_short_variants"]
-        src = cfg["source_language"]
+        tol, nvar = tcfg.isometric_tolerance, tcfg.n_short_variants
+        src = cfg.source_language
         terms = _terms(client, tcfg, cfg, video, man, lang)
         transcript = "\n".join(u["text_src"] for u in man["utterances"])
         # local servers (LM Studio / Ollama) have small context windows; a 1h
         # transcript in the system prompt of every batch overflows them
         # silently. Remote providers (DeepSeek 1M + context caching) keep the
         # full transcript — that shape is what makes cached batches ~free.
-        local = any(h in tcfg["base_url"] for h in ("127.0.0.1", "localhost"))
-        max_ctx = int(tcfg.get("max_context_chars", 12000))
+        local = any(h in tcfg.base_url for h in ("127.0.0.1", "localhost"))
+        max_ctx = int(tcfg.max_context_chars)
         if local and len(transcript) > max_ctx:
             log.warning("local endpoint: transcript context capped "
                         "%d -> %d chars", len(transcript), max_ctx)
@@ -453,7 +454,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         # block needs it to detect terminology collisions. The judge still sees
         # terminology only — not the transcript, the pace budget or the avoid
         # list — because it grades faithfulness, not length or word choice.)
-        flag = int(tcfg.get("adequacy_flag", 3))
+        flag = int(tcfg.adequacy_flag)
 
         answered: set[str] = set()
 
@@ -477,7 +478,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 raise RuntimeError(f"LLM dropped segments {missing}; re-run s3.")
             return by_id
 
-        bs = tcfg["batch_size"]
+        bs = tcfg.batch_size
         for i in range(0, len(todo), bs):
             batch = todo[i:i + bs]
             payload = [{"id": u["id"], "src": u["text_src"], "chars": len(u["text_src"]),
@@ -488,7 +489,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 # a stronger critic on the reflect pass only (~1/3 of tokens) is
                 # the cheapest known quality lever; unset => same model
                 critique = _ask(sys_reflect, drafted, schema=_REFLECT_SCHEMA,
-                                model=tcfg.get("reflect_model"))
+                                model=tcfg.reflect_model)
                 adapted = [dict(d, issues=critique[d["id"]]["issues"])
                            for d in drafted]
                 n_ok = sum(1 for d in adapted if d["issues"].strip().lower() == "ok")
@@ -518,7 +519,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             # across it would serialise the languages this function exists to
             # overlap. It writes tr[lang]["adequacy"] into a key this thread
             # already created above, so no new insert races a concurrent save.
-            if tcfg.get("adequacy_check", True):
+            if tcfg.adequacy_check:
                 _adequacy(_ask, adeq_shared, batch, src, lang, flag, tcfg)
             with save_lock:
                 man["stages"][f"s3_{lang}"] = f"{min(i+bs, len(todo))}/{len(todo)}"
@@ -531,7 +532,9 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             man["translation_models"][lang] = sorted(set(prev) | answered)
             M.save(cfg, video, man)
 
-    workers = max(1, int(tcfg.get("lang_workers", len(langs))))
+    # one worker per language unless translation.lang_workers says otherwise
+    workers = max(1, int(tcfg.lang_workers if tcfg.lang_workers is not None
+                         else len(langs)))
     if workers > 1 and len(langs) > 1:
         with ThreadPoolExecutor(max_workers=min(workers, len(langs)),
                                 thread_name_prefix="tr") as ex:

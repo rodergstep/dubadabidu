@@ -12,12 +12,14 @@ from dubadabidu.core import manifest as M
 from dubadabidu.stages import s3_translate as S3
 from dubadabidu.core.config.schema import ConfigError, validate
 from tests.paths import REPO, config
+from dubadabidu.core.config.schema import Config
+from tests.cfgs import settings
 
 ROOT = REPO
 
 
-def _cfg(tmp_path: Path, src: str = "ru") -> dict:
-    return {"work_dir": str(tmp_path), "source_language": src}
+def _cfg(tmp_path: Path, src: str = "ru") -> Config:
+    return settings({"work_dir": str(tmp_path), "source_language": src})
 
 
 def test_legacy_manifest_text_uk_is_read_as_text_src(tmp_path: Path) -> None:

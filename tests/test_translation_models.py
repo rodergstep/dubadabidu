@@ -4,6 +4,7 @@ record (PLAN_v0.5 P1)."""
 from types import SimpleNamespace
 
 from dubadabidu.stages import s3_translate as s3
+from tests.cfgs import settings
 from tests.paths import config
 
 
@@ -31,25 +32,28 @@ def _client(ids: list[str], answered_by: str = "x") -> SimpleNamespace:
 
 
 def test_configured_models_collects_every_pass_and_dedups() -> None:
-    tcfg = {"model": "a", "reflect_model": "b", "adequacy_model": "a"}
+    tcfg = settings({"translation": {"model": "a", "reflect_model": "b",
+                                     "adequacy_model": "a"}}).translation
     assert s3.configured_models(tcfg) == ["a", "b"]
 
 
 def test_missing_models_flags_a_retired_name() -> None:
-    tcfg = {"model": "deepseek-v4-flash", "reflect_model": "deepseek-v4-pro"}
+    tcfg = settings({"translation": {"model": "deepseek-v4-flash",
+                                     "reflect_model": "deepseek-v4-pro"}}).translation
     client = _client(["deepseek-flash", "deepseek-v4-pro"])
     assert s3.missing_models(client, tcfg) == ["deepseek-v4-flash"]
 
 
 def test_missing_models_empty_when_all_listed() -> None:
     client = _client(["deepseek-flash"])
-    assert s3.missing_models(client, {"model": "deepseek-flash"}) == []
+    assert s3.missing_models(client, settings({"translation": {"model": "deepseek-flash"}}).translation) == []
 
 
 def test_chat_records_the_model_that_answered() -> None:
     seen: set[str] = set()
     client = _client([], answered_by="DeepSeek-V4.1-Flash-1017")
-    s3._chat(client, {"model": "deepseek-flash"}, "sys", "user", seen=seen)
+    tcfg = settings({"translation": {"model": "deepseek-flash"}}).translation
+    s3._chat(client, tcfg, "sys", "user", seen=seen)
     assert seen == {"DeepSeek-V4.1-Flash-1017"}
 
 

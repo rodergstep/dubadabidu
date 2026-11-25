@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT))
 
 from dubadabidu.qc import stress_words as SW  # noqa: E402
 from dubadabidu.review import review_page as RP  # noqa: E402
+from tests.cfgs import settings
 
 
 # ------------------------------------------------------------- tokenizer ----
@@ -444,9 +445,8 @@ def test_missing_or_broken_lexicon_is_not_fatal(tmp_path, monkeypatch):
 # --- the prompt block ---------------------------------------------------------
 
 def _cfg(**over):
-    base = {"translation": {"avoid_mis_stressed": True, "avoid_min_marks": 1}}
-    base["translation"].update(over)
-    return base
+    return settings({"translation": {"avoid_mis_stressed": True,
+                                     "avoid_min_marks": 1, **over}})
 
 
 def test_avoid_block_lists_the_words_with_counts(tmp_path, monkeypatch):
