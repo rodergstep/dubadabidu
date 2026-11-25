@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""qc-weight re-fit (AUTOPILOT.md M4).
+"""qc-weight re-fit (docs/AUTOPILOT.md M4).
 
 The re-fit moves the objective every downstream decision is made against, from
 a handful of human ratings. The tests that matter are therefore the ones that

@@ -45,7 +45,7 @@ provision -> rsync (never the source video) -> run -> sync back -> ALWAYS
 terminate. Guardrails: hard budget -> deadline cap, terminate retry + verify,
 an independent pod-side self-destruct watchdog, `remote kill` for orphans.
 The pod is cattle; all state returns to this repo. Vast.ai is the planned next
-provider (MIGRATION_VAST.md).
+provider (docs/MIGRATION_VAST.md).
 
 ### The flywheel — human verdicts are training data
 Review pages carry accept/reject buttons per segment; `dubadabidu verdicts`

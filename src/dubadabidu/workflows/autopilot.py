@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Autopilot (AUTOPILOT.md M1): deterministic orchestrator loop over the
+"""Autopilot (docs/AUTOPILOT.md M1): deterministic orchestrator loop over the
 existing CLI stages. Perceive -> assess vs spec -> mechanical fix -> re-eval
 -> PASS or ESCALATE.
 
@@ -47,7 +47,7 @@ def load_spec(path: str | None) -> dict:
     p = Path(path or DEFAULT_SPEC)
     if not p.exists():
         raise SystemExit(f"no spec at {p} — the autopilot refuses to run "
-                         f"without acceptance criteria (see AUTOPILOT.md).")
+                         f"without acceptance criteria (see docs/AUTOPILOT.md).")
     return yaml.safe_load(p.read_text(encoding="utf-8"))
 
 

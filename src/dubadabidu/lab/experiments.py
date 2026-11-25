@@ -63,7 +63,7 @@ def _kill() -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--file", default="experiments.yaml")
+    ap.add_argument("--file", default="specs/experiments.yaml")
     ap.add_argument("--only", nargs="*", default=None,
                     help="run just these experiment names")
     ap.add_argument("--dry-run", action="store_true")

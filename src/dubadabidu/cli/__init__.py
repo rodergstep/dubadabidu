@@ -47,7 +47,7 @@ def main() -> None:
     a.rest = [str(Path(v).resolve()) if Path(v).exists() else v for v in a.rest]
     os.chdir(project.root)
 
-    # .env contract (AUTOPILOT.md): the human's only config touchpoint for
+    # .env contract (docs/AUTOPILOT.md): the human's only config touchpoint for
     # credentials. KEY=VALUE lines; the environment always wins over the file.
     env_file = project.env_file
     if env_file.exists():

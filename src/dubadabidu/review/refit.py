@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""qc-weight re-fit (AUTOPILOT.md M4 — the flywheel's payload).
+"""qc-weight re-fit (docs/AUTOPILOT.md M4 — the flywheel's payload).
 
 `dubadabidu refit` reads the accumulated (human rating, qc metrics) pairs that
 `dubadabidu verdicts` writes into ratings_<lang>.json and re-derives

@@ -2,7 +2,7 @@
 """Review page: work/<video>/review_<lang>.html — self-contained, offline.
 
 Per segment: dubbed audio + the real UA slice side by side, metric badges,
-a 1..5 naturalness rating AND an accept/reject verdict (AUTOPILOT.md M3 —
+a 1..5 naturalness rating AND an accept/reject verdict (docs/AUTOPILOT.md M3 —
 the flywheel input). Both persist in localStorage and export as one JSON;
 `dubadabidu verdicts <video> <file.json>` writes them back to the manifest
 and accumulates them in ratings_<lang>.json for the qc-weight re-fit.

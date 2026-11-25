@@ -156,13 +156,13 @@ dubadabidu preamble <video>                s1+s2+reference candidates, then a pa
 dubadabidu qc | report | evaluate | review <video>
 dubadabidu verdicts <video> <export.json>  ingest review-page verdicts
 dubadabidu batch [video...]                per-video × per-language matrix
-dubadabidu autopilot <video...>            spec-driven accept/fix loop (AUTOPILOT.md)
+dubadabidu autopilot <video...>            spec-driven accept/fix loop (docs/AUTOPILOT.md)
 dubadabidu refit                           propose qc weights from your ratings (never applies)
 dubadabidu bakeoff | tune | prep <video>   engine / reference experiments
 dubadabidu remote status | kill | smoke | setup-check
 dubadabidu remote run | bakeoff | autopilot <video...>
 python -m pipeline.course ...              many videos, one pod
-python -m pipeline.experiments ...         queue experiments (experiments.yaml) on one pod
+python -m pipeline.experiments ...         queue experiments (specs/experiments.yaml) on one pod
 ```
 
 `remote` flags: `--budget USD`, `--keep-alive` (leave the pod up to debug over
@@ -265,7 +265,7 @@ or closed by evidence (`ledger/FINDINGS.md`, CLOSED table).
 - Widen `specs/batch.yaml` `policy.langs` from `[en]` to all five (a human edit).
 
 **Planned**
-- Vast.ai as the second provider — MIGRATION_VAST.md.
+- Vast.ai as the second provider — docs/MIGRATION_VAST.md.
 
 **Deferred, each with its trigger**
 - Enhancement / bandwidth pass — 24 kHz dullness audible through real speakers.

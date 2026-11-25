@@ -174,7 +174,7 @@ def test_every_enabled_experiment_isolates_one_axis():
     import yaml
     from dubadabidu.lab.bakeoff import variant_key
     root = REPO
-    spec = yaml.safe_load((root / "experiments.yaml").read_text())
+    spec = yaml.safe_load((root / "specs" / "experiments.yaml").read_text())
     base = yaml.safe_load(config("config.gpu.yaml").read_text())["tts"]
     keys = {}
     for e in spec["experiments"]:
