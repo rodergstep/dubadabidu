@@ -5,7 +5,7 @@ and n-best shorter variants. See dubadabidu/prompts/translate_system.md."""
 from __future__ import annotations
 import threading
 from concurrent.futures import ThreadPoolExecutor
-import csv, json, logging, os, re, time
+import csv, json, logging, os
 from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -15,11 +15,9 @@ if TYPE_CHECKING:
 from dubadabidu.core import manifest as M
 from dubadabidu.core.config.schema import Config, Translation
 from dubadabidu.core.languages import lang_name
+from dubadabidu.engines import llm
 
 log = logging.getLogger("dubadabidu.s3")
-# Some local servers (e.g. LM Studio) may wrap JSON in ```json fences in `text`
-# mode; strip them before parsing.
-_FENCE = re.compile(r"^```(?:json)?\s*|\s*```$")
 
 # Strict schemas for the {"type":"json_schema"} response_format (LM Studio /
 # OpenAI structured outputs). One per pass — draft/adapt emit translations,
@@ -53,28 +51,6 @@ _SHORTEN_SCHEMA = {
     "properties": {"variants": {"type": "array", "items": {"type": "string"}}},
     "required": ["variants"],
 }
-
-
-def _response_format(tcfg: Translation, schema: dict = _JSON_SCHEMA) -> dict:
-    """OpenAI `response_format` arg. Providers diverge on structured-output support:
-      json_object (default) — DeepSeek / OpenAI / Ollama
-      json_schema           — LM Studio (strict; best for small local models)
-      text                  — no server-side enforcement; relies on the prompt."""
-    mode = tcfg.response_format
-    if mode == "json_object":
-        return {"type": "json_object"}
-    if mode == "text":
-        return {"type": "text"}
-    if mode == "json_schema":
-        return {"type": "json_schema",
-                "json_schema": {"name": "translation", "strict": True,
-                                "schema": schema}}
-    raise SystemExit(f"translation.response_format '{mode}' is invalid "
-                     "(use json_object | json_schema | text).")
-
-
-def _loads(content: str) -> dict:
-    return json.loads(_FENCE.sub("", content.strip()))
 
 
 def _glossary(src: str, lang: str) -> str:
@@ -130,7 +106,7 @@ def _terms(client: OpenAI, tcfg: Translation, cfg: Config, video: str, man: dict
         cache = M.video_workdir(cfg, video) / f"terms_{lang}.json"
         transcript = "\n".join(u["text_src"] for u in man["utterances"])
         src = lang_name(cfg.source_language)
-        data = _chat(client, tcfg,
+        data = llm.chat(client, tcfg,
                      f"From this {src} art-course transcript, extract up to "
                      f"30 domain terms and proper nouns whose {lang_name(lang)} "
                      f"translation must stay consistent throughout the course. "
@@ -293,39 +269,12 @@ def shorten(cfg: Config, lang: str, text_src: str, text: str, max_chars: int,
     user = json.dumps({"source": text_src, "current": text,
                        "max_chars": max_chars}, ensure_ascii=False)
     try:
-        data = _chat(client, tcfg, sysmsg, user, retries=1,
+        data = llm.chat(client, tcfg, sysmsg, user, retries=1,
                      schema=_SHORTEN_SCHEMA)
         return [v.strip() for v in data.get("variants", []) if v.strip()]
     except Exception as e:
         log.warning("emergency shorten failed (%s); keeping overflow", e)
         return []
-
-
-def _chat(client: OpenAI, tcfg: Translation, sysmsg: str, user: str, retries: int = 4,
-          schema: dict = _JSON_SCHEMA, model: str | None = None,
-          seen: set[str] | None = None) -> dict:
-    """One chat call with retry. `seen` collects the model id the server says
-    ANSWERED (resp.model) — provider names are moving aliases (deepseek-flash
-    moved checkpoint twice in 2026), so the requested name alone does not say
-    which model produced a translation."""
-    rformat = _response_format(tcfg, schema)
-    delay = 2.0
-    for attempt in range(retries + 1):
-        try:
-            resp = client.chat.completions.create(
-                model=model or tcfg.model, temperature=0.3, timeout=120,
-                response_format=rformat,
-                messages=[{"role": "system", "content": sysmsg},
-                          {"role": "user", "content": user}])
-            if seen is not None and getattr(resp, "model", None):
-                seen.add(str(resp.model))
-            return _loads(resp.choices[0].message.content)
-        except Exception as e:
-            if attempt == retries:
-                raise
-            log.warning("LLM call failed (%s); retry in %.0fs", e, delay)
-            time.sleep(delay)
-            delay *= 2
 
 
 def _adequacy(ask, shared: str, batch: list, src: str, lang: str, flag: int,
@@ -366,20 +315,6 @@ def _adequacy(ask, shared: str, batch: list, src: str, lang: str, flag: int,
         log.warning("%s: %d/%d below adequacy %d: %s", lang, len(flagged),
                     len(batch), flag,
                     ", ".join(f"{i}({sc}:{iss[:40]})" for i, sc, iss in flagged))
-
-
-def configured_models(tcfg: Translation) -> list[str]:
-    """Every model name the translation block will request."""
-    names = [tcfg.model, tcfg.reflect_model, tcfg.adequacy_model]
-    return sorted({n for n in names if n})
-
-
-def missing_models(client: OpenAI, tcfg: Translation) -> list[str]:
-    """Configured model names the endpoint does not list. Catches a provider
-    retiring a name (deepseek-v4-flash, 2026-09-10) before a paid run silently
-    gets routed to an unevaluated replacement — or fails mid-batch."""
-    listed = {m.id for m in client.models.list().data}
-    return [n for n in configured_models(tcfg) if n not in listed]
 
 
 def run(cfg: Config, video: str, langs: list[str]) -> None:
@@ -459,7 +394,7 @@ def run(cfg: Config, video: str, langs: list[str]) -> None:
         answered: set[str] = set()
 
         def _ask(sysmsg, payload, schema=_JSON_SCHEMA, model=None):
-            data = _chat(client, tcfg, sysmsg,
+            data = llm.chat(client, tcfg, sysmsg,
                          json.dumps({"segments": payload}, ensure_ascii=False),
                          schema=schema, model=model, seen=answered)
             by_id = {s["id"]: s for s in data.get("segments", [])}
@@ -469,7 +404,7 @@ def run(cfg: Config, video: str, langs: list[str]) -> None:
                 log.warning("LLM dropped %d segments (%s); retrying one by one",
                             len(dropped), [p["id"] for p in dropped])
                 for p in dropped:
-                    data = _chat(client, tcfg, sysmsg,
+                    data = llm.chat(client, tcfg, sysmsg,
                                  json.dumps({"segments": [p]}, ensure_ascii=False),
                                  schema=schema, model=model, seen=answered)
                     by_id.update({s["id"]: s for s in data.get("segments", [])})

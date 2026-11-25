@@ -37,6 +37,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dubadabidu.core import manifest as M  # noqa: E402
+from dubadabidu.engines import llm  # noqa: E402
 from dubadabidu.stages import s3_translate as S3  # noqa: E402
 from dubadabidu.core.config.loader import load as load_config
 from dubadabidu.qc.stress_words import load_avoid_list  # noqa: E402
@@ -101,8 +102,9 @@ def run(cfg: dict, video: str, lang: str, apply: bool = False) -> int:
                          tcfg.n_short_variants) + "\n\n" + shared)
     payload = [{"id": u["id"], "src": u["text_src"], "chars": len(u["text_src"]),
                 "seconds": round(u["end"] - u["start"], 1)} for u in segs]
-    data = S3._chat(client, tcfg, sysmsg,
-                    json.dumps({"segments": payload}, ensure_ascii=False))
+    data = llm.chat(client, tcfg, sysmsg,
+                    json.dumps({"segments": payload}, ensure_ascii=False),
+                    schema=S3._JSON_SCHEMA)
     by_id = {s["id"]: s for s in data.get("segments", [])}
 
     changed = 0

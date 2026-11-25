@@ -35,6 +35,7 @@ PARAMS: dict[str, dict[str, str]] = {
     "asr.py": {"a": "asr"},
     "s2_transcribe.py": {"a": "asr"},
     "s3_translate.py": {"tcfg": "translation"},
+    "llm.py": {"tcfg": "translation"},
     "s5_fit.py": {"tu": "tts", "f": "fit", "fit_cfg": "fit"},
     "s6_mix.py": {"mix": "mix", "norm": "mix.segment_norm", "m": "mix.master"},
     "s1_extract.py": {"sep": "separation", "sep_cfg": "separation"},

@@ -154,7 +154,7 @@ def _check_translation_models(tcfg: Translation,
     should not fail doctor over the network."""
     import os
     from openai import OpenAI
-    from dubadabidu.stages.s3_translate import missing_models
+    from dubadabidu.engines.llm import missing_models
     try:
         client = OpenAI(base_url=tcfg.base_url,
                         api_key=os.environ[tcfg.api_key_env], timeout=15)
