@@ -4,7 +4,7 @@
     python -m tests.neutrality.harness --dump OUT.json [--project DIR] [--full]
 
 Builds a throwaway project directory (copies of config.yaml, the overlays,
-glossary/, prompts/ and specs/, a synthetic reference clip, and the committed
+glossary/ and specs/, a synthetic reference clip, and the committed
 fixture video), installs the boundary fakes (tests/neutrality/fakes.py),
 forbids network access, then drives the REAL CLI in-process through:
 

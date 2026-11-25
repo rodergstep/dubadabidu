@@ -120,6 +120,10 @@ packages = [
   "dubadabidu.workflows",
 ]
 
+[tool.setuptools.package-data]
+# the s3 prompt templates, read with importlib.resources
+dubadabidu = ["prompts/*.md"]
+
 [tool.pytest.ini_options]
 # CI runs pytest without installing the project
 pythonpath = ["src", "."]

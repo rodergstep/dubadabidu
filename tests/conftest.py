@@ -2,7 +2,7 @@
 """Every test runs with the project root as its working directory.
 
 That is what the CLI guarantees (it changes into the project before any stage
-runs, and stages resolve work/, glossary/, prompts/ and the configs from
+runs, and stages resolve work/, glossary/, ref/ and the configs from
 there), so the suite behaves the same whichever directory pytest is started
 from. A test that needs another directory still monkeypatches chdir itself.
 """

@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """s3: LLM translation via OpenAI-compatible endpoint (DeepSeek / Ollama / OpenAI)
 with retry+backoff, per-batch checkpointing, isometric constraint, glossary,
-and n-best shorter variants. See prompts/translate_system.md."""
+and n-best shorter variants. See dubadabidu/prompts/translate_system.md."""
 from __future__ import annotations
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import csv, json, logging, os, re, time
+from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -92,7 +93,8 @@ def _glossary(src: str, lang: str) -> str:
 
 def _prompt(src: str, lang: str, tol: float, n_var: int,
             name: str = "translate_system") -> str:
-    tpl = Path(f"prompts/{name}.md").read_text(encoding="utf-8")
+    # package data (src/dubadabidu/prompts/), so an installed wheel has them
+    tpl = files("dubadabidu").joinpath("prompts", f"{name}.md").read_text(encoding="utf-8")
     return (tpl.replace("{SRC}", LANG_NAMES[src])
                .replace("{LANG}", LANG_NAMES[lang])
                .replace("{TOL}", str(int(tol * 100)))
