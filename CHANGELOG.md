@@ -7,6 +7,36 @@ All notable changes to this project are documented here. The format follows
 Measured results and refuted ideas live in `FINDINGS.md`; per-run costs live in
 `runs.jsonl`. This file records what changed in the software.
 
+## [Unreleased]
+
+### Added
+- Russian input: `source_language: uk | ru` (the schema rejects anything else)
+  and the `config.source-ru.yaml` overlay. The translation prompts, the terms
+  extraction, the shortening step and the adequacy judge name the configured
+  source instead of assuming Ukrainian.
+- Ukrainian as a target language: voiced by edge-tts `uk-UA-OstapNeural` via
+  `tts.engine_by_lang: {uk: edge}`. qwen's Ukrainian (language `Auto`; Qwen3-TTS
+  lists no Ukrainian) was unusable by ear (FINDINGS §2.4).
+- A video is never dubbed into its own language.
+
+### Changed
+- torch 2.11.0 → 2.14.1 and torchaudio 2.11.0 → 2.11.1. torchaudio is no longer
+  version-locked to torch, but its Linux wheel is a CUDA 13 build, so Linux
+  torch now comes from the cu130 index and `runpod.min_cuda_version` rises from
+  12.8 to 13.0. ECAPA and Distill-MOS scores are bit-identical to 2.11 on CPU;
+  CUDA graphs (faster-qwen3-tts) and the CUDA qc metrics were checked on a pod.
+  The lock moves only torch, torchaudio, torchvision, triton and the CUDA
+  runtime wheels (nvidia-*-cu12 → their CUDA 13 counterparts).
+- The manifest transcript field is `text_src` (was `text_uk`). Manifests,
+  `refs.json` and cached `terms_<lang>.json` written before are renamed on
+  read, so existing work and ratings still load.
+- Glossaries moved to `glossary/<source>/<target>.csv`; the ASR initial prompt
+  reads only the source language's glossary.
+- Edge output keeps the `_EDGE-PLUMBING-ONLY` name and the review banner only
+  when edge stands in for the configured engine; a language routed to edge on
+  purpose (uk) is the real dub. Verdict ingestion still refuses every edge
+  language.
+
 ## [1.0.0] — 2026-11-25
 
 Release cleanup. No pipeline logic, default config values or model choices

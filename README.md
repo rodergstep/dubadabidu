@@ -1,8 +1,11 @@
-# dubadabidu — Ukrainian → multilingual AI dubbing
+# dubadabidu — Ukrainian/Russian → multilingual AI dubbing
 
-Turns a Ukrainian lesson video into one MP4 with dubbed audio tracks in
-English, French, German, Spanish and Russian, plus soft subtitles, in **your
-own cloned voice**.
+Turns a Ukrainian or Russian lesson video (`source_language: uk | ru`; stack
+`--overlay config.source-ru.yaml` for Russian) into one MP4 with dubbed audio
+tracks in English, French, German, Spanish, Russian and Ukrainian (never the
+source itself), plus soft subtitles, in **your own cloned voice**. Ukrainian is
+the exception: Qwen3-TTS has no Ukrainian, so uk is voiced by edge-tts
+`uk-UA-OstapNeural` (`tts.engine_by_lang`, FINDINGS §2.4).
 
 `input/lesson01.mp4` → `output/lesson01_multi.mp4` (video copy + N audio
 tracks + N subtitle tracks), and optionally one MP4 per language.
@@ -51,7 +54,7 @@ changed segments are re-synthesized (content-hash cache).
   including a local LM Studio or Ollama, works).
 - For cloned voices: a RunPod account and API key, plus an SSH key pair. A
   pod needs an NVIDIA GPU with ≥ 16 GB VRAM (measured peak ~12 GB) and a
-  CUDA ≥ 12.8 driver; `config.gpu.yaml` picks the cards.
+  CUDA ≥ 13.0 driver; `config.gpu.yaml` picks the cards.
 - 2–4 clean 15–20 s WAV clips of your voice (see "Reference voice").
 
 dubadabidu runs **from a clone of this repository**. Config, prompts, glossary,
@@ -111,7 +114,7 @@ Create the SSH key the pod is reached with (its `.pub` is sent to the pod):
 ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_runpod
 ```
 
-Transcribe locally, then **hand-review the Ukrainian text** in
+Transcribe locally, then **hand-review the source text** (`text_src`) in
 `work/lesson01/manifest.json`; one fix there propagates to every language:
 
 ```bash
@@ -208,7 +211,7 @@ A wrong `response_format` produces errors like
 
 Record 2–4 clean 15–20 s WAV clips (quiet room, no music, natural teaching
 tone; `ref/README.txt` has the checklist), put them in `ref/` (git-ignored) and
-set `tts.reference_wav`. The Ukrainian reference is cloned through Qwen3-TTS's
+set `tts.reference_wav`. The reference is cloned through Qwen3-TTS's
 speaker-embedding path (`qwen_x_vector_only`). `tts.reference_max_s` trims it:
 quality climbs to ~15 s and then degrades. The reference is a curated asset;
 per-video references measured worse (FINDINGS §2.2).
@@ -235,11 +238,11 @@ uvx ruff check .
 
 After changing a dependency in `pyproject.toml`, run `uv lock` and
 `scripts/export_requirements.sh` (`requirements.txt` is the pod's generated
-Linux export, `+cu128` torch; CI checks it is current).
+Linux export, `+cu130` torch; CI checks it is current).
 
 Pinned versions that matter, and why, are commented in `pyproject.toml`
-(`transformers==4.57.3`, `av<19`, torch/torchaudio 2.11.0 from the cu128 index
-on Linux). Measured results and closed questions are in `FINDINGS.md`; read
+(`transformers==4.57.3`, `av<19`, torch 2.14.1 from the cu130 index on Linux,
+torchaudio 2.11.1). Glossaries live in `glossary/<source>/<target>.csv`. Measured results and closed questions are in `FINDINGS.md`; read
 its CLOSED table before spending a pod.
 
 ## Roadmap
