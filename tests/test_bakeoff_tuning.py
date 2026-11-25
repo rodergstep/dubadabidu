@@ -13,6 +13,7 @@ import pytest
 
 from pipeline.manifest import synth_hash
 from qc import bakeoff as B
+from tests.paths import REPO
 
 
 # --- grid expansion ---
@@ -323,8 +324,7 @@ def test_bakeoff_synthesises_takes_serially():
     venvs merged (2026-08-02) synthesis runs in-process against ONE model held
     in module globals — not thread-safe, so two concurrent takes would drive a
     single model. Scoring stays overlapped; that is where the measured 40% was."""
-    from pathlib import Path
-    src = (Path(__file__).resolve().parents[1] / "qc" / "bakeoff.py").read_text()
+    src = (REPO / "qc" / "bakeoff.py").read_text()
     block = src[src.index("def _synth_one("):src.index("for w, _d in done:")]
     assert "ThreadPoolExecutor" not in block, \
         "synthesis must not be pooled while the model is a module global"
@@ -341,8 +341,7 @@ def test_s4_pre_synthesizes_the_variants_s5_would_need():
     languages of pod synthesis had been paid for. course.py's design (phase C
     is local and free) depends on s5 never needing a GPU, so s4 must pre-make
     the variants."""
-    from pathlib import Path
-    src = Path(__file__).resolve().parents[1] / "pipeline" / "s4_synthesize.py"
+    src = REPO / "pipeline" / "s4_synthesize.py"
     text = src.read_text()
     assert "VARIANT_MARGIN" in text, "s4 no longer pre-makes fit variants"
     assert 'tr.get("variants")' in text, (
@@ -352,8 +351,7 @@ def test_s4_pre_synthesizes_the_variants_s5_would_need():
 def test_s5_names_the_pod_when_it_cannot_synthesize():
     """The remaining hole is llm_shorten minting a NEW variant at s5 time, which
     s4 cannot predict. That must not resurface as a bare ImportError."""
-    from pathlib import Path
-    src = Path(__file__).resolve().parents[1] / "pipeline" / "s5_fit.py"
+    src = REPO / "pipeline" / "s5_fit.py"
     text = src.read_text()
     assert "engine_available" in text and "remote run" in text, (
         "s5 must check engine availability and tell the user to run the stage "

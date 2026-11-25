@@ -23,9 +23,9 @@ is caught by M.stale_qc on a content hash of the graded wav, and is unaffected.
 """
 from __future__ import annotations
 import sys
-from pathlib import Path
+from tests.paths import REPO
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = REPO
 sys.path.insert(0, str(ROOT))
 
 from qc.verdicts import _seg_hash  # noqa: E402

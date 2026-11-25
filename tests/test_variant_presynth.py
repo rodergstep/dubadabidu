@@ -20,6 +20,7 @@ import pytest
 
 from pipeline import s4_synthesize as S4
 from pipeline import manifest as M
+from tests.paths import REPO
 
 CFG = {"work_dir": None,           # filled per-test
        "fit": {"soft_tempo": 1.06},
@@ -172,8 +173,7 @@ def test_s5_never_asks_for_a_variant_s4_skipped():
 def test_s5_variant_loop_is_lazy_not_a_comprehension():
     """Guards the mechanism, not just the arithmetic: an eager comprehension
     re-introduces the bug while every duration-level test still passes."""
-    from pathlib import Path
-    src = (Path(__file__).resolve().parents[1] / "pipeline" / "s5_fit.py").read_text()
+    src = (REPO / "pipeline" / "s5_fit.py").read_text()
     assert "wavs += [seg_wav(c) for c in candidates[1:]]" not in src, (
         "s5 requests every variant eagerly again — s4 only pre-makes them up to "
         "the first that clears the bar")

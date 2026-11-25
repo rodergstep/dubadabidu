@@ -22,11 +22,11 @@ makes that impossible to reintroduce quietly.
 """
 from __future__ import annotations
 import sys
-from pathlib import Path
 
 import pytest
+from tests.paths import REPO
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = REPO
 sys.path.insert(0, str(ROOT))
 
 from pipeline.text_norm import localize_numbers  # noqa: E402

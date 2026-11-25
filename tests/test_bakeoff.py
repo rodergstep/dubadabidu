@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 from pipeline.manifest import synth_hash
 from qc.bakeoff import beats_incumbent
+from tests.paths import REPO
 
 
 def _tts(**over):
@@ -141,8 +142,7 @@ def test_a_bakeoff_that_measured_nothing_exits_nonzero():
     and the ledger row looked like a clean run — 11.6 min of billed bootstrap
     producing zero rows, indistinguishable from a good result until someone
     opened the scorecard (2026-08-13)."""
-    from pathlib import Path as _P
-    src = (_P(__file__).resolve().parents[1] / "qc" / "bakeoff.py").read_text(
+    src = (REPO / "qc" / "bakeoff.py").read_text(
         encoding="utf-8")
     assert "measured NOTHING" in src, "a zero-measurement run still exits 0"
     assert 'all("unavailable" in v for v in per_engine.values())' in src, (

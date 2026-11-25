@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Pure-logic tests: config overlay merge, per-lang engine routing, cache-safe
 hashing for the GPU phase."""
-from pathlib import Path
 
 
 from pipeline.logic import deep_merge
 from pipeline.manifest import resolve_engine, synth_hash
+from tests.paths import REPO
 
 TTS = {"engine": "chatterbox", "reference_wav": "ref/r.wav",
        "cfg_weight": 0.0, "exaggeration": 0.55}
@@ -61,7 +61,7 @@ def test_gpu_profile_actually_routes_production_to_qwen():
     chatterbox installs in the base venv: wrong output, not a crash."""
     import yaml
     from pipeline.logic import deep_merge
-    root = Path(__file__).resolve().parents[1]
+    root = REPO
     cfg = deep_merge(yaml.safe_load((root / "config.yaml").read_text()),
                      yaml.safe_load((root / "config.gpu.yaml").read_text()))
     t = cfg["tts"]
@@ -77,7 +77,7 @@ def test_no_isolation_machinery_survives():
     SECOND ~2.5 GB torch download per pod and bought nothing. Removed
     2026-08-02 — this fails if it creeps back without the engines that
     justified it."""
-    root = Path(__file__).resolve().parents[1]
+    root = REPO
     assert not (root / "pipeline" / "engine_client.py").exists()
     assert not (root / "pipeline" / "engine_worker.py").exists()
     src = (root / "pipeline" / "tts_engine.py").read_text()

@@ -2,23 +2,25 @@
 """PLAN_v0.5 P7: every shipped config combination validates, and a typo fails
 loudly with its dotted path instead of being silently ignored."""
 import copy
-import glob
 
 import pytest
 import yaml
 
 from pipeline.config_schema import ConfigError, validate
 from pipeline.logic import deep_merge
+from tests.paths import REPO
 
 
-def _load(path: str) -> dict:
-    with open(path, encoding="utf-8") as fh:
+def _load(name: str) -> dict:
+    with open(REPO / name, encoding="utf-8") as fh:
         return yaml.safe_load(fh) or {}
 
 
 def _combos() -> list[tuple[str, ...]]:
+    # anchored at REPO: parametrize runs at COLLECTION time, before the
+    # conftest chdir, and a cwd-relative glob silently found no overlays
     out: list[tuple[str, ...]] = [("config.yaml",), ("config.yaml", "config.gpu.yaml")]
-    for f in sorted(glob.glob("config.*.yaml")):
+    for f in sorted(p.name for p in REPO.glob("config.*.yaml")):
         if f != "config.gpu.yaml":
             out.append(("config.yaml", "config.gpu.yaml", f))
     return out

@@ -3,6 +3,7 @@ import ast
 import sys
 from pathlib import Path
 import yaml
+from tests.paths import REPO
 
 
 def test_audit():
@@ -21,7 +22,7 @@ So: check names against their definitions, not against intent.
 
 
 
-    ROOT = Path(__file__).resolve().parents[1]
+    ROOT = REPO
     FAIL = []
 
 
@@ -239,8 +240,7 @@ def test_asr_defends_against_repetition_loops():
       - temperature=0.0 with no ladder disabled Whisper's OWN rescue, which
         detects a bad decode via compression_ratio_threshold and retries hotter
     """
-    from pathlib import Path
-    src = (Path(__file__).resolve().parents[1] / "pipeline" / "asr.py").read_text()
+    src = (REPO / "pipeline" / "asr.py").read_text()
     assert 'condition_on_previous_text", False' in src, (
         "condition_on_previous_text must DEFAULT to False — True propagates a "
         "hallucination into a repetition loop across a long file")
@@ -298,8 +298,7 @@ def test_ru_stress_layer_is_wired_and_salted():
 
     Restored 2026-08-03, engine-agnostic and behind tts.ru_stress. Three things
     have to hold together or it is worse than absent."""
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
+    root = REPO
 
     # 1. it must actually run at the synthesis boundary
     tts = (root / "pipeline" / "tts_engine.py").read_text()

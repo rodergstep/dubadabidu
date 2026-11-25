@@ -10,6 +10,7 @@ existed. Measured on work/sketch60: stored qc_f0st 2.58 vs 1.70 actual.
 from pathlib import Path
 
 from pipeline import manifest as M
+from tests.paths import REPO
 
 
 def _seg(tmp: Path, name: str, data: bytes) -> str:
@@ -114,8 +115,7 @@ def test_mix_encode_pins_the_output_sample_rate():
     keeps the encoder there too.
 
     Found by an edge plumbing run, not by a test — hence this test."""
-    from pathlib import Path
-    src = (Path(__file__).resolve().parents[1] / "pipeline" / "s6_mix.py").read_text()
+    src = (REPO / "pipeline" / "s6_mix.py").read_text()
     enc = src[src.index("def _encode("):]
     enc = enc[:enc.index("check=True)")]
     assert '"-ar", "44100"' in enc, "s6 must pin the encoder sample rate"

@@ -11,8 +11,9 @@ import pytest
 from pipeline import manifest as M
 from pipeline import s3_translate as S3
 from pipeline.config_schema import ConfigError, validate
+from tests.paths import REPO
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = REPO
 
 
 def _cfg(tmp_path: Path, src: str = "ru") -> dict:

@@ -3,9 +3,10 @@
 import json
 import sys
 from pathlib import Path
+from tests.paths import REPO
 
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(REPO))
 from pipeline.course import _videos, _stage_done  # noqa: E402
 
 
@@ -49,7 +50,7 @@ def test_gpu_phase_is_narrowed_to_s4_and_reuses_one_pod():
     """The whole reason this exists: `remote run` per video would provision,
     bootstrap, install qwen and download weights EVERY time (~5 min each). The
     GPU phase must pass --reuse --keep-alive and narrow the pod to s4."""
-    src = (Path(__file__).resolve().parents[1] / "pipeline" / "course.py").read_text()
+    src = (REPO / "pipeline" / "course.py").read_text()
     gpu_call = src[src.index('"remote", "run"'):src.index("finally:")]
     for flag in ('"--reuse"', '"--keep-alive"',
                  '"--from", "s4_synthesize"', '"s4_synthesize"'):
@@ -59,7 +60,7 @@ def test_gpu_phase_is_narrowed_to_s4_and_reuses_one_pod():
 def test_pod_is_killed_in_a_finally_block():
     """--keep-alive leaves the pod up on purpose so the next video attaches;
     nothing else will take it down."""
-    src = (Path(__file__).resolve().parents[1] / "pipeline" / "course.py").read_text()
+    src = (REPO / "pipeline" / "course.py").read_text()
     after = src[src.index("finally:"):]
     assert '"remote", "kill"' in after
     assert "leaked pod" in after, "a failed kill must be surfaced, not swallowed"

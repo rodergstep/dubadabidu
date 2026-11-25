@@ -7,12 +7,12 @@ These tests pin the mechanics so the pod run measures the axis it claims to.
 """
 from __future__ import annotations
 import sys
-from pathlib import Path
 
 import pytest
 import yaml
+from tests.paths import REPO
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = REPO
 sys.path.insert(0, str(ROOT))
 
 

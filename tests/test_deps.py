@@ -12,11 +12,11 @@ import re
 import shutil
 import subprocess
 import tomllib
-from pathlib import Path
 
 import pytest
+from tests.paths import REPO
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = REPO
 EXPORT_CMD = ["uv", "export", "--frozen", "--no-hashes", "--no-emit-project",
               "--extra", "dev"]
 CU_INDEX_LINE = "--extra-index-url https://download.pytorch.org/whl/cu130"

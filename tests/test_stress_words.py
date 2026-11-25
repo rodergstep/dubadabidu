@@ -12,8 +12,9 @@ import sys
 from pathlib import Path
 
 import pytest
+from tests.paths import REPO
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = REPO
 sys.path.insert(0, str(ROOT))
 
 from qc import stress_words as SW  # noqa: E402

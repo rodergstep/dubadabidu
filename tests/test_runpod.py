@@ -2,6 +2,7 @@
 import time
 from pipeline.runpod_infra import (_deadline, engine_install_cmd, ssh_target,
                                    DEFAULTS)
+from tests.paths import REPO
 
 
 def _rp(**over):
@@ -174,9 +175,8 @@ def test_every_enabled_experiment_isolates_one_axis():
     seg/<variant>/<lang>/, so the same variant in two languages is NOT a
     collision — an en control and a ru control coexist correctly."""
     import yaml
-    from pathlib import Path
     from qc.bakeoff import variant_key
-    root = Path(__file__).resolve().parents[1]
+    root = REPO
     spec = yaml.safe_load((root / "experiments.yaml").read_text())
     base = yaml.safe_load((root / "config.gpu.yaml").read_text())["tts"]
     keys = {}
@@ -271,9 +271,8 @@ def test_config_puts_cheap_gpus_first_and_4090_last():
     """The ordering is load-bearing now, so a careless re-sort would silently
     put us back on the most expensive card."""
     import yaml
-    from pathlib import Path
     cfg = yaml.safe_load(
-        (Path(__file__).resolve().parents[1] / "config.gpu.yaml").read_text())
+        (REPO / "config.gpu.yaml").read_text())
     ids = cfg["runpod"]["gpu_type_ids"]
     assert "gpu_type_priority" not in cfg["runpod"], "v1-only key; v2 has no such field"
     assert ids[0] == "NVIDIA RTX A4000"
@@ -300,8 +299,7 @@ def test_remote_run_has_no_function_local_shlex_import():
     raised UnboundLocalError — after provisioning a pod. Python scoping, not a
     typo: the failure is invisible to reading the call site."""
     import ast
-    from pathlib import Path
-    src = (Path(__file__).resolve().parents[1]
+    src = (REPO
            / "pipeline" / "runpod_infra.py").read_text()
     fn = next(n for n in ast.walk(ast.parse(src))
               if isinstance(n, ast.FunctionDef) and n.name == "remote_run")
@@ -505,8 +503,7 @@ def test_qc_does_not_call_torchaudio_load():
     "load")` is still True, so the break shows up only when a scoring run
     actually reads a file, on a pod, mid-billing. Cheap to assert statically."""
     import ast
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
+    root = REPO
     # AST, not a substring: the first cut of this test flagged the comment in
     # metrics.py that EXPLAINS the migration.
     for py in sorted(root.glob("qc/*.py")) + sorted(root.glob("pipeline/*.py")):
@@ -596,8 +593,7 @@ def test_remote_run_probes_with_the_engines_it_installs():
     """Both call sites must read the SAME list, or the bug returns wearing a
     different hat."""
     import ast
-    from pathlib import Path
-    src = (Path(__file__).resolve().parents[1]
+    src = (REPO
            / "pipeline" / "runpod_infra.py").read_text()
     fn = next(n for n in ast.walk(ast.parse(src))
               if isinstance(n, ast.FunctionDef) and n.name == "remote_run")
@@ -637,8 +633,7 @@ def test_reuse_path_rearms_the_watchdog():
     """course.py attaches ONE pod for twenty videos; each call recomputes a
     fresh deadline locally, so the pod must be told about it."""
     import ast
-    from pathlib import Path
-    src = (Path(__file__).resolve().parents[1]
+    src = (REPO
            / "pipeline" / "runpod_infra.py").read_text()
     fn = next(n for n in ast.walk(ast.parse(src))
               if isinstance(n, ast.FunctionDef) and n.name == "remote_run")
@@ -703,8 +698,7 @@ def test_bakeoff_rsync_does_not_clobber_the_engine_list():
     provisioned their own pod on 2026-08-09 and both returned empty scorecards.
     """
     import re
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
+    root = REPO
     src = (root / "pipeline" / "runpod_infra.py").read_text(encoding="utf-8")
     body = src.split("def remote_run", 1)[1].split("\ndef ", 1)[0]
     # the engine list is assigned exactly once in remote_run
@@ -744,8 +738,7 @@ def test_deadline_is_recomputed_from_the_price_actually_paid():
     ledger says it often was not: prices actually paid are 0.25, 0.26, 0.28 and
     0.49. The cap is on TIME, so on the 0.49 pod a "$10 cap" bought nearly twice
     the dollars it promised."""
-    from pathlib import Path as _P
-    src = (_P(__file__).resolve().parents[1] / "pipeline"
+    src = (REPO / "pipeline"
            / "runpod_infra.py").read_text(encoding="utf-8")
     block = src[src.index("RE-DERIVE THE DEADLINE"):]
     block = block[:block.index("arm_pod_watchdog")]
@@ -760,8 +753,7 @@ def test_bootstrap_time_is_recorded_in_the_ledger():
     from real work, and nothing ever wrote it — 15 of 17 rows carry 0, so setup
     was being billed as synthesis. 'Is batching worth it' has to be answerable
     from the ledger, not from memory."""
-    from pathlib import Path as _P
-    src = (_P(__file__).resolve().parents[1] / "pipeline"
+    src = (REPO / "pipeline"
            / "runpod_infra.py").read_text(encoding="utf-8")
     assert '"bootstrap_s": _boot_s' in src, "bootstrap_s still never written"
     assert src.index("_boot_s = round(") < src.index("rc = ssh_exec(rp, host, port, full"), (
@@ -787,8 +779,7 @@ def test_missing_engine_setup_fails_before_provisioning():
     and the bake-off reports "engine unavailable" over zero measurements.
     Happened 2026-08-13: ~10 minutes billed for a result that could not exist.
     The refusal has to come BEFORE the money starts."""
-    from pathlib import Path as _P
-    src = (_P(__file__).resolve().parents[1] / "pipeline"
+    src = (REPO / "pipeline"
            / "runpod_infra.py").read_text(encoding="utf-8")
     guard = src.index("FAIL BEFORE PROVISIONING")
     assert guard < src.index("deadline = _deadline(rp, budget)"), \

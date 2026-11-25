@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from tests.paths import REPO
 
-REPO = Path(__file__).resolve().parents[1]
 RANK = {"core": 0, "engines": 1, "qc": 2, "stages": 3, "review": 4,
         "lab": 5, "infra": 5, "workflows": 6, "cli": 7}
 SIBLINGS_APART = {frozenset({"lab", "infra"})}
