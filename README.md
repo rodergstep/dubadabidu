@@ -170,7 +170,9 @@ SSH; the watchdog still fires), `--reuse` (attach to that pod).
 
 ## Configuration
 
-`config.yaml` is the base; overlays are deep-merged over it, left to right:
+`config.yaml` is the base; overlays are deep-merged over it, left to right.
+`--overlay NAME` looks for NAME in the project root, then `configs/`, then
+`configs/experiments/`, so overlays are named by file name alone:
 
 | File | What it sets |
 |---|---|
@@ -178,7 +180,7 @@ SSH; the watchdog still fires), `--reuse` (attach to that pod).
 | `config.gpu.yaml` | the pod profile: qwen + fast path, takes, RunPod GPU list, image, budget, runtime cap |
 | `config.deepseek.yaml` | translation via DeepSeek (also forwarded to every pod run) |
 | `config.gemini.yaml` | translation via Google Gemini's OpenAI-compatible endpoint. Its model id is **unverified**: run `doctor` before using it |
-| `config.exp.*.yaml` | experiment arms; the record behind FINDINGS.md |
+| `configs/experiments/config.exp.*.yaml` | experiment arms; the record behind FINDINGS.md |
 
 ```bash
 uv run dubadabidu run input/lesson01.mp4 --overlay config.gpu.yaml --overlay config.gemini.yaml

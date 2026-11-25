@@ -10,7 +10,7 @@ import sys
 
 import pytest
 import yaml
-from tests.paths import REPO, source
+from tests.paths import REPO, config, source
 
 ROOT = REPO
 sys.path.insert(0, str(ROOT))
@@ -58,7 +58,7 @@ def test_a_segment_without_an_alternative_falls_back_to_shipped():
 def test_each_overlay_isolates_exactly_one_axis(path, axis):
     """Its control is config.exp.ru-control.yaml. If an overlay moves anything
     besides its axis and the label, the A/B measures a mixture."""
-    c = yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))
+    c = yaml.safe_load(config(path).read_text(encoding="utf-8"))
     sec, key = axis
     assert c[sec][key], f"{path} does not set its own axis"
     assert c["tts"].get("variant_label"), "rows would merge without a label"

@@ -14,7 +14,7 @@ import subprocess
 import tomllib
 
 import pytest
-from tests.paths import REPO, source
+from tests.paths import REPO, config, source
 
 ROOT = REPO
 EXPORT_CMD = ["uv", "export", "--frozen", "--no-hashes", "--no-emit-project",
@@ -222,9 +222,9 @@ def test_ru_icl_arms_differ_in_exactly_one_axis():
     config.exp.ru-stress.yaml originally shipped with was a reference pinned
     from a different experiment, which measured the reference, not the axis."""
     import yaml
-    b = yaml.safe_load((ROOT / "config.exp.ru-icl-stress.yaml").read_text(
+    b = yaml.safe_load(config("config.exp.ru-icl-stress.yaml").read_text(
         encoding="utf-8"))["tts"]
-    c = yaml.safe_load((ROOT / "config.exp.ru-icl-plain.yaml").read_text(
+    c = yaml.safe_load(config("config.exp.ru-icl-plain.yaml").read_text(
         encoding="utf-8"))["tts"]
     for k in ("reference_wav", "reference_max_s", "qwen_x_vector_only"):
         assert b[k] == c[k], f"arms differ in {k}: {b[k]!r} vs {c[k]!r}"

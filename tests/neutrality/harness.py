@@ -64,7 +64,7 @@ def _copy_project(project: Path) -> None:
     project.mkdir(parents=True)
     for f in sorted(REPO.glob("config*.yaml")):
         shutil.copy2(f, project / f.name)
-    for d in ("glossary", "prompts", "specs"):
+    for d in ("configs", "glossary", "prompts", "specs"):
         if (REPO / d).is_dir():
             shutil.copytree(REPO / d, project / d)
     (project / "neutrality.yaml").write_text(OVERLAY, encoding="utf-8")

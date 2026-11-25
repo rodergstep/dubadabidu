@@ -15,3 +15,10 @@ def source(module: str) -> Path:
     spec = importlib.util.find_spec(module)
     assert spec is not None and spec.origin, f"no module {module}"
     return Path(spec.origin)
+
+
+def config(name: str) -> Path:
+    """A shipped config file by name, found the way `--overlay NAME` finds it
+    (project root, configs/, configs/experiments/)."""
+    from dubadabidu.core.config.loader import overlay_path
+    return overlay_path(REPO, name)

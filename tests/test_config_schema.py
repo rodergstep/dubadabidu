@@ -8,11 +8,11 @@ import yaml
 
 from dubadabidu.core.config.schema import ConfigError, validate
 from dubadabidu.core.logic import deep_merge
-from tests.paths import REPO
+from tests.paths import REPO, config
 
 
 def _load(name: str) -> dict:
-    with open(REPO / name, encoding="utf-8") as fh:
+    with open(config(name), encoding="utf-8") as fh:
         return yaml.safe_load(fh) or {}
 
 
@@ -20,7 +20,8 @@ def _combos() -> list[tuple[str, ...]]:
     # anchored at REPO: parametrize runs at COLLECTION time, before the
     # conftest chdir, and a cwd-relative glob silently found no overlays
     out: list[tuple[str, ...]] = [("config.yaml",), ("config.yaml", "config.gpu.yaml")]
-    for f in sorted(p.name for p in REPO.glob("config.*.yaml")):
+    from dubadabidu.core.config.loader import overlay_files
+    for f in sorted(p.name for p in overlay_files(REPO)):
         if f != "config.gpu.yaml":
             out.append(("config.yaml", "config.gpu.yaml", f))
     return out

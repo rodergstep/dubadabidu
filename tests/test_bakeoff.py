@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 from dubadabidu.core.manifest import synth_hash
 from dubadabidu.lab.bakeoff import beats_incumbent
-from tests.paths import source
+from tests.paths import config, source
 
 
 def _tts(**over):
@@ -176,7 +176,7 @@ def test_a_non_default_checkpoint_gets_its_own_variant_row():
 
 def test_ru_ft_arms_differ_in_exactly_one_axis():
     import yaml
-    load = lambda f: yaml.safe_load(open(f, encoding="utf-8"))["tts"]  # noqa: E731
+    load = lambda f: yaml.safe_load(open(config(f), encoding="utf-8"))["tts"]  # noqa: E731
     plain, stress = load("config.exp.ru-ft-plain.yaml"), load("config.exp.ru-ft-stress.yaml")
     assert set(plain) == set(stress)
     assert [k for k in plain if plain[k] != stress[k]] == ["ru_stress"]
