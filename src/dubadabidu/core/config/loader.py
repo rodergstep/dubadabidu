@@ -7,7 +7,7 @@ leave the root without touching a single reference to them: command lines,
 the pod-side REMOTE_TASK strings, specs/experiments.yaml and FINDINGS.md all
 name overlays by basename, and every one of those names still resolves. A
 basename must therefore exist in only one of these directories
-(tests/test_config_layout.py).
+(tests/core/test_config_layout.py).
 """
 from __future__ import annotations
 

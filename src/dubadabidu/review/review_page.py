@@ -196,7 +196,7 @@ def run(cfg: Config, video: str, langs: list[str]) -> None:
         # Hashed over ID-SORTED utterances, NOT the worst-first display order of
         # `us` — otherwise re-scoring reshuffles the order, the key changes, and
         # a valid export is rejected as a "re-segmentation". Must stay identical
-        # to qc.verdicts._seg_hash; tests/test_seg_hash.py pins the pair.
+        # to qc.verdicts._seg_hash; tests/review/test_seg_hash.py pins the pair.
         seg_hash = hashlib.sha1(
             ",".join(u["id"] + str(u["start"])
                      for u in sorted(us, key=lambda u: u["id"])).encode()
