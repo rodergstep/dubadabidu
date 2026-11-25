@@ -51,7 +51,9 @@ So: check names against their definitions, not against intent.
         ok("no function-local import shadows a module-level one")
 
     print("\n=== 2. argparse dests vs how they are read ===")
-    src = source("dubadabidu.cli").read_text()
+    # the parser and every module that reads its namespace
+    src = "\n".join(source(m).read_text() for m in (
+        "dubadabidu.cli", "dubadabidu.cli.parser", "dubadabidu.cli.remote"))
     tree = ast.parse(src)
     dests = set()
     for n in ast.walk(tree):
@@ -150,7 +152,7 @@ So: check names against their definitions, not against intent.
     # ORDER = list(STAGES), so read the dict literal rather than the alias.
     import importlib
     order = None
-    for n in ast.walk(ast.parse(source("dubadabidu.cli").read_text())):
+    for n in ast.walk(ast.parse(source("dubadabidu.cli.stages").read_text())):
         if (isinstance(n, ast.Assign)
                 and getattr(n.targets[0], "id", "") == "STAGES"
                 and isinstance(n.value, ast.Dict)):

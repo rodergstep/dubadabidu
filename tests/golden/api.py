@@ -15,6 +15,7 @@ from pathlib import Path
 from unittest import mock
 
 from dubadabidu import cli as dub
+from dubadabidu.cli import remote
 from dubadabidu.core import manifest
 from dubadabidu.infra.remote import runpod_infra
 from dubadabidu.stages import s3_translate
@@ -75,8 +76,8 @@ def stage_order() -> list[str]:
 
 
 def remote_plan(ns: argparse.Namespace) -> tuple[list[str], list[str], list[str]]:
-    return dub._remote_plan(ns)
+    return remote._remote_plan(ns)
 
 
 def remote_stages(ns: argparse.Namespace) -> str:
-    return dub._remote_stages(ns)
+    return remote._remote_stages(ns)

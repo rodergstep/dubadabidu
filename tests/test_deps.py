@@ -434,7 +434,7 @@ def _doctor_lines(monkeypatch, *, device, runpod_key):
     """Run doctor with a faked torch device / env and capture what it printed."""
     import io
     import contextlib
-    from dubadabidu import cli as dub
+    from dubadabidu.cli import health as dub
     monkeypatch.setattr(dub, "torch_device", lambda: device)
     if runpod_key:
         monkeypatch.setenv("RUNPOD_API_KEY", "x")
@@ -498,7 +498,7 @@ def test_doctor_warns_without_failing_when_pedalboard_is_missing(monkeypatch):
 def test_doctor_warns_when_ffmpeg_lacks_rubberband(monkeypatch):
     import subprocess
     import shutil
-    from dubadabidu import cli as dub
+    from dubadabidu.cli import health as dub
 
     class _P:
         stdout = " ... atempo  A->A  Adjust audio tempo.\n"
