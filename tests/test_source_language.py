@@ -69,7 +69,8 @@ def test_glossary_is_scoped_to_the_source_language(
 def test_uk_is_a_target_language() -> None:
     import yaml
     cfg = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
-    assert S3.LANG_NAMES["uk"] == "Ukrainian"
+    from dubadabidu.core.languages import lang_name
+    assert lang_name("uk") == "Ukrainian"
     assert cfg["tts"]["edge_voices"]["uk"].startswith("uk-UA-")
     assert cfg["mux"]["lang_tags"]["uk"] == "ukr"
 

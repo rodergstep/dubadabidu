@@ -11,14 +11,15 @@ from __future__ import annotations
 import csv, logging, subprocess
 from pathlib import Path
 from dubadabidu.core import manifest as M
+from dubadabidu.core.languages import glossary_lead
 from dubadabidu.engines.asr import transcribe
 from dubadabidu.core.logic import merge_segments, split_at_pauses
 
 log = logging.getLogger("dubadabidu.s2")
 
 
-# "Lesson vocabulary:" in the source language, leading the glossary terms.
-_GLOSSARY_LEAD = {"uk": "Словник уроку: ", "ru": "Словарь урока: "}
+# "Lesson vocabulary:" in the source language, leading the glossary terms
+# (core.languages.glossary_lead).
 
 
 def _initial_prompt(a: dict, src: str) -> str | None:
@@ -40,7 +41,7 @@ def _initial_prompt(a: dict, src: str) -> str | None:
                         if t and t not in terms:
                             terms.append(t)
         if terms:
-            parts.append(_GLOSSARY_LEAD.get(src, "") + ", ".join(terms) + ".")
+            parts.append(glossary_lead(src) + ", ".join(terms) + ".")
     prompt = " ".join(parts)[:600]
     return prompt or None
 

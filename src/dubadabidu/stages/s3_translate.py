@@ -13,12 +13,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from openai import OpenAI
 from dubadabidu.core import manifest as M
+from dubadabidu.core.languages import lang_name
 
 log = logging.getLogger("dubadabidu.s3")
-LANG_NAMES = {"en": "English", "fr": "French", "de": "German",
-              "es": "Spanish", "ru": "Russian", "pl": "Polish",
-              "uk": "Ukrainian"}
-
 # Some local servers (e.g. LM Studio) may wrap JSON in ```json fences in `text`
 # mode; strip them before parsing.
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$")
@@ -87,7 +84,7 @@ def _glossary(src: str, lang: str) -> str:
     with p.open(encoding="utf-8") as fh:
         rows = [f"  {r[0]} -> {r[1]}" for r in csv.reader(fh)
                 if len(r) >= 2 and not r[0].startswith("#")]
-    return (f"Mandatory terminology ({LANG_NAMES[src]} -> target):\n"
+    return (f"Mandatory terminology ({lang_name(src)} -> target):\n"
             + "\n".join(rows)) if rows else ""
 
 
@@ -95,8 +92,8 @@ def _prompt(src: str, lang: str, tol: float, n_var: int,
             name: str = "translate_system") -> str:
     # package data (src/dubadabidu/prompts/), so an installed wheel has them
     tpl = files("dubadabidu").joinpath("prompts", f"{name}.md").read_text(encoding="utf-8")
-    return (tpl.replace("{SRC}", LANG_NAMES[src])
-               .replace("{LANG}", LANG_NAMES[lang])
+    return (tpl.replace("{SRC}", lang_name(src))
+               .replace("{LANG}", lang_name(lang))
                .replace("{TOL}", str(int(tol * 100)))
                .replace("{NVAR}", str(n_var)))
 
@@ -118,7 +115,7 @@ def load_terms(cfg: dict, video: str, lang: str) -> list[dict] | None:
 def terms_block(cfg: dict, terms: list[dict]) -> str:
     if not terms:
         return ""
-    return (f"Video-specific terminology ({LANG_NAMES[cfg['source_language']]}"
+    return (f"Video-specific terminology ({lang_name(cfg['source_language'])}"
             f" -> target, mandatory):\n"
             + "\n".join(f"  {t['src']} -> {t['tr']}" for t in terms))
 
@@ -131,10 +128,10 @@ def _terms(client, tcfg, cfg: dict, video: str, man: dict, lang: str) -> str:
     if terms is None:
         cache = M.video_workdir(cfg, video) / f"terms_{lang}.json"
         transcript = "\n".join(u["text_src"] for u in man["utterances"])
-        src = LANG_NAMES[cfg["source_language"]]
+        src = lang_name(cfg["source_language"])
         data = _chat(client, tcfg,
                      f"From this {src} art-course transcript, extract up to "
-                     f"30 domain terms and proper nouns whose {LANG_NAMES[lang]} "
+                     f"30 domain terms and proper nouns whose {lang_name(lang)} "
                      f"translation must stay consistent throughout the course. "
                      f"Give your best dubbing-appropriate translation for each. "
                      f'Output STRICT JSON: {{"terms":[{{"src":"...","tr":"..."}}]}}',
@@ -285,12 +282,12 @@ def shorten(cfg: dict, lang: str, text_src: str, text: str, max_chars: int,
     client = OpenAI(base_url=tcfg["base_url"], api_key=key)
     sysmsg = (
         f"You shorten dubbing lines for a painting course voice-over.\n"
-        f"Rewrite the given {LANG_NAMES[lang]} line so it keeps the exact "
-        f"instructional meaning of the {LANG_NAMES[cfg['source_language']]} "
+        f"Rewrite the given {lang_name(lang)} line so it keeps the exact "
+        f"instructional meaning of the {lang_name(cfg['source_language'])} "
         f"source but fits a tighter "
         f"time slot. Produce {n} candidates, EACH AT MOST {max_chars} "
         f"characters, progressively shorter. Drop filler and pleasantries "
-        f"before dropping instruction. Natural spoken {LANG_NAMES[lang]}.\n"
+        f"before dropping instruction. Natural spoken {lang_name(lang)}.\n"
         f'Output STRICT JSON: {{"variants":["...","..."]}}')
     user = json.dumps({"source": text_src, "current": text,
                        "max_chars": max_chars}, ensure_ascii=False)
@@ -336,9 +333,9 @@ def _adequacy(ask, shared: str, batch: list, src: str, lang: str, flag: int,
     {score 1-5, issue} in tr[lang]['adequacy'] and log sub-threshold segments.
     Never fatal — a judge failure must not abort a translated batch."""
     sysmsg = (
-        f"You are a bilingual QA judge for {LANG_NAMES[src]} -> {LANG_NAMES[lang]} "
+        f"You are a bilingual QA judge for {lang_name(src)} -> {lang_name(lang)} "
         f"dubbing of a painting course. For each segment, compare the "
-        f"{LANG_NAMES[lang]} translation ('tr') against the {LANG_NAMES[src]} "
+        f"{lang_name(lang)} translation ('tr') against the {lang_name(src)} "
         f"source ('src') and rate FAITHFULNESS 1-5 (5 = complete, accurate, natural "
         f"dubbing; 3 = minor drift; 1 = wrong meaning or a dropped "
         f"instruction). Weigh mistranslation, omitted instructions, wrong "
@@ -431,7 +428,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         pace = ""
         if cps:
             pace = (f"Measured speaking pace of the TTS voice in "
-                    f"{LANG_NAMES[lang]}: ~{cps:.1f} characters per second. "
+                    f"{lang_name(lang)}: ~{cps:.1f} characters per second. "
                     f"Hard duration budget: keep each segment's \"text\" under "
                     f"seconds × {cps:.1f} characters; make each variant "
                     f"progressively shorter than that.")

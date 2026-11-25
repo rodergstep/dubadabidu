@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio, logging, subprocess, time
 from pathlib import Path
 from dubadabidu.core.device import require_gpu
+from dubadabidu.core.languages import qwen_language
 from dubadabidu.core.manifest import STRESS_TRAINED_MODELS, resolve_engine, resolve_qwen_model
 from dubadabidu.core.text_norm import localize_numbers, normalize_for_tts
 
@@ -78,8 +79,7 @@ def check_output_sr(model_id: str, sr: int) -> None:
             f"{want} Hz — the take would play at the wrong pitch and speed")
 # Qwen3-TTS language names. uk is absent because the model does not list
 # Ukrainian ("Auto" uk was unusable by ear), so config routes uk to edge.
-QWEN_LANGS = {"en": "English", "fr": "French", "de": "German",
-              "es": "Spanish", "ru": "Russian"}
+# The table lives in dubadabidu.core.languages (qwen_language).
 
 
 def _load_qwen(t: dict, lang: str | None = None):
@@ -231,7 +231,7 @@ def _synth_qwen(text: str, lang: str, out: Path, t: dict) -> None:
     gen = dict(t.get("qwen_gen_kwargs") or {})
     try:
         wavs, sr = m.generate_voice_clone(
-            text=text, language=QWEN_LANGS.get(lang, "Auto"),
+            text=text, language=qwen_language(lang),
             voice_clone_prompt=prompt, **gen)
     except TypeError as e:
         if not gen:

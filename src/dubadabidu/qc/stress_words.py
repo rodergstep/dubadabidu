@@ -52,11 +52,12 @@ import re
 import unicodedata
 from pathlib import Path
 from dubadabidu.core import ledger
+from dubadabidu.core.languages import stress_marking
 
 # Languages whose stress is lexical, mobile and unmarked in writing — i.e.
 # where a TTS must GUESS and can be wrong. A linguistic fact, not a preference,
 # so it is a constant rather than a config knob.
-STRESS_LANGS = ("ru", "uk")
+STRESS_LANGS = stress_marking()   # ("ru", "uk"): the registry's stress_marking rows
 
 # A word is a run of letters, allowing an internal hyphen or apostrophe so that
 # compounds stay ONE token: `хром-кобальт`, `сине-зелёная`, `clair-obscur`,
