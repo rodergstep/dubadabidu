@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT))
 def test_affected_uses_whole_word_matching():
     """`цветами` contains `цвета` as a substring — the first pass of this
     analysis reported exactly that false positive."""
-    from qc.avoidance_ab import affected
+    from research.avoidance_ab import affected
     man = {"utterances": [
         {"id": "u1", "tr": {"ru": {"text": "холодными цветами и тёплыми"}}},
         {"id": "u2", "tr": {"ru": {"text": "самые светлые цвета"}}}]}

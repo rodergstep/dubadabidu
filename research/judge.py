@@ -16,7 +16,7 @@ Bias controls the literature reports for these judges:
   - position: irrelevant for a per-clip scorer; a PAIRWISE judge added later
     must score both orders and average.
 
-Run:  python -m qc.judge            (needs `uv sync --extra judge`)
+Run:  python -m research.judge            (needs `uv sync --extra judge`)
 """
 from __future__ import annotations
 

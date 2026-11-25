@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Consensus selection: the rule, not the audio."""
-from qc.stress_consensus import consensus, rank_takes, pick, MIN_VOTES
+from research.stress_consensus import consensus, rank_takes, pick, MIN_VOTES
 
 
 def test_majority_decides_and_the_odd_take_out_loses():
@@ -34,7 +34,7 @@ def test_a_word_below_the_vote_floor_is_ignored():
 def test_repeated_words_are_dropped_not_paired_by_name(tmp_path):
     """Two occurrences of one word are different audio; pairing them by name
     would compare unrelated things."""
-    from qc.stress_consensus import slots_for
+    from research.stress_consensus import slots_for
     tg = tmp_path / "x.TextGrid"
     tg.write_text(
         'name = "words"\n'

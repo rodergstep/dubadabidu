@@ -5,7 +5,7 @@ import math
 
 import numpy as np
 
-from qc.judge import GroupResult, agreement, poisson_binomial_tail, rms_match
+from research.judge import GroupResult, agreement, poisson_binomial_tail, rms_match
 
 
 def test_poisson_binomial_matches_the_binomial_when_probs_are_equal() -> None:

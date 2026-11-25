@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Generate the AVOIDED translation of every segment the stress lexicon touches.
 
-    python -m qc.avoidance_ab <video> <lang> [--apply]
+    python -m research.avoidance_ab <video> <lang> [--apply]
 
 WHY THIS IS A SEPARATE STEP. `translation.avoid_mis_stressed` asks s3 to prefer
 a synonym for words a native listener marked as mis-stressed (FINDINGS 2.1k),
@@ -140,7 +140,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     if len(args) < 2:
-        raise SystemExit("usage: python -m qc.avoidance_ab <video> <lang> "
+        raise SystemExit("usage: python -m research.avoidance_ab <video> <lang> "
                          "[--apply]")
     cfg = yaml.safe_load(open("config.yaml", encoding="utf-8"))
     sys.exit(0 if run(cfg, args[0], args[1], "--apply" in sys.argv) >= 0 else 1)

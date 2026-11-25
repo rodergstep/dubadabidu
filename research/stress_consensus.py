@@ -34,7 +34,7 @@ import logging
 from collections import Counter
 from pathlib import Path
 
-from qc.stress_variants import observed_slot
+from research.stress_variants import observed_slot
 
 log = logging.getLogger("dubadabidu.qc.stress_consensus")
 
@@ -50,7 +50,7 @@ def slots_for(textgrid: Path) -> dict[str, int]:
     two occurrences are different audio and pairing them by name would compare
     the wrong things.
     """
-    from qc.stress_mfa import parse_textgrid
+    from research.stress_mfa import parse_textgrid
     seen: dict[str, list[int]] = {}
     for w, phones in parse_textgrid(textgrid):
         s = observed_slot(phones)

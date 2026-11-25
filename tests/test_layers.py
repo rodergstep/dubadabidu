@@ -41,15 +41,13 @@ LAYER_OF = {
     "pipeline.runpod_infra": "infra",
     "pipeline.autopilot": "workflows", "pipeline.course": "workflows",
 }
-RESEARCH = {f"qc.{m}" for m in ("stress_mfa", "stress_detect", "stress_var",
-                                "stress_variants", "stress_consensus",
-                                "axis_check", "avoidance_ab", "judge")}
+RESEARCH_DIR = "research"
 ALLOWED: set[tuple[str, str]] = set()
 
 
 def modules() -> dict[str, Path]:
     out = {"dub": REPO / "dub.py"} if (REPO / "dub.py").exists() else {}
-    for pkg in ("pipeline", "qc"):
+    for pkg in ("pipeline", "qc", RESEARCH_DIR):
         for p in sorted((REPO / pkg).glob("*.py")):
             if p.stem != "__init__":
                 out[f"{pkg}.{p.stem}"] = p
@@ -82,7 +80,7 @@ def edges() -> set[tuple[str, str]]:
 
 
 def layer(m: str) -> str:
-    if m in RESEARCH:
+    if m.startswith(RESEARCH_DIR + "."):
         return "research"
     assert m in LAYER_OF, f"{m} has no layer: add it to LAYER_OF in tests/test_layers.py"
     return LAYER_OF[m]

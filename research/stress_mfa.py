@@ -9,20 +9,20 @@ pairs on exactly this principle —
     замок   z̪ ɐ m o k     (замо́к, a lock)
     замок   z̪ a m ə k     (за́мок, a castle)
 
-So: offer the aligner EVERY stress placement for every word (qc.stress_variants
+So: offer the aligner EVERY stress placement for every word (research.stress_variants
 builds them by permuting vowels in the canonical string), let its acoustic model
 choose the best fit, and read the winner's vowels back. The full vowel is where
 the stress actually landed. Compare against RUAccent, which is a reliable oracle
 for where it SHOULD land, and a disagreement is a stress error.
 
-WHY THIS AND NOT THE TWO THAT FAILED. Acoustic prominence (qc/stress_var.py) had
+WHY THIS AND NOT THE TWO THAT FAILED. Acoustic prominence (research/stress_var.py) had
 to guess syllable boundaries and rank a continuous quantity; it self-flipped 29%.
-The wav2vec2 phoneme route (qc/stress_detect.py) needed vowel reduction the
+The wav2vec2 phoneme route (research/stress_detect.py) needed vowel reduction the
 model does not transcribe — 99% full vowels — and reached AUC 0.562. This uses
 an acoustic model TRAINED on the narrow phone set, and real forced alignment
 rather than padded Whisper bounds, which is precisely what both lacked.
 
-RUN THE GATE FIRST:  python -m qc.stress_mfa
+RUN THE GATE FIRST:  python -m research.stress_mfa
 It scores against the 28 human-labelled takes and must clearly beat AUC 0.647 —
 what back-transcription WER already gives free. Below that, it does not ship.
 """
@@ -36,7 +36,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from qc.stress_variants import observed_slot, variants
+from research.stress_variants import observed_slot, variants
 
 log = logging.getLogger("dubadabidu.qc.stress_mfa")
 
@@ -47,7 +47,7 @@ def _scratch() -> Path:
     d = os.environ.get("DUB_MFA_SCRATCH")
     if not d:
         raise SystemExit("set DUB_MFA_SCRATCH to the directory holding mfaenv/ "
-                         "and mfa_data/ (qc.stress_mfa is a research tool, "
+                         "and mfa_data/ (research.stress_mfa is a research tool, "
                          "FINDINGS §2.1h)")
     return Path(d)
 
@@ -200,7 +200,7 @@ def validate(labels_json: str, truth_json: str, wd: str,
     """Score against the 28 human-labelled takes. Bar: beat AUC 0.647 (WER)."""
     from statistics import mean
     from ruaccent import RUAccent
-    from qc.stress_detect import expected_stress_index
+    from research.stress_detect import expected_stress_index
 
     workdir = workdir or Path("work/_mfa")
     workdir.mkdir(parents=True, exist_ok=True)
@@ -284,7 +284,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO,
                         format="%(levelname)s %(message)s")
     if len(sys.argv) != 2:
-        sys.exit("usage: python -m qc.stress_mfa <compare export .json>  "
+        sys.exit("usage: python -m research.stress_mfa <compare export .json>  "
                  "(the listener's stress-marked compare-page export)")
     w = glob.glob("work/Organising*")[0]
     sys.exit(validate(sys.argv[1], f"{w}/bakeoff/compare_ru_truth.json", w))

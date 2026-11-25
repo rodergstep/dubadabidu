@@ -7,7 +7,7 @@
 # stress at the cost of a word choice nobody asked for. In a still-life course
 # that may be a bad bargain, and only the ear can say.
 #
-# Prepare with:   python -m qc.avoidance_ab <video> ru --apply
+# Prepare with:   python -m research.avoidance_ab <video> ru --apply
 # which writes tr.ru.text_variants.avoided WITHOUT touching the shipped text.
 #
 # CONTROL is config.exp.ru-control.yaml — same stack, no text_variant, so it

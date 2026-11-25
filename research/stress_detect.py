@@ -5,7 +5,7 @@ WHY THIS CAN WORK AT ALL, and why the first attempt could not.
 
 An earlier detector measured acoustic prominence — energy x F0 x duration over
 syllable nuclei guessed from a smoothed sonority envelope. It disagreed with
-ITSELF on 29% of words when the same take was time-stretched (qc/stress_var.py),
+ITSELF on 29% of words when the same take was time-stretched (research/stress_var.py),
 because it had to infer where the vowels were and then rank a continuous
 quantity. It measured its own instrument.
 
@@ -32,7 +32,7 @@ vowel SHOULD carry stress it is accurate and free.
     observed  = phonemes(word audio)          -> index of the UNREDUCED vowel
     mismatch  = a stress error on that word
 
-Validate before wiring it to anything: `python -m qc.stress_detect --validate`
+Validate before wiring it to anything: `python -m research.stress_detect --validate`
 scores it against the 28 human-labelled takes and must clearly beat AUC 0.647,
 which is where WER — the metric we already have — already sits.
 """
@@ -288,7 +288,7 @@ if __name__ == "__main__":
     import sys
     logging.basicConfig(level=logging.INFO)
     if len(sys.argv) != 2:
-        sys.exit("usage: python -m qc.stress_detect <compare export .json>  "
+        sys.exit("usage: python -m research.stress_detect <compare export .json>  "
                  "(the listener's stress-marked compare-page export)")
     wd = glob.glob("work/Organising*")[0]
     sys.exit(validate(sys.argv[1], f"{wd}/bakeoff/compare_ru_truth.json", wd))

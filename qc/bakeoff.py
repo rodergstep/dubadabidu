@@ -456,7 +456,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 if unavailable:   # tune-lite already proved it isn't installed
                     break
                 # bakeoff.text_variant selects an ALTERNATIVE translation
-                # stored alongside the shipped one (qc/avoidance_ab.py writes
+                # stored alongside the shipped one (research/avoidance_ab.py writes
                 # tr[lang].text_variants). Scoped to `bakeoff.` on purpose: a
                 # tts.* key would look like it changed what production
                 # synthesizes while only this loop read it, which is the exact
