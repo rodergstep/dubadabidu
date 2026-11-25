@@ -570,8 +570,7 @@ def test_reuse_probe_covers_run_tasks_not_just_bakeoff():
     and _verify_ready([]) is False by design — so `remote run --reuse` could
     never skip setup and course.py re-bootstrapped once per video."""
     from dubadabidu.infra.remote.bootstrap import engines_for_task
-    cfg = {"tts": {"engine": "qwen", "engine_by_lang": {}},
-           "bakeoff": {"engines": ["qwen"]}}
+    cfg = settings({"tts": {"engine": "qwen"}, "bakeoff": {"engines": ["qwen"]}})
     assert engines_for_task(cfg, "run", ["en", "ru"]) == ["qwen"]
     assert engines_for_task(cfg, "autopilot", ["en"]) == ["qwen"]
     assert engines_for_task(cfg, "bakeoff", ["en"]) == ["qwen"]
@@ -579,7 +578,7 @@ def test_reuse_probe_covers_run_tasks_not_just_bakeoff():
 
 def test_engines_for_task_honours_per_language_routing():
     from dubadabidu.infra.remote.bootstrap import engines_for_task
-    cfg = {"tts": {"engine": "qwen", "engine_by_lang": {"en": "edge"}}}
+    cfg = settings({"tts": {"engine": "qwen", "engine_by_lang": {"en": "edge"}}})
     assert engines_for_task(cfg, "run", ["en", "de"]) == ["edge", "qwen"]
 
 
@@ -718,7 +717,7 @@ def test_engine_list_handed_to_the_installer_is_engine_names():
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
                      yaml.safe_load(open(config("config.gpu.yaml"), encoding="utf-8")))
     for task in ("bakeoff", "run"):
-        for e in engines_for_task(cfg, task, ["en", "ru"]):
+        for e in engines_for_task(validate(cfg), task, ["en", "ru"]):
             assert e in ENGINE_MODULE, (
                 f"{task}: {e!r} is not an engine name — if a path reaches "
                 f"_install_engines it silently installs nothing")

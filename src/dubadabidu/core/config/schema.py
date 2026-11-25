@@ -8,13 +8,8 @@ code runs on its default and nobody notices. Every block here is
 in dub.py, so a typo fails at load with its full path.
 
 `validate()` returns the typed, frozen Config the CLI hands to every stage
-(ARCHITECTURE_PLAN.md §3). While the stages move onto attribute access, the
-model also answers raw reads — cfg["tts"], cfg.get(...), "runpod" in cfg —
-from the merged dict it was built from, with exactly the semantics of that
-dict (a missing key is missing, so a code default still applies where code
-still reads one). tests/config/ proves the two views agree and lists every
-place a code default differs from a default declared here. The raw view is
-deleted once nothing reads through it.
+(ARCHITECTURE_PLAN.md §3). Defaults live here and nowhere else; whether a
+key was SET (rather than defaulted) is `model_fields_set`.
 
 Adding a config key: declare it here (with its type) in the same change.
 """
@@ -22,33 +17,13 @@ from __future__ import annotations
 
 from typing import Literal, TypeVar
 
-from collections.abc import ItemsView, KeysView
-
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 Number = float | int
 
 
 class _Block(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-
-    # --- transition: the merged dict, for code not yet on attribute access ---
-    _raw: dict[str, object] = PrivateAttr(default_factory=dict)
-
-    def __getitem__(self, key: str) -> object:
-        return self._raw[key]
-
-    def get(self, key: str, default: object = None) -> object:
-        return self._raw.get(key, default)
-
-    def __contains__(self, key: object) -> bool:
-        return key in self._raw
-
-    def keys(self) -> KeysView[str]:
-        return self._raw.keys()
-
-    def items(self) -> ItemsView[str, object]:
-        return self._raw.items()
 
 
 class Asr(_Block):
@@ -375,17 +350,7 @@ def validate(cfg: dict) -> Config:
         raise ConfigError("config does not validate (a typo, or a key this "
                           "schema does not declare — pipeline/config_schema.py):\n"
                           + "\n".join(lines)) from None
-    _attach_raw(model, cfg)
     return model
-
-
-def _attach_raw(block: _Block, raw: dict[str, object]) -> None:
-    """Give every block the slice of the merged dict it was validated from."""
-    block._raw = raw
-    for name in type(block).model_fields:
-        sub, sub_raw = getattr(block, name), raw.get(name)
-        if isinstance(sub, _Block) and isinstance(sub_raw, dict):
-            _attach_raw(sub, sub_raw)
 
 
 B = TypeVar("B", bound=_Block)
@@ -393,8 +358,6 @@ B = TypeVar("B", bound=_Block)
 
 def derive(block: B, **updates: object) -> B:
     """`block` with some fields replaced — for the tts block a manifest's
-    tts_overrides or a bake-off grid point produce. Both views move together:
-    attribute reads see the update and so do raw reads during the transition."""
-    new = block.model_copy(update=updates)
-    new._raw = {**block._raw, **updates}
-    return new
+    tts_overrides or a bake-off grid point produce. As with model_copy, the
+    updates are not re-validated."""
+    return block.model_copy(update=updates)

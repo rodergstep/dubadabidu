@@ -46,13 +46,18 @@ PARAMS: dict[str, dict[str, str]] = {
     "backcheck.py": {},
     "evaluate.py": {"ecfg": "qc.eval"},
     "refit.py": {"rcfg": "qc.refit"},
+    "avoidance_ab.py": {"tcfg": "translation"},
 }
 Row = tuple[str, str, str]
 
 
 def sources() -> list[Path]:
     root = [REPO / "dub.py"] if (REPO / "dub.py").exists() else []
-    return root + sorted((REPO / "src" / "dubadabidu").rglob("*.py"))
+    # core/config/ reads the YAML dicts BEFORE validation; that is its job
+    loader = REPO / "src" / "dubadabidu" / "core" / "config"
+    pkg = sorted(p for p in (REPO / "src" / "dubadabidu").rglob("*.py")
+                 if loader not in p.parents)
+    return root + pkg + sorted((REPO / "research").glob("*.py"))
 
 
 def _chain(node: ast.AST, env: dict[str, str]) -> str | None:

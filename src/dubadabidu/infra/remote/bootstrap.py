@@ -4,6 +4,8 @@ engine install. Pinned byte-for-byte by tests/golden/pod_commands.json."""
 from __future__ import annotations
 import logging
 
+from dubadabidu.core.config.schema import Config
+
 
 log = logging.getLogger("dubadabidu.runpod")
 
@@ -198,7 +200,13 @@ def engine_install_cmd(remote: str, engine: str, snippet: str) -> str:
             f"{snippet}")
 
 
-def engines_for_task(cfg: dict, task: str, langs: list[str]) -> list[str]:
+def bakeoff_engines(cfg: Config) -> list[str]:
+    """The bake-off's engines, de-duplicated in order; none when the config
+    has no bakeoff block (it ships only with the gpu overlay)."""
+    return list(dict.fromkeys(cfg.bakeoff.engines if cfg.bakeoff else []))
+
+
+def engines_for_task(cfg: Config, task: str, langs: list[str]) -> list[str]:
     """Which TTS engines this pod must end up with.
 
     ONE definition, because two callers must agree on it: _install_engines (what
@@ -209,7 +217,6 @@ def engines_for_task(cfg: dict, task: str, langs: list[str]) -> list[str]:
     re-ran the bootstrap and re-installed qwen once per video: exactly the
     per-video cost its phase B exists to pay only once."""
     if task == "bakeoff":
-        return list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
-    tc = cfg.get("tts", {})
-    ebl = tc.get("engine_by_lang") or {}
-    return list(dict.fromkeys(ebl.get(lg, tc.get("engine")) for lg in langs))
+        return bakeoff_engines(cfg)
+    ebl = cfg.tts.engine_by_lang or {}
+    return list(dict.fromkeys(ebl.get(lg, cfg.tts.engine) for lg in langs))

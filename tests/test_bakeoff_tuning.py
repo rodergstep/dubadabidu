@@ -224,7 +224,7 @@ def test_one_failing_grid_point_is_skipped_not_fatal(monkeypatch, tmp_path):
     from dubadabidu.engines import tts_engine
 
     def fake(text, lang, out, t, retries=2):
-        if t.get("qwen_cfg") == 9.9:          # unsupported value
+        if t.qwen_cfg == 9.9:                 # unsupported value
             raise RuntimeError("engine rejected cfg_value=9.9")
         Path(out).write_bytes(b"wav")
 

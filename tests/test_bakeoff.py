@@ -124,7 +124,7 @@ def test_variant_label_separates_an_otherwise_identical_run():
     from dubadabidu.lab.bakeoff import variant_key
     t = toy_tts(engine="qwen", qwen_fast=True)
     assert variant_key("qwen", t, "en") == "qwen+fast"
-    assert variant_key("qwen", toy_tts(t._raw, variant_label="control"), "en") \
+    assert variant_key("qwen", toy_tts({"engine": "qwen", "qwen_fast": True}, variant_label="control"), "en") \
         == "qwen+fast+control"
 
 

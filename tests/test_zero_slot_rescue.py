@@ -114,7 +114,7 @@ def test_zero_slot_is_still_flagged_as_overflow(zero_slot, stubs):
     man = M.load(cfg, video)
     tr = man["utterances"][0]["tr"]["en"]
     assert tr["fit"] == "overflow", f"expected overflow, got {tr['fit']!r}"
-    assert tr["tempo"] == cfg["fit"]["max_tempo"]
+    assert tr["tempo"] == cfg.fit.max_tempo
 
 
 def test_a_real_slot_still_gets_the_rescue(zero_slot, stubs, monkeypatch):

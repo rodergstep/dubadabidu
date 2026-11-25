@@ -5,6 +5,7 @@ import json
 import logging
 import time
 
+from dubadabidu.core.config.schema import Config
 from dubadabidu.infra.remote import bootstrap
 from dubadabidu.infra.remote import orchestrator
 from dubadabidu.infra.remote import provider
@@ -16,7 +17,7 @@ log = logging.getLogger("dubadabidu.runpod")
 
 # ---------------- entry points / diagnostics ----------------
 
-def smoke_test(cfg: dict) -> bool:
+def smoke_test(cfg: Config) -> bool:
     """Cheapest possible lifecycle validation (~$0.02): provision -> print the
     raw pod JSON (to learn field shapes) + nvidia-smi over SSH -> terminate.
     Run this ONCE before trusting the full remote_run path."""
@@ -70,7 +71,7 @@ def _require_something_to_validate(engines: list, probe_engines: list) -> None:
             f"for a reason that is not repo drift.\n" + _OVERLAY_HINT)
 
 
-def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
+def setup_check(cfg: Config, budget_usd: float | None = None) -> bool:
     """Dry-run the install path on ONE cheap pod, then report which engines
     actually import — WITHOUT running a comparison. Provisions, installs the
     same base deps + every engine_setup snippet a real run would (into the ONE
@@ -84,7 +85,7 @@ def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
     # No overlay forwarding here (remote_run has it): setup-check builds no
     # pod-side dub command — it runs REMOTE_SETUP + an import probe, both driven
     # by the LOCAL merged cfg. It read an undefined `overlays` until 2026-08-02.
-    engines = list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
+    engines = bootstrap.bakeoff_engines(cfg)
     # engines are probed by importing their module in the venv — the exact
     # thing a real synth call needs. (engine, module, has_snippet)
     probe_engines = [(e, bootstrap.ENGINE_MODULE[e], bool(rp.engine_setup.get(e)))

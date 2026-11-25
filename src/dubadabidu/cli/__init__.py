@@ -58,16 +58,16 @@ def main() -> None:
     # base + overlays (root, configs/, configs/experiments/) + --engine, validated
     cfg = load_config(project.root, config_path, a.overlay or [], a.engine)
     langs = ([x.strip() for x in a.langs.split(",") if x.strip()]
-             if a.langs else cfg["languages"])
+             if a.langs else cfg.languages)
     # a video is never dubbed into its own language (cfg languages lists ru,
     # which is also a valid source)
-    langs = [x for x in langs if x != cfg["source_language"]]
+    langs = [x for x in langs if x != cfg.source_language]
 
     # where ECAPA / Distill-MOS run. Default 'cpu' keeps every stored score
     # comparable with the ones already in the manifests; 'cuda'/'auto' is the
     # pod-cost lever (see qc.metrics.set_device for how to validate the switch).
     from dubadabidu.qc import metrics as _metrics
-    _metrics.set_device(cfg.get("qc", {}).get("metrics_device", "cpu"))
+    _metrics.set_device(cfg.qc.metrics_device)
 
     if a.cmd == "doctor":
         sys.exit(doctor(cfg, f"{project.root} (found by {project.found_by})"))

@@ -36,7 +36,7 @@ import time
 from pathlib import Path
 
 from dubadabidu.core import manifest as M
-from dubadabidu.core.config.schema import Runpod, derive
+from dubadabidu.core.config.schema import Config, Runpod, derive
 from dubadabidu.infra.remote import bootstrap
 from dubadabidu.infra.remote import provider
 from dubadabidu.infra.remote import state
@@ -188,7 +188,7 @@ def _install_engines(rp: Runpod, host: str, port: int, remote: str,
             log.warning("engine %s setup failed — %s", eng, fail_note)
 
 
-def remote_run(cfg: dict, video: str | list[str], langs: list[str], task: str,
+def remote_run(cfg: Config, video: str | list[str], langs: list[str], task: str,
                budget_usd: float | None = None,
                keep_alive: bool = False, reuse: bool = False,
                overlays: list[str] | None = None,
@@ -590,7 +590,7 @@ def remote_run(cfg: dict, video: str | list[str], langs: list[str], task: str,
             # it here made the two features cancel out (measured: the indextts
             # venv was gone before it could be debugged).
             if st and task == "bakeoff" and rc == 0:
-                for eng in (cfg.get("bakeoff", {}) or {}).get("engines", []):
+                for eng in (cfg.bakeoff.engines if cfg.bakeoff else []):
                     transport.free_engine(rp, st[0], st[1], remote, eng)
             log.warning("keep-alive: pod %s LEFT RUNNING (billing!)", pid)
             if st:

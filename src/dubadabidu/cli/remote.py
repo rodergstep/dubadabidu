@@ -10,6 +10,7 @@ from types import ModuleType
 
 from dubadabidu.cli.stages import ORDER, STAGES
 from dubadabidu.core import manifest as M
+from dubadabidu.core.config.schema import Config
 
 
 POD_FIRST, POD_LAST = "s4_synthesize", "s5_fit"
@@ -57,7 +58,7 @@ def _remote_stages(a) -> str:
     return f"--from {pod[0]} --to {pod[-1]}"
 
 
-def _pod_stages_done(cfg: dict, video: str, langs: list[str],
+def _pod_stages_done(cfg: Config, video: str, langs: list[str],
                      stages: list[str]) -> bool:
     """Did every pod stage finish for every language? Read from the manifest
     the pod synced back (stage keys are s4_<lang>, s5_<lang>)."""
@@ -70,7 +71,7 @@ def _pod_stages_done(cfg: dict, video: str, langs: list[str],
                for st in stages for lg in langs)
 
 
-def _remote_run_batch(cfg: dict, vids: list[str], langs: list[str], a,
+def _remote_run_batch(cfg: Config, vids: list[str], langs: list[str], a,
                       rpi: ModuleType) -> bool:
     """`remote run` over one or many videos: ONE pod, ONE pod-side process.
 
@@ -103,7 +104,7 @@ def _remote_run_batch(cfg: dict, vids: list[str], langs: list[str], a,
     return len(done) == len(vids)
 
 
-def _run_local(cfg: dict, video: str, langs: list[str],
+def _run_local(cfg: Config, video: str, langs: list[str],
                stages: list[str]) -> None:
     for name in stages:
         logging.info("[local] %s", name)

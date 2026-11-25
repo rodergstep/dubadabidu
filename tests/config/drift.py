@@ -18,9 +18,6 @@ Decisions are the ones approved in ARCHITECTURE_PLAN.md §3.3 (Q8). Tags:
 """
 from __future__ import annotations
 
-DRIFT: dict[str, str] = {
-    # --- bakeoff (block present only with the gpu overlay) ---
-    "bakeoff get {}": "ABSENT (Q8c): Config.bakeoff stays optional; each site "
-                      "keeps its absent-block meaning through one helper",
-    "bakeoff.engines get []": "ABSENT (Q8c)",
-}
+# Empty: every drift was resolved as approved (the decisions are in git history,
+# commits "refactor(config): ..."). A new row needs a decision here.
+DRIFT: dict[str, str] = {}

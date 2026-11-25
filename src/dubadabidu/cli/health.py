@@ -135,7 +135,7 @@ def doctor(cfg: Config, project: str = "") -> int:
               f"{rp.capacity_wait_min:.0f} min | on task failure: "
               + (f"pod held {hold:.0f} min for a hotfix"
                  if hold > 0 else "pod terminated (hold off)"))
-        if "runpod" not in cfg:
+        if "runpod" not in cfg.model_fields_set:
             print("  [i ] runpod block not in this config: pass "
                   "`--overlay config.gpu.yaml` to see the pod settings")
     else:

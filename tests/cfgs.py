@@ -40,6 +40,4 @@ def toy_tts(fields: Mapping[str, object] | None = None, **more: object) -> Tts:
     values the shipped schema would reject, such as the long-gone chatterbox
     engine. Production code never builds one of these."""
     data = {**dict(fields or {}), **more}
-    t = Tts.model_construct(**data)
-    t._raw = data
-    return t
+    return Tts.model_construct(**data)

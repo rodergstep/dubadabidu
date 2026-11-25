@@ -80,16 +80,16 @@ def run(cfg: dict, video: str, lang: str, apply: bool = False) -> int:
         return 0
 
     tcfg = cfg.translation
-    key = os.environ.get(tcfg["api_key_env"])
+    key = os.environ.get(tcfg.api_key_env)
     if not key:
-        raise SystemExit(f"set {tcfg['api_key_env']} — this step re-translates.")
+        raise SystemExit(f"set {tcfg.api_key_env} — this step re-translates.")
     from openai import OpenAI
-    client = OpenAI(base_url=tcfg["base_url"], api_key=key)
+    client = OpenAI(base_url=tcfg.base_url, api_key=key)
 
     # The SAME prompt s3 builds, so the alternative is what production would
     # actually have produced — not a differently-worded request that happens to
     # avoid the word. Glossary and terms included; the avoid block is the axis.
-    src = cfg["source_language"]
+    src = cfg.source_language
     gloss = S3._glossary(src, lang)
     terms_s = S3.terms_block(cfg, S3.load_terms(cfg, video, lang) or [])
     avoid = S3._avoid_block(cfg, lang, gloss + terms_s)
@@ -97,8 +97,8 @@ def run(cfg: dict, video: str, lang: str, apply: bool = False) -> int:
         raise SystemExit("translation.avoid_mis_stressed is off — turn it on, "
                          "or there is no alternative to generate.")
     shared = "\n\n".join(x for x in [gloss, terms_s, avoid] if x)
-    sysmsg = (S3._prompt(src, lang, tcfg["isometric_tolerance"],
-                         tcfg["n_short_variants"]) + "\n\n" + shared)
+    sysmsg = (S3._prompt(src, lang, tcfg.isometric_tolerance,
+                         tcfg.n_short_variants) + "\n\n" + shared)
     payload = [{"id": u["id"], "src": u["text_src"], "chars": len(u["text_src"]),
                 "seconds": round(u["end"] - u["start"], 1)} for u in segs]
     data = S3._chat(client, tcfg, sysmsg,
