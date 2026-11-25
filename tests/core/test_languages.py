@@ -29,8 +29,25 @@ def test_registry_matches_the_tables_config_yaml_ships() -> None:
     cfg = yaml.safe_load((REPO / "config.yaml").read_text(encoding="utf-8"))
     assert cfg["tts"]["edge_voices"] == L.edge_voices()
     assert cfg["mux"]["lang_tags"] == L.sub_tags()
-    forced = {c: l.forced_engine for c, l in L.LANGUAGES.items() if l.forced_engine}
-    assert cfg["tts"]["engine_by_lang"] == forced
+    # uk -> edge lives in the table now, not in config.yaml
+    assert L.forced_engines() == {"uk": "edge"}
+    assert cfg["tts"]["engine_by_lang"] == {}
+
+
+def test_engine_by_lang_overrides_the_table() -> None:
+    from dubadabidu.core.manifest import resolve_engine
+    from tests.cfgs import toy_tts
+    assert resolve_engine(toy_tts(engine="qwen"), "uk") == "edge"
+    assert resolve_engine(toy_tts(engine="qwen", engine_by_lang={"uk": "qwen"}), "uk") == "qwen"
+    assert resolve_engine(toy_tts(engine="qwen", engine_by_lang=None), "en") == "qwen"
+
+
+def test_a_bakeoff_candidate_is_its_engine_for_every_language() -> None:
+    from dubadabidu.core.manifest import resolve_engine
+    from dubadabidu.lab.bakeoff import _engine_cfg
+    from tests.cfgs import settings
+    t = _engine_cfg(settings().tts, "qwen")
+    assert [resolve_engine(t, x) for x in ("uk", "en", "ru")] == ["qwen"] * 3
 
 
 def test_schema_sources_are_the_registry_sources() -> None:

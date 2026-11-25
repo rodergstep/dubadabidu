@@ -54,9 +54,10 @@ translation:
 
 tts:
   engine: qwen                 # qwen | edge (no cloning)
-  # Per-language engine override. uk -> edge: qwen has no Ukrainian and its
-  # "Auto" uk was unusable by ear (FINDINGS §2.4).
-  engine_by_lang: {uk: edge}
+  # Per-language engine override. It wins over the language table
+  # (core/languages.py), which already routes uk -> edge: qwen has no Ukrainian
+  # and its "Auto" uk was unusable by ear (FINDINGS §2.4).
+  engine_by_lang: {}
   # qwen_model_dir_by_lang: {} # per-language checkpoint (PLAN_v0.5 P4.5)
   reference_text: ""           # ref transcript; only the ICL path uses it
   # RU stress marks. OFF: on the base model they destroy the audio (FINDINGS

@@ -21,8 +21,9 @@ qwen is a GPU-only git-clone install — see THIRD_PARTY.md. It fails with an
 actionable FileNotFoundError (which synthesize() re-raises without retry) when
 its package isn't importable.
 
-Per-language routing: tts.engine_by_lang maps a language to an engine,
-falling back to tts.engine (manifest.resolve_engine). The winning assignment
+Per-language routing: tts.engine_by_lang maps a language to an engine, then
+the language table's forced engine applies (uk -> edge, core/languages.py),
+then tts.engine (manifest.resolve_engine). The winning assignment
 is decided by the bake-off (qc/bakeoff.py), not by reputation.
 """
 from __future__ import annotations

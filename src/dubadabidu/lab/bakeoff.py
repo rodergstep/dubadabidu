@@ -183,8 +183,12 @@ def variant_key(engine: str, t: Tts, lang: str) -> str:
 
 def _engine_cfg(base_tts: Tts, engine: str) -> Tts:
     """tts config for one candidate: base (merged with the video's tts_overrides
-    by the caller) + engine + that engine's defaults."""
-    return derive(base_tts, engine=engine, engine_by_lang={})
+    by the caller) + engine + that engine's defaults. The candidate is the
+    engine for EVERY language, including ones the language table forces
+    elsewhere (uk -> edge): a bake-off measures the engine it names."""
+    from dubadabidu.core.languages import forced_engines
+    return derive(base_tts, engine=engine,
+                  engine_by_lang={lang: engine for lang in forced_engines()})
 
 
 # Per-engine tune-lite grids. Only knobs that change a single take's OUTPUT

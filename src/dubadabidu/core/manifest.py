@@ -31,6 +31,7 @@ import json, hashlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, TypedDict
 
+from dubadabidu.core.languages import forced_engine
 from dubadabidu.core.text_norm import NORM_VERSIONS, NUM_VERSIONS
 
 if TYPE_CHECKING:
@@ -320,7 +321,8 @@ def edge_fallback_langs(man: dict, langs: list[str], tts_cfg: Tts) -> list[str]:
     """edge_langs whose configured engine is NOT edge: edge stood in for the
     cloning engine (--engine edge, a fixture run), so the output validates
     plumbing only. Mux renames it and the review page banners it. A language
-    routed to edge on purpose (tts.engine_by_lang, e.g. uk) is the real dub."""
+    routed to edge on purpose (uk, by the language table or tts.engine_by_lang)
+    is the real dub."""
     return [lang for lang in edge_langs(man, langs)
             if resolve_engine(tts_cfg, lang) != "edge"]
 
@@ -343,9 +345,10 @@ def resolve_qwen_model(tts_cfg: Tts, lang: str) -> str:
 
 
 def resolve_engine(tts_cfg: Tts, lang: str) -> str:
-    """Effective engine for a language: per-lang override, else the default."""
-    return tts_cfg.engine_by_lang and \
-        tts_cfg.engine_by_lang.get(lang) or tts_cfg.engine
+    """Effective engine for a language: tts.engine_by_lang, else the language
+    table's forced engine (uk -> edge, core/languages.py), else tts.engine."""
+    return ((tts_cfg.engine_by_lang or {}).get(lang) or forced_engine(lang)
+            or tts_cfg.engine)
 
 
 # The chatterbox-era knobs' old defaults. Not config: the cache-key format
