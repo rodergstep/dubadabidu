@@ -12,7 +12,6 @@
 from __future__ import annotations
 import logging, subprocess, sys
 from pathlib import Path
-import yaml
 
 from dubadabidu.cli.health import doctor
 from dubadabidu.cli.parser import build_parser
@@ -20,8 +19,7 @@ from dubadabidu.cli.remote import _remote_run_batch, _remote_stages
 from dubadabidu.cli.report import report
 from dubadabidu.cli.stages import ORDER, STAGES
 from dubadabidu.core import manifest as M
-from dubadabidu.core.config.loader import overlay_path as find_overlay
-from dubadabidu.core.logic import deep_merge
+from dubadabidu.core.config.loader import load as load_config
 
 __all__ = ["ORDER", "STAGES", "doctor", "main", "report"]
 
@@ -57,16 +55,8 @@ def main() -> None:
                 k, _, v = line.partition("=")
                 os.environ.setdefault(k.strip(), v.strip())
 
-    cfg = yaml.safe_load(open(config_path, encoding="utf-8"))
-    for ov in (a.overlay or []):  # stacked left-to-right; later overlays win
-        overlay_path = find_overlay(project.root, ov)   # root, configs/, configs/experiments/
-        cfg = deep_merge(cfg, yaml.safe_load(open(overlay_path, encoding="utf-8")))
-    if a.engine:
-        cfg["tts"]["engine"] = a.engine
-    # every key of the MERGED config must be declared (a typo used to be
-    # silently ignored and the code ran on its default) — PLAN_v0.5 P7
-    from dubadabidu.core.config.schema import validate as _validate_config
-    _validate_config(cfg)
+    # base + overlays (root, configs/, configs/experiments/) + --engine, validated
+    cfg = load_config(project.root, config_path, a.overlay or [], a.engine)
     langs = ([x.strip() for x in a.langs.split(",") if x.strip()]
              if a.langs else cfg["languages"])
     # a video is never dubbed into its own language (cfg languages lists ru,

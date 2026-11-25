@@ -11,7 +11,13 @@ basename must therefore exist in only one of these directories
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
+
+import yaml
+
+from dubadabidu.core.config.schema import Config, validate
+from dubadabidu.core.logic import deep_merge
 
 SEARCH = (".", "configs", "configs/experiments")
 
@@ -37,3 +43,19 @@ def overlay_files(project_root: Path) -> list[Path]:
     for d in SEARCH:
         out += sorted((project_root / d).glob("config*.yaml"))
     return [p for p in out if not (p.name == "config.yaml" and p.parent == project_root)]
+
+
+def load(project_root: Path, config: Path, overlays: Sequence[str],
+         engine: str | None = None) -> Config:
+    """The CLI's config: config.yaml, then each --overlay deep-merged over it
+    left to right (later wins), then --engine, then validation of the MERGED
+    result (a typo fails with its dotted path)."""
+    cfg = yaml.safe_load(open(config, encoding="utf-8"))
+    for ov in overlays:  # stacked left-to-right; later overlays win
+        cfg = deep_merge(cfg, yaml.safe_load(open(overlay_path(project_root, ov),
+                                                  encoding="utf-8")))
+    if engine:
+        cfg["tts"]["engine"] = engine
+    # every key of the MERGED config must be declared (a typo used to be
+    # silently ignored and the code ran on its default) — PLAN_v0.5 P7
+    return validate(cfg)

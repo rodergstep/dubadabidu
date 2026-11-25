@@ -7,12 +7,14 @@ code runs on its default and nobody notices. Every block here is
 `extra="forbid"`, and `validate()` runs on the MERGED config (base + overlays)
 in dub.py, so a typo fails at load with its full path.
 
-Scope: this VALIDATES only. dub.py discards `validate()`'s return value and
-stages keep receiving the merged plain dict, so a default declared here is
-DOCUMENTATION — the value that applies is the code's own `.get(key, default)`.
-Keep the two equal (tests/test_config_schema.py pins the ones that drifted).
-Optional fields are the keys code reads with a default but no shipped config
-sets — they are declared so an overlay may set them.
+`validate()` returns the typed, frozen Config the CLI hands to every stage
+(ARCHITECTURE_PLAN.md §3). While the stages move onto attribute access, the
+model also answers raw reads — cfg["tts"], cfg.get(...), "runpod" in cfg —
+from the merged dict it was built from, with exactly the semantics of that
+dict (a missing key is missing, so a code default still applies where code
+still reads one). tests/config/ proves the two views agree and lists every
+place a code default differs from a default declared here. The raw view is
+deleted once nothing reads through it.
 
 Adding a config key: declare it here (with its type) in the same change.
 """
@@ -20,13 +22,15 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from collections.abc import ItemsView, KeysView
+
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError
 
 Number = float | int
 
 
 class _Block(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 class Asr(_Block):
@@ -267,6 +271,24 @@ class Config(_Block):
     bakeoff: Bakeoff | None = None
     runpod: Runpod | None = None
 
+    # --- transition: the merged dict, for code not yet on attribute access ---
+    _raw: dict[str, object] = PrivateAttr(default_factory=dict)
+
+    def __getitem__(self, key: str) -> object:
+        return self._raw[key]
+
+    def get(self, key: str, default: object = None) -> object:
+        return self._raw.get(key, default)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._raw
+
+    def keys(self) -> KeysView[str]:
+        return self._raw.keys()
+
+    def items(self) -> ItemsView[str, object]:
+        return self._raw.items()
+
 
 class ConfigError(SystemExit):
     """Raised (as a clean exit) when the merged config does not validate."""
@@ -275,10 +297,12 @@ class ConfigError(SystemExit):
 def validate(cfg: dict) -> Config:
     """Validate the MERGED config; exit with every bad key's dotted path."""
     try:
-        return Config.model_validate(cfg)
+        model = Config.model_validate(cfg)
     except ValidationError as e:
         lines = [f"  {'.'.join(str(p) for p in err['loc'])}: {err['msg']}"
                  for err in e.errors()]
         raise ConfigError("config does not validate (a typo, or a key this "
                           "schema does not declare — pipeline/config_schema.py):\n"
                           + "\n".join(lines)) from None
+    model._raw = cfg
+    return model
