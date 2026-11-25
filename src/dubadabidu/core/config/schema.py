@@ -20,7 +20,7 @@ Adding a config key: declare it here (with its type) in the same change.
 """
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, TypeVar
 
 from collections.abc import ItemsView, KeysView
 
@@ -31,6 +31,24 @@ Number = float | int
 
 class _Block(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+    # --- transition: the merged dict, for code not yet on attribute access ---
+    _raw: dict[str, object] = PrivateAttr(default_factory=dict)
+
+    def __getitem__(self, key: str) -> object:
+        return self._raw[key]
+
+    def get(self, key: str, default: object = None) -> object:
+        return self._raw.get(key, default)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._raw
+
+    def keys(self) -> KeysView[str]:
+        return self._raw.keys()
+
+    def items(self) -> ItemsView[str, object]:
+        return self._raw.items()
 
 
 class Asr(_Block):
@@ -272,23 +290,6 @@ class Config(_Block):
     bakeoff: Bakeoff | None = None
     runpod: Runpod | None = None
 
-    # --- transition: the merged dict, for code not yet on attribute access ---
-    _raw: dict[str, object] = PrivateAttr(default_factory=dict)
-
-    def __getitem__(self, key: str) -> object:
-        return self._raw[key]
-
-    def get(self, key: str, default: object = None) -> object:
-        return self._raw.get(key, default)
-
-    def __contains__(self, key: object) -> bool:
-        return key in self._raw
-
-    def keys(self) -> KeysView[str]:
-        return self._raw.keys()
-
-    def items(self) -> ItemsView[str, object]:
-        return self._raw.items()
 
 
 class ConfigError(SystemExit):
@@ -305,5 +306,26 @@ def validate(cfg: dict) -> Config:
         raise ConfigError("config does not validate (a typo, or a key this "
                           "schema does not declare — pipeline/config_schema.py):\n"
                           + "\n".join(lines)) from None
-    model._raw = cfg
+    _attach_raw(model, cfg)
     return model
+
+
+def _attach_raw(block: _Block, raw: dict[str, object]) -> None:
+    """Give every block the slice of the merged dict it was validated from."""
+    block._raw = raw
+    for name in type(block).model_fields:
+        sub, sub_raw = getattr(block, name), raw.get(name)
+        if isinstance(sub, _Block) and isinstance(sub_raw, dict):
+            _attach_raw(sub, sub_raw)
+
+
+B = TypeVar("B", bound=_Block)
+
+
+def derive(block: B, **updates: object) -> B:
+    """`block` with some fields replaced — for the tts block a manifest's
+    tts_overrides or a bake-off grid point produce. Both views move together:
+    attribute reads see the update and so do raw reads during the transition."""
+    new = block.model_copy(update=updates)
+    new._raw = {**block._raw, **updates}
+    return new
