@@ -15,11 +15,11 @@ from __future__ import annotations
 import logging
 import soundfile as sf
 from . import manifest as M
-from .tts_engine import synth_best_of
+from qc.selection import synth_best_of
 
 
 def _rank_w(cfg: dict) -> dict | None:
-    """qc.eval.weights, which is what ranks takes (tts_engine._take_rank).
+    """qc.eval.weights, which is what ranks takes (qc.selection._take_rank).
 
     Threaded explicitly rather than read inside the engine: the engine takes a
     TTS-config dict, and these live under qc — hiding the lookup in there is how

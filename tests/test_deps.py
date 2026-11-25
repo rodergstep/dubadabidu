@@ -309,7 +309,7 @@ def test_tempo_means_the_same_thing_wherever_it_is_read():
     Until they are split, this test documents the collision so nobody "tidies"
     one of them into agreement with the other by accident.
     """
-    from pipeline.tts_engine import _take_rank
+    from qc.selection import _take_rank
     from qc.metrics import composite_score
     w = {"sim": 0.0, "mos": 0.55, "f0": 0.30, "tempo": 0.15}
     # penalty direction: more stretch -> lower score
@@ -343,12 +343,12 @@ def test_per_video_reference_override_matches_the_findings_verdict():
 
 
 def test_take_ranking_actually_reads_the_configured_weights():
-    """qc.eval.weights was read ONLY by tune.py, while tts_engine._take_rank
+    """qc.eval.weights was read ONLY by tune.py, while qc.selection._take_rank
     hardcoded its own copy — so editing the weights changed the reference-sweep
     objective and nothing about which take ships. refit gated on a formula the
     pipeline never ran, and dropping sim to 0.0 left it at an effective 0.2 in
     selection. Wired up 2026-08-09; this keeps them connected."""
-    from pipeline.tts_engine import _take_rank
+    from qc.selection import _take_rank
     m_hi_sim = {"mos_min": 3.0, "f0st": 2.0, "sim": 0.9}
     m_lo_sim = {"mos_min": 3.0, "f0st": 2.0, "sim": 0.1}
     sim_heavy = {"sim": 1.0, "mos": 0.0, "f0": 0.0, "tempo": 0.0}
@@ -363,7 +363,7 @@ def test_zero_weights_do_not_disable_best_of():
     """If every applicable weight is 0 the rank must not become a constant —
     `max` would then return the FIRST take every time and best_of would quietly
     stop selecting at all."""
-    from pipeline.tts_engine import _take_rank
+    from qc.selection import _take_rank
     zero = {"sim": 0.0, "mos": 0.0, "f0": 0.0, "tempo": 0.0}
     better = {"mos_min": 4.0, "f0st": 2.0, "sim": 0.5}
     worse = {"mos_min": 2.0, "f0st": 2.0, "sim": 0.5}

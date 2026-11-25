@@ -217,7 +217,7 @@ def constant_terms(rows: list[dict], max_tempo: float) -> list[str]:
 
     Pasting that into config would set a REAL 0.95 stretch penalty for the
     first segment that ever gets time-stretched — and, because `tempo` is also
-    read as the pace-match reward in tts_engine._take_rank, would silently
+    read as the pace-match reward in qc.selection._take_rank, would silently
     re-weight take selection too.
     """
     if len(rows) < 3:
@@ -538,7 +538,7 @@ def run(cfg: dict, langs: list[str]) -> int:
         # Adopting weight on a term the data cannot identify writes a number
         # into config that was never measured — and `tempo` in particular is
         # read by BOTH composite_score (as a stretch penalty) and
-        # tts_engine._take_rank (as a pace-match reward), so it would move take
+        # qc.selection._take_rank (as a pace-match reward), so it would move take
         # selection on no evidence at all.
         # The check is that a constant term was HELD at its incumbent value,
         # not that it is near zero: holding is the correct treatment, and
@@ -643,7 +643,7 @@ def winner_agreement(groups: list[list[dict]], w: dict,
     if the fit stays INSIDE the group. Pooling the clips and correlating
     globally would put the between-sentence variance straight back in.
 
-    It is also the production question stated exactly: tts_engine.synth_best_of
+    It is also the production question stated exactly: qc.selection.synth_best_of
     ships `max(pool, key=_take_rank)`, so "does the argmax match the human's
     pick" is what take selection actually does, not a proxy for it. Chance is
     1/k per group, reported alongside so a number can be read.

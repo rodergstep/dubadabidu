@@ -29,7 +29,7 @@ LAYER_OF = {
     "pipeline.audio": "core",
     "pipeline.tts_engine": "engines", "pipeline.asr": "engines",
     "qc.metrics": "qc", "qc.backcheck": "qc", "qc.evaluate": "qc",
-    "qc.stress_words": "qc",
+    "qc.stress_words": "qc", "qc.selection": "qc",
     **{f"pipeline.{s}": "stages" for s in (
         "s1_extract", "s2_transcribe", "s3_translate", "s4_synthesize",
         "s5_fit", "s6_mix", "s7_subtitles", "s8_mux")},
@@ -44,10 +44,7 @@ LAYER_OF = {
 RESEARCH = {f"qc.{m}" for m in ("stress_mfa", "stress_detect", "stress_var",
                                 "stress_variants", "stress_consensus",
                                 "axis_check", "avoidance_ab", "judge")}
-ALLOWED = {
-    ("pipeline.tts_engine", "qc.metrics"),      # take selection lives in the engine
-    ("pipeline.tts_engine", "qc.backcheck"),    # (B2 moves it to qc)
-}
+ALLOWED: set[tuple[str, str]] = set()
 
 
 def modules() -> dict[str, Path]:

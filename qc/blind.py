@@ -54,7 +54,7 @@ def _clips(bo: Path, lang: str, variants: list[str],
     Groups are balanced on purpose too. The raw directories hold 6 takes of one
     variant and 3 of the others, so an unbalanced sample would weight the
     ratings toward whichever variant happened to be run with more takes."""
-    from pipeline.tts_engine import _take_rank
+    from .selection import _take_rank
     from qc import metrics as X
     out = []
     for v in variants:

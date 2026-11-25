@@ -221,7 +221,7 @@ def test_a_constant_term_is_reported_as_unidentifiable():
     with {f0: 1.0}.
 
     Adopting it would write a real 0.95 stretch penalty into config, and
-    `tempo` is ALSO the pace-match reward in tts_engine._take_rank, so take
+    `tempo` is ALSO the pace-match reward in qc.selection._take_rank, so take
     selection would move on no evidence."""
     from qc.refit import constant_terms
     rows = [{"qc_sim_cal": 0.5 + i * 0.01, "qc_mos_min": 4.0 + i * 0.01,
@@ -245,7 +245,7 @@ def _grp(*mos_winner):
 
 
 def test_winner_agreement_is_the_argmax_question():
-    """tts_engine.synth_best_of ships max(pool, key=_take_rank), so "does the
+    """qc.selection.synth_best_of ships max(pool, key=_take_rank), so "does the
     argmax match the human's pick" IS take selection, not a proxy for it."""
     groups = [_grp((4.5, True), (2.0, False)), _grp((4.6, True), (3.0, False))]
     mos_only = {"sim": 0.0, "mos": 1.0, "f0": 0.0, "tempo": 0.0}

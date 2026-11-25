@@ -13,7 +13,7 @@ import soundfile as sf
 from . import manifest as M
 from .logic import choose_placement, retime_step
 from .s3_translate import shorten as llm_shorten
-from .tts_engine import synth_best_of
+from qc.selection import synth_best_of
 
 log = logging.getLogger("dubadabidu.s5")
 

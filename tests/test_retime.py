@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 from pipeline.logic import retime_step
-from pipeline.tts_engine import _take_rank
+from qc.selection import _take_rank
 
 
 def test_take_rank_prefers_source_pace():

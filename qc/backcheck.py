@@ -6,7 +6,7 @@ listening to hours of audio. Segments above the threshold are listed for review.
 
 The Whisper model is a module singleton (the autopilot re-runs QC every re-roll
 round; reloading large-v3 each time costs ~30s a round for nothing) and is also
-shared with tts_engine's per-take WER veto.
+shared with qc.selection's per-take WER veto.
 
 WER normalization expands digits to words on BOTH sides (num2words): TTS speaks
 "25" as "twenty-five" and Whisper often writes it back as "25" (or vice versa),
@@ -87,7 +87,7 @@ def _norm(s: str, lang: str) -> str:
     audio that was exactly right.
 
     That is not a display bug. The autopilot re-rolls WER-flagged segments, and
-    the re-roll runs a per-take back-transcription veto (tts_engine._measure),
+    the re-roll runs a per-take back-transcription veto (qc.selection.synth_best_of),
     so a false flag costs a Whisper pass per take on a good segment until
     `_stuck_after` gives up and ESCALATEs.
 

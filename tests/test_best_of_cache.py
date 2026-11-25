@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Crash-safety of the best-of take cache (tts_engine.synth_best_of).
+"""Crash-safety of the best-of take cache (qc.selection.synth_best_of).
 
 Regression guard: `out` is the content-hash cache key — s4 treats its existence
 as "this segment has an accepted take" (fresh = not out.exists()). Take 0 used
@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from pipeline import tts_engine as T
+from qc import selection as SEL
 
 TCFG = {"engine": "edge", "best_of": 3, "rank_takes": True,
         "best_of_early_accept": False, "retake_mos_below": 0.0,
@@ -36,7 +37,7 @@ def stub_metrics(monkeypatch):
     """Stub the model-backed metrics; this suite is about file lifecycle."""
     import qc.metrics
     monkeypatch.setattr(qc.metrics, "mos_min_window", lambda p: 4.0)
-    monkeypatch.setattr(T, "_f0_delivered", lambda p: 3.0)
+    monkeypatch.setattr(SEL, "_f0_delivered", lambda p: 3.0)
 
 
 def _fake_synthesizer(monkeypatch, fail_on: int | None = None,
@@ -65,7 +66,7 @@ def test_crash_mid_best_of_caches_nothing(tmp_path, monkeypatch, stub_metrics):
     _fake_synthesizer(monkeypatch, fail_on=3)
 
     with pytest.raises(RuntimeError):
-        T.synth_best_of("hello", "en", out, TCFG)
+        SEL.synth_best_of("hello", "en", out, TCFG)
 
     assert not out.exists()
 
@@ -75,7 +76,7 @@ def test_successful_run_publishes_exactly_one_file(tmp_path, monkeypatch,
     out = tmp_path / "u0001_abcd1234.wav"
     _fake_synthesizer(monkeypatch)
 
-    T.synth_best_of("hello", "en", out, TCFG)
+    SEL.synth_best_of("hello", "en", out, TCFG)
 
     assert out.exists()
     assert list(tmp_path.iterdir()) == [out]     # no _take* left behind
@@ -91,7 +92,7 @@ def test_winner_content_is_published(tmp_path, monkeypatch, stub_metrics):
         "u0001_abcd1234_take2.wav": 3.5})
     meta: list = []
 
-    T.synth_best_of("hello", "en", out, TCFG, meta=meta)
+    SEL.synth_best_of("hello", "en", out, TCFG, meta=meta)
 
     with wave.open(str(out), "rb") as w:
         marker = struct.unpack("<h", w.readframes(1))[0]
@@ -109,7 +110,7 @@ def test_leftovers_from_a_crashed_attempt_are_swept(tmp_path, monkeypatch,
     _wav(tmp_path / "u0001_abcd1234_reroll1.wav", 99)
     _fake_synthesizer(monkeypatch)
 
-    T.synth_best_of("hello", "en", out, TCFG)            # best_of: 3 now
+    SEL.synth_best_of("hello", "en", out, TCFG)            # best_of: 3 now
 
     assert list(tmp_path.iterdir()) == [out]
 
@@ -128,7 +129,7 @@ def test_sweep_is_scoped_to_this_segment(tmp_path, monkeypatch, stub_metrics):
     _wav(placed, 10)
     _fake_synthesizer(monkeypatch)
 
-    T.synth_best_of("hello", "en", out, TCFG)
+    SEL.synth_best_of("hello", "en", out, TCFG)
 
     assert neighbour.exists() and keeper.exists()
     assert fitted.exists() and placed.exists()
@@ -140,7 +141,7 @@ def test_single_take_still_publishes_atomically(tmp_path, monkeypatch,
     out = tmp_path / "u0001_abcd1234.wav"
     _fake_synthesizer(monkeypatch)
 
-    T.synth_best_of("hello", "en", out, {**TCFG, "best_of": 1})
+    SEL.synth_best_of("hello", "en", out, {**TCFG, "best_of": 1})
 
     assert out.exists()
     assert list(tmp_path.iterdir()) == [out]
@@ -152,7 +153,7 @@ def test_crash_on_the_very_first_take_caches_nothing(tmp_path, monkeypatch,
     _fake_synthesizer(monkeypatch, fail_on=1)
 
     with pytest.raises(RuntimeError):
-        T.synth_best_of("hello", "en", out, TCFG)
+        SEL.synth_best_of("hello", "en", out, TCFG)
 
     assert not out.exists()
     assert list(tmp_path.iterdir()) == []
