@@ -388,19 +388,19 @@ def test_bootstrap_pins_torch_itself_now_that_chatterbox_is_gone():
     spacy-pkuseg plus exact pins that made pip backtrack. chatterbox was removed
     2026-08-02, so the pin has to be ours or the pod gets whatever pip picks.
 
-    2.11.0 is only safe because allowed_cuda_versions guarantees a driver that
+    2.14.1 is only safe because the driver floor guarantees a driver that
     supports it — see test_torch_pin_and_cuda_filter_move_together."""
     from pipeline.runpod_infra import REMOTE_SETUP
     setup = REMOTE_SETUP.format(dir="~/d")
     assert "chatterbox" not in setup
     # v0.5: the pin lives in pyproject/uv.lock and the pod installs the lock
     assert "uv sync --frozen" in setup
-    assert '"torch==2.11.0"' in open("pyproject.toml", encoding="utf-8").read()
+    assert '"torch==2.14.1"' in open("pyproject.toml", encoding="utf-8").read()
 
 
 def test_torch_pin_and_cuda_filter_move_together():
     """THE coupling that a first attempt at this bump got wrong, on a pod:
-    torch 2.11's oldest build is cu126 (no 2.11+cu124 wheel exists), so on a
+    torch 2.11+'s oldest build is cu126 (no 2.11+cu124 wheel exists), so on a
     default-scheduled host with a CUDA 12.4 driver it installs fine and then
     reports CUDA: False -- "The NVIDIA driver on your system is too old (found
     version 12040)". A silent CPU fallback at full GPU price is this project's
@@ -439,14 +439,16 @@ def test_torch_wheel_matches_the_oldest_allowed_driver():
     """The wheel's CUDA build must be <= the OLDEST driver the filter admits.
 
     Drivers are backward compatible with older CUDA runtimes but not forward:
-    a cu130 wheel needs a 13.0 driver. Plain PyPI serves torch 2.11 as +cu130,
-    so with allowed_cuda_versions ["12.8","12.9","13.0"] two thirds of the
+    a cu130 wheel needs a 13.0 driver. Plain PyPI serves torch as +cu130, so
+    with allowed_cuda_versions ["12.8","12.9","13.0"] two thirds of the
     permitted hosts could not run it — and the failure is the silent one
     (installs fine, CUDA: False, synthesis crawls on CPU at full GPU price).
     A pod on 2026-08-02 passed only because it drew a 13.0 driver.
 
-    Hence the explicit --index-url. This test is the thing that notices when
-    someone widens the filter to 12.6 and forgets the wheel."""
+    Hence the explicit cuXYZ index (cu126 since torch 2.14.1, under a 12.8
+    floor). This test is the thing that notices when someone lowers the floor
+    below the wheel's CUDA, or moves the wheel above the floor (e.g. to
+    torch 2.15, which exists only as cu132)."""
     import re
     import yaml
     from pipeline.logic import deep_merge
@@ -470,7 +472,7 @@ def test_torch_wheel_matches_the_oldest_allowed_driver():
     assert m, (
         f"allowed_cuda_versions is {allowed} but the torch install has no "
         f"explicit cuXYZ --index-url, so pip picks the default wheel (cu130 for "
-        f"torch 2.11) which the oldest allowed driver may not support")
+        f"torch) which the oldest allowed driver may not support")
     wheel_cuda = float(f"{m.group(1)}.{m.group(2)}")
     assert wheel_cuda <= min(allowed), (
         f"torch wheel is cu{m.group(1)}{m.group(2)} ({wheel_cuda}) but the filter "

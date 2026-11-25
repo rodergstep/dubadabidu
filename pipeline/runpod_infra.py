@@ -57,7 +57,7 @@ DEFAULTS = {
                      "NVIDIA RTX A4500", "NVIDIA RTX A4000"],
     "gpu_count": 1,
     # Ubuntu 24.04 => python3.12 (the old py3.10 image capped numpy at 2.2.6);
-    # cu129 => a host driver new enough for torch 2.11's cu126/cu128 builds.
+    # cu129 => a host driver new enough for torch 2.14.1's cu126 build.
     # Verified present on Docker Hub 2026-08-02 (stable, not an -rc tag).
     "image": "runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404",
     # Filters to hosts whose DRIVER supports these CUDA versions. Without it the
@@ -66,7 +66,7 @@ DEFAULTS = {
     # TRADE-OFF: every entry removed here shrinks the host pool, and this project
     # has lost runs to capacity before. Widen this list first if provisioning
     # starts failing with "no instances currently available".
-    "min_cuda_version": "12.8",   # driver floor = torch's cu-build in uv.lock
+    "min_cuda_version": "12.8",   # driver floor >= torch's cu-build (cu126)
     "allowed_cuda_versions": [],  # v1-style exact list; mutually exclusive (400)
     "container_disk_gb": 30,
     "volume_gb": 0,               # ephemeral; all state rsync'd back
@@ -130,7 +130,7 @@ def pod_payload(rp: dict, gpu_id: str) -> dict:
     so only documented fields are sent."""
     gpu: dict = {"id": gpu_id, "count": int(rp["gpu_count"])}
     # Only send it when set — an empty list would filter to nothing. The wheel
-    # in uv.lock (cu128) must match min() of this list; tests assert it.
+    # in uv.lock (cu126) must be <= min() of this list; tests assert it.
     # v2 rejects both together (400). The floor is preferred: an exact list
     # excludes every newer driver, which v2's catalog showed leaves no capacity.
     if rp.get("allowed_cuda_versions"):
@@ -780,14 +780,14 @@ REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     # the engine path happened to fail first and get hardened first.
     "pip install -q --upgrade pip; "
     # v0.5: ONE resolver run, from the lock. uv.lock pins every package
-    # including torch 2.11.0+cu128 on Linux (pyproject [tool.uv.sources]), so
+    # including torch 2.14.1+cu126 on Linux (pyproject [tool.uv.sources]), so
     # the pod installs exactly what was locked instead of whatever PyPI served
     # that morning — the failure behind the transformers-5.x incident. uv
     # lives INSIDE the venv (the ubuntu2404 system python is PEP-668 managed)
     # and `sync` is a fast no-op on a reused pod, so the old "skip if torch
     # imports" guard is gone. --inexact keeps what engine_setup added later
     # (qwen_tts, faster-qwen3-tts) on --reuse; --frozen refuses a stale lock.
-    # torch pin + cu128 index are asserted from pyproject/uv.lock by
+    # torch pin + cu126 index are asserted from pyproject/uv.lock by
     # tests/test_runpod.py (the wheel must match the OLDEST allowed driver).
     "pip install -q 'uv==" + UV_VERSION + "'; "
     "UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_HTTP_TIMEOUT=120 "

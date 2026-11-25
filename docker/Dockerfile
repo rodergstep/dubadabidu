@@ -28,7 +28,7 @@ RUN apt-get update \
  && apt-get install -y -q --no-install-recommends rsync ffmpeg git python3-venv \
  && rm -rf /var/lib/apt/lists/*
 
-# 1. the locked environment (torch 2.11.0+cu128 and everything else)
+# 1. the locked environment (torch 2.14.1+cu126 and everything else)
 WORKDIR /opt/build
 COPY pyproject.toml uv.lock ./
 RUN python3 -m venv /opt/venv \

@@ -19,7 +19,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 EXPORT_CMD = ["uv", "export", "--frozen", "--no-hashes", "--no-emit-project",
               "--extra", "dev"]
-CU_INDEX_LINE = "--extra-index-url https://download.pytorch.org/whl/cu128"
+CU_INDEX_LINE = "--extra-index-url https://download.pytorch.org/whl/cu126"
 
 
 def _norm(name: str) -> str:
@@ -70,23 +70,31 @@ def test_requirements_txt_is_the_current_lock_export():
                           text=True).stdout
     have = (ROOT / "requirements.txt").read_text()
     assert CU_INDEX_LINE in have, (
-        "requirements.txt lost the cu128 index line — `pip install -r` on Linux "
-        "could not find torch==2.11.0+cu128")
+        "requirements.txt lost the cu126 index line — `pip install -r` on Linux "
+        "could not find torch==2.14.1+cu126")
     body = have.split(CU_INDEX_LINE, 1)[1].lstrip("\n")
     assert body == want, (
         "requirements.txt is not the current export of uv.lock — regenerate:\n"
         "  scripts/export_requirements.sh")
 
 
-def test_torch_is_pinned_and_linux_resolves_the_cu128_build():
+def test_torch_is_pinned_and_linux_resolves_the_cu126_build():
     """The pin moved here from the pod bootstrap in v0.5. On Linux the wheel
-    MUST be cu128 (the oldest driver allowed_cuda_versions admits); PyPI's
-    default 2.11 wheel is cu130 and reports CUDA: False on 12.8/12.9 hosts."""
+    MUST be a cuXYZ build no newer than the oldest driver the host filter
+    admits (cu126 under a 12.8 floor); PyPI's default wheel is cu130 and
+    reports CUDA: False on 12.x hosts.
+
+    torchaudio is no longer version-locked to torch: 2.11.1 ships py3-none
+    (stable-ABI) wheels requiring only torch>=2.11, from PyPI on both
+    platforms, so it carries no +cu suffix in the lock."""
     core = _pyproject_core()
-    assert core.get("torch") == core.get("torchaudio") == "2.11.0", (
-        "torch/torchaudio ship version-locked and 2.11.0 is torchaudio's ceiling")
-    assert "2.11.0+cu128" in _lock_versions()["torch"], (
-        "the lock has no cu128 torch for Linux — check [tool.uv.sources]")
+    assert core.get("torch") == "2.14.1"
+    assert core.get("torchaudio") == "2.11.1"
+    lock = _lock_versions()
+    assert "2.14.1+cu126" in lock["torch"], (
+        "the lock has no cu126 torch for Linux — check [tool.uv.sources]")
+    assert lock["torchaudio"] == {"2.11.1"}, (
+        "torchaudio should resolve to the single PyPI py3-none build")
 
 
 def test_removed_engines_stay_removed():
