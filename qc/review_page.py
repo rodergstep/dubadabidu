@@ -149,7 +149,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
 
     from qc.stress_words import STRESS_LANGS
     for lang in langs:
-        edge = bool(M.edge_langs(man, [lang]))
+        edge = bool(M.edge_fallback_langs(man, [lang], cfg["tts"]))
         # word marking only where stress is lexical and the engine can be wrong
         mark_words = lang in STRESS_LANGS
         # scores computed on audio s5/s6 has since rewritten: the badges would

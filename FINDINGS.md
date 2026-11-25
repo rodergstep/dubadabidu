@@ -1197,6 +1197,20 @@ his judgement.
 
 ---
 
+### 2.4 Ukrainian is voiced by edge-tts, not qwen (2026-11-25)
+
+**CLAIM** qwen can voice Ukrainian targets with `language="Auto"` (Qwen3-TTS
+lists no Ukrainian) and keep the clone.
+**EVIDENCE** 105 s Russian art-therapy clip (`PT_Art-therapy_ru.mp4`
+0:46.4–2:31.6) dubbed ru → uk, 8 segments, both engines from the same
+translation. Back-transcription WER (Whisper large-v3, uk) on the fitted takes:
+qwen median ~0.20 (0.00–0.42), edge `uk-UA-OstapNeural` ~0.035 (0.00–0.19).
+Worst-3s-window MOS 2.0 (qwen) vs 3.2 (edge); qwen keeps the voice (sim 0.73),
+edge does not clone. The same run's English from qwen was good by ear.
+**VERDICT** **REFUTED BY EAR** — qwen's Ukrainian is not usable. uk routes to
+edge via `tts.engine_by_lang: {uk: edge}`; its output is the real uk dub, not a
+plumbing check. Re-open only when a cloning TTS lists Ukrainian.
+
 ## 3. Cost
 
 **CLAIM** RAM and vCPU are chosen and billed.

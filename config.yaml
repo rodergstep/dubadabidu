@@ -53,8 +53,10 @@ translation:
   n_short_variants: 2          # shorter variants for overflow retries
 
 tts:
-  engine: qwen                 # qwen | edge (plumbing only, no cloning)
-  engine_by_lang: {}           # per-language engine override
+  engine: qwen                 # qwen | edge (no cloning)
+  # Per-language engine override. uk -> edge: qwen has no Ukrainian and its
+  # "Auto" uk was unusable by ear (FINDINGS §2.4).
+  engine_by_lang: {uk: edge}
   # qwen_model_dir_by_lang: {} # per-language checkpoint (PLAN_v0.5 P4.5)
   reference_text: ""           # ref transcript; only the ICL path uses it
   # RU stress marks. OFF: on the base model they destroy the audio (FINDINGS
@@ -75,7 +77,7 @@ tts:
   # (ref/sketch_ref_08.trim12s.wav); the choice is below the ear's resolution (§2.2).
   reference_wav: ref/sketch_ref_08.wav
   sample_rate: 24000
-  edge_voices:                 # fallback engine voices (edge-tts 7.3.1)
+  edge_voices:                 # edge engine voices (edge-tts 7.3.1)
     en: en-US-AndrewNeural
     fr: fr-FR-HenriNeural
     de: de-DE-ConradNeural

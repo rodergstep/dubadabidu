@@ -314,7 +314,7 @@ def report(cfg: dict, video: str) -> None:
         if st["score"] or st["wer"]:
             stale_note.append(f"{lang} ({len(st['score'])} score, "
                               f"{len(st['wer'])} wer)")
-        engine = "⚠EDGE" if M.edge_langs(man, [lang]) else \
+        engine = "⚠EDGE" if M.edge_fallback_langs(man, [lang], cfg["tts"]) else \
             next((t["synth_engine"] for t in trs if t.get("synth_engine")), "-")
         fits = [t.get("fit") for t in trs]
         wer_bad = sum(1 for t in trs

@@ -298,14 +298,22 @@ def stale_qc(wd: Path, man: dict, lang: str) -> dict[str, list[str]]:
 
 
 def edge_langs(man: dict, langs: list[str]) -> list[str]:
-    """Languages whose synthesis used the edge fallback (generic MS voices,
-    no cloning). Edge output validates plumbing ONLY — it must never be
-    mistaken for judgeable dubbing, so mux renames it, the review page
-    banners it, and verdict ingestion refuses it. Legacy manifests without
+    """Languages synthesized with edge (generic MS voices, no cloning).
+    Verdict ingestion refuses them: ratings of a voice that is not the
+    speaker's would poison the qc-weight re-fit. Legacy manifests without
     synth_engine tags are treated as real (they predate the edge fixtures)."""
     return [lang for lang in langs
             if any(u["tr"].get(lang, {}).get("synth_engine") == "edge"
                    for u in man["utterances"])]
+
+
+def edge_fallback_langs(man: dict, langs: list[str], tts_cfg: dict) -> list[str]:
+    """edge_langs whose configured engine is NOT edge: edge stood in for the
+    cloning engine (--engine edge, a fixture run), so the output validates
+    plumbing only. Mux renames it and the review page banners it. A language
+    routed to edge on purpose (tts.engine_by_lang, e.g. uk) is the real dub."""
+    return [lang for lang in edge_langs(man, langs)
+            if resolve_engine(tts_cfg, lang) != "edge"]
 
 
 DEFAULT_QWEN_MODEL = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"

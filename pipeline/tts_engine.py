@@ -77,7 +77,7 @@ def check_output_sr(model_id: str, sr: int) -> None:
             f"qwen returned audio at {sr} Hz but {model_id} declares "
             f"{want} Hz — the take would play at the wrong pitch and speed")
 # Qwen3-TTS language names. uk is absent because the model does not list
-# Ukrainian; it synthesizes uk with language "Auto".
+# Ukrainian ("Auto" uk was unusable by ear), so config routes uk to edge.
 QWEN_LANGS = {"en": "English", "fr": "French", "de": "German",
               "es": "Spanish", "ru": "Russian"}
 

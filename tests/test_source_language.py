@@ -79,3 +79,22 @@ def test_source_language_is_uk_or_ru() -> None:
     validate(dict(cfg, source_language="ru"))
     with pytest.raises(ConfigError):
         validate(dict(cfg, source_language="pl"))
+
+
+def test_uk_is_voiced_by_edge() -> None:
+    """FINDINGS §2.4: qwen's "Auto" Ukrainian was unusable by ear."""
+    import yaml
+    base = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
+    gpu = yaml.safe_load((ROOT / "config.gpu.yaml").read_text(encoding="utf-8"))
+    from pipeline.logic import deep_merge
+    for cfg in (base, deep_merge(base, gpu)):
+        assert M.resolve_engine(cfg["tts"], "uk") == "edge"
+        assert M.resolve_engine(cfg["tts"], "en") == "qwen"
+
+
+def test_edge_routed_on_purpose_is_not_a_plumbing_run() -> None:
+    man = {"utterances": [{"id": "u0001", "tr": {
+        "uk": {"synth_engine": "edge"}, "en": {"synth_engine": "edge"}}}]}
+    tts = {"engine": "qwen", "engine_by_lang": {"uk": "edge"}}
+    assert M.edge_langs(man, ["en", "uk"]) == ["en", "uk"]   # verdicts refuse both
+    assert M.edge_fallback_langs(man, ["en", "uk"], tts) == ["en"]
