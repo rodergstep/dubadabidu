@@ -308,7 +308,7 @@ def test_remote_stages_reads_the_real_argparse_dests():
     returned None for both, so the pod fell back to the whole pipeline, ran
     s1/s2 and died on the input video that is deliberately never uploaded."""
     import argparse
-    from dub import _remote_stages
+    from dubadabidu.cli import _remote_stages
     narrowed = argparse.Namespace(from_stage="s4_synthesize",
                                   to_stage="s4_synthesize")
     assert _remote_stages(narrowed) == "--from s4_synthesize --to s4_synthesize"
@@ -331,7 +331,7 @@ def test_remote_plan_translates_locally_and_finishes_locally():
     the local follow-up muxed without s6, i.e. stale dub_<lang>.m4a files.
     The plan is now local s3 -> pod s4..s5 -> local s6..s8."""
     import argparse
-    from dub import _remote_plan
+    from dubadabidu.cli import _remote_plan
     before, pod, after = _remote_plan(
         argparse.Namespace(from_stage="s1_extract", to_stage="s8_mux"))
     assert before == ["s3_translate"]
@@ -361,7 +361,7 @@ def test_pod_never_runs_a_stage_needing_an_extra_it_does_not_install():
     (pedalboard, GPLv3, opt-in on purpose), so a pod that reaches s6 with
     mix.master.enabled dies AFTER all the billed GPU work is done."""
     import argparse
-    from dub import _remote_stages, ORDER
+    from dubadabidu.cli import _remote_stages, ORDER
     from dubadabidu.infra.remote.runpod_infra import REMOTE_TASK
     default = argparse.Namespace(from_stage="s1_extract", to_stage="s8_mux")
     stop = _remote_stages(default).split("--to ")[1].strip()
@@ -936,7 +936,7 @@ def _batch_args(**kw: object):
 def test_multi_video_remote_run_is_one_pod_one_call(monkeypatch, tmp_path):
     """All videos go to the pod in ONE remote_run (one process: models load
     once); s3 runs locally for all first, s6..s8 for all after."""
-    import dub
+    from dubadabidu import cli as dub
     local: list[tuple[str, tuple[str, ...]]] = []
     monkeypatch.setattr(dub, "_run_local",
                         lambda cfg, v, langs, st: local.append((v, tuple(st))))
@@ -951,7 +951,7 @@ def test_multi_video_remote_run_is_one_pod_one_call(monkeypatch, tmp_path):
 
 def test_batch_video_that_did_not_finish_on_the_pod_skips_its_finish(
         monkeypatch, tmp_path):
-    import dub
+    from dubadabidu import cli as dub
     local: list[str] = []
     monkeypatch.setattr(dub, "_run_local",
                         lambda cfg, v, langs, st: local.append(f"{v}:{st[0]}")
@@ -981,7 +981,7 @@ def test_run_keep_going_continues_past_a_failing_video(monkeypatch, tmp_path):
     the process exits non-zero naming the failure."""
     import sys
     import pytest
-    import dub
+    from dubadabidu import cli as dub
     seen: list[str] = []
 
     def stage(cfg, v, langs):

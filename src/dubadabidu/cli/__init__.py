@@ -37,7 +37,6 @@ from dubadabidu.review import refit
 from dubadabidu.review import review_page
 from dubadabidu.review import verdicts
 
-ROOT = Path(__file__).resolve().parent   # the checkout; the PROJECT is resolved in main()
 
 STAGES = {
     "s1_extract":    lambda c, v, l: s1_extract.run(c, v),
@@ -530,7 +529,7 @@ def main() -> None:
     # ref/, work/) work no matter where the CLI is invoked from
     import os
     from dubadabidu.core.project import resolve as resolve_project
-    project = resolve_project(a.project, os.environ, Path.cwd(), checkout=ROOT)
+    project = resolve_project(a.project, os.environ, Path.cwd())
     config_path = Path(a.config).resolve() if Path(a.config).exists() \
         else project.root / a.config
     a.rest = [str(Path(v).resolve()) if Path(v).exists() else v for v in a.rest]

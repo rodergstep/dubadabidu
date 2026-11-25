@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 import ast
 import sys
-from pathlib import Path
 import yaml
 from tests.paths import REPO, source
 
@@ -36,7 +35,7 @@ So: check names against their definitions, not against intent.
 
 
     print("\n=== 1. local imports shadowing module-level names ===")
-    for py in sorted((ROOT / "src" / "dubadabidu").rglob("*.py")) + [Path("dub.py")]:
+    for py in sorted((ROOT / "src" / "dubadabidu").rglob("*.py")):
         tree = ast.parse(py.read_text())
         top = {a.asname or a.name.split(".")[0]
                for n in tree.body if isinstance(n, ast.Import) for a in n.names}
@@ -52,7 +51,7 @@ So: check names against their definitions, not against intent.
         ok("no function-local import shadows a module-level one")
 
     print("\n=== 2. argparse dests vs how they are read ===")
-    src = (ROOT / "dub.py").read_text()
+    src = source("dubadabidu.cli").read_text()
     tree = ast.parse(src)
     dests = set()
     for n in ast.walk(tree):
@@ -151,7 +150,7 @@ So: check names against their definitions, not against intent.
     # ORDER = list(STAGES), so read the dict literal rather than the alias.
     import importlib
     order = None
-    for n in ast.walk(ast.parse((ROOT / "dub.py").read_text())):
+    for n in ast.walk(ast.parse(source("dubadabidu.cli").read_text())):
         if (isinstance(n, ast.Assign)
                 and getattr(n.targets[0], "id", "") == "STAGES"
                 and isinstance(n.value, ast.Dict)):
@@ -200,7 +199,7 @@ So: check names against their definitions, not against intent.
     import builtins
     import symtable
     for py in (sorted((ROOT / "src" / "dubadabidu").rglob("*.py"))
-               + [ROOT / "dub.py"]):
+               ):
         top = symtable.symtable(py.read_text(), str(py), "exec")
         # module scope + builtins; a name assigned anywhere at module level
         # (including inside `try:`/`if`) counts as defined.

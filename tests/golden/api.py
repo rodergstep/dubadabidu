@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from unittest import mock
 
-import dub
+from dubadabidu import cli as dub
 from dubadabidu.core import manifest
 from dubadabidu.infra.remote import runpod_infra
 from dubadabidu.stages import s3_translate

@@ -27,12 +27,19 @@ from pathlib import Path
 
 import yaml
 
-ROOT = Path(__file__).resolve().parents[3]   # the checkout (src/dubadabidu/<layer>/)
+
+
+def _root() -> Path:
+    """The project directory, resolved like the CLI resolves it."""
+    import os
+    from dubadabidu.core.project import resolve
+    return resolve(None, os.environ, Path.cwd()).root
+
 BASE_OVERLAY = "config.gpu.yaml"
 
 
 def _cmd(video: str, langs: list[str], overlays: list[str]) -> list[str]:
-    cmd = [sys.executable, "dub.py", "remote", "bakeoff", video,
+    cmd = [sys.executable, "-m", "dubadabidu", "remote", "bakeoff", video,
            "--langs", ",".join(langs), "--reuse", "--keep-alive",
            "--overlay", BASE_OVERLAY]
     for ov in overlays:
@@ -45,8 +52,8 @@ def _kill() -> None:
     non-zero rc here is the difference between a $0.7/h pod stopping and it
     running until the watchdog deadline, so it is surfaced loudly."""
     rc = subprocess.run(
-        [sys.executable, "dub.py", "remote", "kill", "--overlay", BASE_OVERLAY],
-        cwd=ROOT).returncode
+        [sys.executable, "-m", "dubadabidu", "remote", "kill", "--overlay", BASE_OVERLAY],
+        cwd=_root()).returncode
     if rc == 0:
         print("\n[experiments] pod terminated")
     else:
@@ -62,7 +69,7 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
 
-    spec = yaml.safe_load((ROOT / a.file).read_text(encoding="utf-8"))
+    spec = yaml.safe_load((_root() / a.file).read_text(encoding="utf-8"))
     video = spec["video"]
     budget_min = float(spec.get("max_total_minutes", 60))
 
@@ -112,7 +119,7 @@ def main() -> int:
             # an entry may name its own video (the ru-stress arms need the
             # 46-segment lesson; sketch60 has four utterances)
             rc = subprocess.run(_cmd(e.get("video", video), e["langs"],
-                                     e.get("overlays") or []), cwd=ROOT).returncode
+                                     e.get("overlays") or []), cwd=_root()).returncode
             dt = (time.time() - t0) / 60
             # keep going on failure — one bad overlay must not cost the others
             results.append((e["name"], "ok" if rc == 0 else f"FAILED rc={rc}", dt))

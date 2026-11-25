@@ -34,7 +34,14 @@ from pathlib import Path
 
 import yaml
 
-ROOT = Path(__file__).resolve().parents[3]   # the checkout (src/dubadabidu/<layer>/)
+
+
+def _root() -> Path:
+    """The project directory, resolved like the CLI resolves it."""
+    import os
+    from dubadabidu.core.project import resolve
+    return resolve(None, os.environ, Path.cwd()).root
+
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".m4v"}
 
 
@@ -69,7 +76,7 @@ def _run(cmd: list[str], dry: bool) -> int:
     print("   $", " ".join(cmd[1:]))
     if dry:
         return 0
-    return subprocess.run(cmd, cwd=ROOT).returncode
+    return subprocess.run(cmd, cwd=_root()).returncode
 
 
 def main() -> int:
@@ -81,7 +88,7 @@ def main() -> int:
                     help="phase A already done elsewhere")
     a = ap.parse_args()
 
-    cfg = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
+    cfg = yaml.safe_load((_root() / "config.yaml").read_text(encoding="utf-8"))
     langs = (a.langs.split(",") if a.langs else cfg["languages"])
     work = cfg["work_dir"]
     videos = _videos(a.targets)
@@ -90,7 +97,7 @@ def main() -> int:
         return 1
 
     py = sys.executable
-    base = [py, "dub.py"]
+    base = [py, "-m", "dubadabidu"]
     gpu = ["--overlay", "config.gpu.yaml", "--overlay", "config.deepseek.yaml"]
     print(f"\n{len(videos)} video(s), langs={','.join(langs)}\n")
     status: dict[str, dict[str, str]] = {v: {} for v in videos}

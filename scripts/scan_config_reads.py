@@ -42,7 +42,7 @@ PARAMS: dict[str, dict[str, str]] = {
     "prep.py": {"p": "prep"},
     "tune.py": {"tn": "tune"},
     "bakeoff.py": {"t": "tts", "tcfg": "bakeoff.tune", "bcfg": "bakeoff"},
-    "dub.py": {"tn": "tune", "sep": "separation", "tcfg": "translation"},
+    "__init__.py": {"tn": "tune", "sep": "separation", "tcfg": "translation"},  # cli
     "backcheck.py": {},
     "evaluate.py": {"ecfg": "qc.eval"},
     "refit.py": {"rcfg": "qc.refit"},

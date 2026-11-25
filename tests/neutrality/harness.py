@@ -114,7 +114,7 @@ def _record_subprocess() -> None:
 def _cli(project: Path) -> Callable[[list[str]], None]:
     """The CLI entry of THIS tree, pointed at the throwaway project."""
     sys.path.insert(0, str(REPO))
-    import dub
+    from dubadabidu import cli as dub
     args_project = ["--project", str(project)]
 
     def call(args: list[str]) -> None:

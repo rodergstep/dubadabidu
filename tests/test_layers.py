@@ -76,6 +76,8 @@ def layer(m: str) -> str:
     if parts[0] == "dubadabidu":
         if len(parts) == 1:
             return "core"                  # the package root holds no code
+        if parts[1] == "__main__":
+            return "cli"
         assert parts[1] in RANK, f"{m}: no layer named {parts[1]!r} (RANK in tests/test_layers.py)"
         return parts[1]
     assert m in LAYER_OF, f"{m} has no layer: add it to LAYER_OF in tests/test_layers.py"
