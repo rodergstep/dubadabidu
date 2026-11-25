@@ -1,0 +1,3 @@
+# Overlay for Russian-language input videos: stack it on any profile, e.g.
+#   dubadabidu run input/x.mp4 --overlay config.source-ru.yaml --langs en,uk
+source_language: ru
