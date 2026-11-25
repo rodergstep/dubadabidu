@@ -29,9 +29,12 @@ s4 — hash mismatch re-synthesizes automatically), and re-run from s4.
 from __future__ import annotations
 import json, hashlib
 from pathlib import Path
-from typing import TypedDict
+from typing import TYPE_CHECKING, Protocol, TypedDict
 
 from dubadabidu.core.text_norm import NORM_VERSIONS, NUM_VERSIONS
+
+if TYPE_CHECKING:
+    from dubadabidu.core.config.schema import Tts
 
 
 # ---------- manifest shape (PLAN_v0.5 P7) ----------
@@ -101,13 +104,19 @@ class Manifest(TypedDict, total=False):
     tts_overrides: TtsOverrides
 
 
-def video_workdir(cfg: dict, video: str | Path) -> Path:
-    d = Path(cfg["work_dir"]) / Path(video).stem
+class HasWorkDir(Protocol):
+    """Anything that says where work/ is: the Config, or a test's stand-in."""
+    @property
+    def work_dir(self) -> str: ...
+
+
+def video_workdir(cfg: HasWorkDir, video: str | Path) -> Path:
+    d = Path(cfg.work_dir) / Path(video).stem
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
-def manifest_path(cfg: dict, video: str | Path) -> Path:
+def manifest_path(cfg: HasWorkDir, video: str | Path) -> Path:
     return video_workdir(cfg, video) / "manifest.json"
 
 
@@ -120,7 +129,7 @@ def _rename_source_text(rows: list[dict]) -> None:
             r["text_src"] = r.pop("text_uk")
 
 
-def load(cfg: dict, video: str | Path) -> Manifest:
+def load(cfg: HasWorkDir, video: str | Path) -> Manifest:
     p = manifest_path(cfg, video)
     if not p.exists():
         raise SystemExit(f"No manifest at {p} — run s2_transcribe first.")
@@ -140,7 +149,7 @@ def load_refs(wd: Path) -> dict[str, dict]:
     return refs
 
 
-def save(cfg: dict, video: str | Path, man: Manifest) -> None:
+def save(cfg: HasWorkDir, video: str | Path, man: Manifest) -> None:
     p = manifest_path(cfg, video)
     tmp = p.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(man, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -157,7 +166,7 @@ _SYNTH_KEYS = ("takes", "synth_engine", "synth", "synth_dur",
                "norm_gain_db", "reroll_wer")
 
 
-def clear_synth(cfg: dict, video: str | Path, langs: list[str]) -> int:
+def clear_synth(cfg: HasWorkDir, video: str | Path, langs: list[str]) -> int:
     """Discard synthesized takes + fit/mix/qc state for `langs` so a re-run of
     s4..s7 re-synthesizes from scratch. Needed after changing a take-SELECTION
     param — best_of, rank_takes, retake_mos_below, min_f0st, f0_reroll_max,
@@ -307,7 +316,7 @@ def edge_langs(man: dict, langs: list[str]) -> list[str]:
                    for u in man["utterances"])]
 
 
-def edge_fallback_langs(man: dict, langs: list[str], tts_cfg: dict) -> list[str]:
+def edge_fallback_langs(man: dict, langs: list[str], tts_cfg: Tts) -> list[str]:
     """edge_langs whose configured engine is NOT edge: edge stood in for the
     cloning engine (--engine edge, a fixture run), so the output validates
     plumbing only. Mux renames it and the review page banners it. A language
@@ -325,21 +334,27 @@ STRESS_TRAINED_MODELS = frozenset({
 })
 
 
-def resolve_qwen_model(tts_cfg: dict, lang: str) -> str:
+def resolve_qwen_model(tts_cfg: Tts, lang: str) -> str:
     """Effective qwen checkpoint for a language: tts.qwen_model_dir_by_lang,
     else tts.qwen_model_dir, else the base model. Mirrors resolve_engine."""
-    by_lang = tts_cfg.get("qwen_model_dir_by_lang") or {}
-    return (by_lang.get(lang) or tts_cfg.get("qwen_model_dir")
+    by_lang = tts_cfg.qwen_model_dir_by_lang or {}
+    return (by_lang.get(lang) or tts_cfg.qwen_model_dir
             or DEFAULT_QWEN_MODEL)
 
 
-def resolve_engine(tts_cfg: dict, lang: str) -> str:
+def resolve_engine(tts_cfg: Tts, lang: str) -> str:
     """Effective engine for a language: per-lang override, else the default."""
-    return tts_cfg.get("engine_by_lang") and \
-        tts_cfg["engine_by_lang"].get(lang) or tts_cfg["engine"]
+    return tts_cfg.engine_by_lang and \
+        tts_cfg.engine_by_lang.get(lang) or tts_cfg.engine
 
 
-def synth_hash(text: str, lang: str, tts_cfg: dict) -> str:
+# The chatterbox-era knobs' old defaults. Not config: the cache-key format
+# keeps salting every key with them when unset (see synth_hash), and tune
+# reports them for its rounds.
+LEGACY_CFG_WEIGHT, LEGACY_EXAGGERATION = 0.0, 0.55
+
+
+def synth_hash(text: str, lang: str, tts_cfg: Tts) -> str:
     """Content hash → cache key. Any change in text/ref/params triggers
     re-synthesis. The engine is resolved per-language; extra keys are added
     ONLY for engines that use them, so pre-existing caches stay valid."""
@@ -348,32 +363,34 @@ def synth_hash(text: str, lang: str, tts_cfg: dict) -> str:
     # stay in the key at their old defaults so every previously cached take
     # keeps its hash. Removing them outright would silently invalidate every
     # seg/ cache for no benefit.
-    key_data = {"t": text, "l": lang, "ref": tts_cfg["reference_wav"],
-                "cfg": tts_cfg.get("cfg_weight", 0.0),
-                "ex": tts_cfg.get("exaggeration", 0.55),
+    key_data = {"t": text, "l": lang, "ref": tts_cfg.reference_wav,
+                "cfg": (tts_cfg.cfg_weight if tts_cfg.cfg_weight is not None
+                        else LEGACY_CFG_WEIGHT),
+                "ex": (tts_cfg.exaggeration if tts_cfg.exaggeration is not None
+                       else LEGACY_EXAGGERATION),
                 "engine": engine}
     if engine == "qwen":  # clone mode (+ ref transcript when used) change output
-        x_only = bool(tts_cfg.get("qwen_x_vector_only", True)) \
-            or not tts_cfg.get("reference_text")
+        x_only = bool(tts_cfg.qwen_x_vector_only) \
+            or not tts_cfg.reference_text
         key_data["xv"] = x_only
         if not x_only:
-            key_data["rt"] = tts_cfg.get("reference_text", "")
+            key_data["rt"] = tts_cfg.reference_text
         # qwen_fast swaps the inference implementation (faster-qwen3-tts:
         # CUDA Graphs + StaticCache). It SHOULD be numerically identical to the
         # stock decode loop, but "should" is not "is" — salt the key so an A/B
         # re-synthesizes instead of comparing new settings against cached audio
         # produced by the other implementation. Absent/false adds no key, so
         # pre-existing caches stay valid.
-        if tts_cfg.get("qwen_fast"):
+        if tts_cfg.qwen_fast:
             key_data["qf"] = True
         # a trimmed reference is a DIFFERENT reference — the adapter swaps the
         # path internally, so "ref" above would not see it and the cache would
         # serve 18 s-reference audio for a 12 s-reference config.
-        if tts_cfg.get("reference_max_s"):
-            key_data["rmax"] = tts_cfg["reference_max_s"]
+        if tts_cfg.reference_max_s:
+            key_data["rmax"] = tts_cfg.reference_max_s
         # sampling params change the output, so they must change the key
-        if tts_cfg.get("qwen_gen_kwargs"):
-            key_data["gk"] = sorted(tts_cfg["qwen_gen_kwargs"].items())
+        if tts_cfg.qwen_gen_kwargs:
+            key_data["gk"] = sorted(tts_cfg.qwen_gen_kwargs.items())
         # WHICH MODEL produced the audio. Missing until 2026-08-02: switching
         # qwen_model_dir (1.7B <-> 0.6B, or a local checkpoint) left the cache
         # serving takes from the OTHER model, so an A/B would have compared a
@@ -390,7 +407,7 @@ def synth_hash(text: str, lang: str, tts_cfg: dict) -> str:
     # engines' hashes (v1/absent adds no key -> pre-existing caches stay valid)
     # ru_stress changes the TEXT the engine sees, so it must salt the key or
     # accented audio would be served from the unaccented cache (and vice versa).
-    if lang == "ru" and tts_cfg.get("ru_stress"):
+    if lang == "ru" and tts_cfg.ru_stress:
         key_data["rustress"] = NORM_VERSIONS.get("ru", 1)
     numv = NUM_VERSIONS.get(lang, 1)
     if numv > 1:

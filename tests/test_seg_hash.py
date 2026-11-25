@@ -122,6 +122,7 @@ def test_config_cleanup_did_not_move_any_cache_key():
     from dubadabidu.core.manifest import synth_hash
     with open("config.yaml", encoding="utf-8") as a, \
             open(config("config.gpu.yaml"), encoding="utf-8") as b:
-        t = deep_merge(yaml.safe_load(a), yaml.safe_load(b))["tts"]
+        from dubadabidu.core.config.schema import validate
+        t = validate(deep_merge(yaml.safe_load(a), yaml.safe_load(b))).tts
     assert synth_hash("Hello world.", "en", t) == "5999f900"
     assert synth_hash("Привет.", "ru", t) == "bfab9b5c"

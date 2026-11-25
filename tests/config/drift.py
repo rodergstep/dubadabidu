@@ -26,40 +26,10 @@ _UNDECLARED = ("CONST (Q8d): read with a default but rejected by extra=forbid, "
                "so it is a constant dressed as config")
 
 DRIFT: dict[str, str] = {
-    # --- asr ---
-    "asr.compression_ratio_threshold get 2.4": _UNDECLARED,
-    "asr.condition_on_previous_text get False": _UNDECLARED,
-    "asr.no_speech_threshold get 0.6": _UNDECLARED,
-    "asr.temperature_fallback get (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)": _UNDECLARED,
-    "asr.vad_filter get <falsy>": "SCHEMA-WINS: asr.py:121 reads absent as off; "
-                                  "config.yaml sets true",
-    # --- separation / mix / mux ---
-    "separation.enabled get <falsy>": "SCHEMA-WINS: doctor reads absent as off",
-    "mix.master.enabled get <falsy>": "SCHEMA-WINS: s6 and doctor read absent as off",
-    # --- tts ---
-    "tts.qwen_fast get True": "BUG (§10.2 #1): engine_available assumes True, "
-                              "the loader and synth_hash False; preserved "
-                              "until a separate fix: commit",
-    "tts.qwen_x_vector_only get <falsy>": "EQUIV: bakeoff.variant_key tests "
-                                          "`is False`, so absent == True",
-    "tts.cfg_weight get 0.0": "HASH: chatterbox-era salt kept at its old default "
-                              "so existing seg/ caches keep their keys",
-    "tts.exaggeration get 0.55": "HASH: chatterbox-era salt, as cfg_weight",
-    # --- tune ---
-    "tune.r1_takes get 1": "DEAD: tune.py reads it from {**DEFAULTS, **cfg.tune}, "
-                           "which always carries r1_takes (3 = the schema now); "
-                           "the inline 1 never applies and goes with the migration",
     # --- bakeoff (block present only with the gpu overlay) ---
     "bakeoff get {}": "ABSENT (Q8c): Config.bakeoff stays optional; each site "
                       "keeps its absent-block meaning through one helper",
     "bakeoff.engines get []": "ABSENT (Q8c)",
-    "bakeoff.scoring_workers get 1": "ABSENT: field default 1 is in the schema; differs only without a bakeoff block",
-    "bakeoff.subset_size get 6": "ABSENT: field default in the schema; differs only without a bakeoff block",
-    "bakeoff.takes get 3": "ABSENT: field default in the schema; differs only without a bakeoff block",
-    "bakeoff.tune.enabled get True": "ABSENT: bakeoff.tune is optional; "
-                                     "BakeoffTune.enabled is already True",
-    "bakeoff.tune.subset_size get 3": "ABSENT: field default in the schema; differs only without a bakeoff block",
-    "bakeoff.tune.takes get 2": "ABSENT: field default in the schema; differs only without a bakeoff block",
     # --- runpod ---
     "runpod get {}": _RUNPOD_SCHEMA,
     "runpod.allowed_cuda_versions defaults []": _RUNPOD_SCHEMA,

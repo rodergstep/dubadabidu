@@ -32,7 +32,8 @@ import sys
 import time
 from pathlib import Path
 
-import yaml
+
+from dubadabidu.core.config.loader import load as load_config
 
 
 
@@ -88,9 +89,9 @@ def main() -> int:
                     help="phase A already done elsewhere")
     a = ap.parse_args()
 
-    cfg = yaml.safe_load((_root() / "config.yaml").read_text(encoding="utf-8"))
-    langs = (a.langs.split(",") if a.langs else cfg["languages"])
-    work = cfg["work_dir"]
+    cfg = load_config(_root(), _root() / "config.yaml", [])   # validated, like the CLI
+    langs = (a.langs.split(",") if a.langs else cfg.languages)
+    work = cfg.work_dir
     videos = _videos(a.targets)
     if not videos:
         print("no videos found in", a.targets)
@@ -166,7 +167,7 @@ def main() -> int:
         row = " ".join(f"{str(status[v].get(c,'-'))[:7]:>7s}" for c in cols)
         print(f"{Path(v).name[:40]:40s} {row}")
         bad += any(str(status[v].get(c, "")).startswith("FAILED") for c in cols)
-    out = Path(cfg["output_dir"])
+    out = Path(cfg.output_dir)
     made = [p.name for p in out.glob("*_multi.mp4")] if out.exists() else []
     print(f"\nmuxed outputs in {out}: {len(made)}")
     if bad:

@@ -13,6 +13,7 @@ import pytest
 
 from dubadabidu.core.manifest import synth_hash
 from dubadabidu.lab import bakeoff as B
+from tests.cfgs import toy_tts
 from tests.paths import source
 
 
@@ -101,7 +102,7 @@ def test_tune_lite_picks_the_best_grid_point(stub_synth, tmp_path):
 
     grid = {"qwen_cfg": [1.5, 2.0, 2.5]}
     over, trials, unavail = B._tune_engine(
-        "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1, grid)
+        "qwen", toy_tts(engine="qwen"), _subset(), "en", None, tmp_path, 1, grid)
 
     assert unavail is None
     assert over == {"qwen_cfg": 2.5}      # p2 = third point
@@ -114,7 +115,7 @@ def test_tune_lite_reports_every_trial_for_audit(stub_synth, tmp_path):
     stub_synth.setattr(dubadabidu.qc.metrics, "mos_min_window", lambda p: 4.0)
 
     _, trials, _ = B._tune_engine(
-        "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1,
+        "qwen", toy_tts(engine="qwen"), _subset(), "en", None, tmp_path, 1,
         {"qwen_cfg": [1.5, 2.0]})
 
     assert [t["point"] for t in trials] == [{"qwen_cfg": 1.5},
@@ -130,7 +131,7 @@ def test_tune_lite_surfaces_an_uninstalled_engine(monkeypatch, tmp_path):
 
     monkeypatch.setattr(tts_engine, "synthesize", missing)
     over, trials, unavail = B._tune_engine(
-        "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1,
+        "qwen", toy_tts(engine="qwen"), _subset(), "en", None, tmp_path, 1,
         {"qwen_cfg": [0.5, 1.0]})
 
     assert over == {} and trials == []
@@ -150,7 +151,7 @@ def test_tune_score_weights_sim_and_mos_comparably(stub_synth, tmp_path):
                        lambda p: 1.0 if "p0_" in str(p) else 5.0)
 
     _, trials, _ = B._tune_engine(
-        "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1,
+        "qwen", toy_tts(engine="qwen"), _subset(), "en", None, tmp_path, 1,
         {"qwen_cfg": [1.5, 2.0]})
 
     # sim is 0..1 while mos is 1..5, so mos MUST be normalized before
@@ -234,7 +235,7 @@ def test_one_failing_grid_point_is_skipped_not_fatal(monkeypatch, tmp_path):
     monkeypatch.setattr(dubadabidu.qc.metrics, "f0_semitone_std", lambda p: 2.5)
 
     over, trials, unavail = B._tune_engine(
-        "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1,
+        "qwen", toy_tts(engine="qwen"), _subset(), "en", None, tmp_path, 1,
         {"qwen_cfg": [2.0, 9.9, 2.5]})
 
     assert unavail is None                    # engine survives
@@ -251,7 +252,7 @@ def test_engine_is_unavailable_only_when_every_point_fails(monkeypatch, tmp_path
 
     monkeypatch.setattr(tts_engine, "synthesize", always_fail)
     over, trials, unavail = B._tune_engine(
-        "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1,
+        "qwen", toy_tts(engine="qwen"), _subset(), "en", None, tmp_path, 1,
         {"qwen_cfg": [0.5, 1.0]})
 
     assert over == {} and trials == []
@@ -291,7 +292,7 @@ def test_tune_disqualifies_points_under_the_monotony_floor(monkeypatch, tmp_path
 
     grid = {"z": [0, 1]}
     over, trials, unavail = B._tune_engine(
-        "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1, grid,
+        "qwen", toy_tts(engine="qwen"), _subset(), "en", None, tmp_path, 1, grid,
         min_f0st=2.2)
     assert unavail is None
     # without the floor p0 wins on sim+mos; with it, p0 is disqualified
@@ -313,7 +314,7 @@ def test_tune_relaxes_the_floor_when_nothing_clears_it(monkeypatch, tmp_path):
     monkeypatch.setattr(X, "mos_min_window", lambda w: 4.0)
     monkeypatch.setattr(X, "f0_semitone_std", lambda w: 1.0)   # all under floor
     over, trials, unavail = B._tune_engine(
-        "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1,
+        "qwen", toy_tts(engine="qwen"), _subset(), "en", None, tmp_path, 1,
         {"z": [0, 1]}, min_f0st=2.2)
     assert unavail is None and over in ({"z": 0}, {"z": 1})
     assert all(r["under_floor"] for r in trials)

@@ -39,6 +39,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from dubadabidu.core import ledger
+from dubadabidu.core.config.schema import Config
 
 log = logging.getLogger("dubadabidu.qc.compare")
 
@@ -271,7 +272,7 @@ if __name__ == "__main__":
     print(build(wd, sys.argv[2], sys.argv[3:]))
 
 
-def ingest(wd: Path, lang: str, export: Path, cfg: dict,
+def ingest(wd: Path, lang: str, export: Path, cfg: Config,
            tag: str = "") -> Path:
     """Exported picks -> comparisons_<lang>.json, the length-free training set.
 
@@ -323,7 +324,7 @@ def ingest(wd: Path, lang: str, export: Path, cfg: dict,
     floor, ceiling = float(cal["floor"]), float(cal["ceiling"])
     log.info("sim band for %s: floor %.3f ceiling %.3f (ref %s)",
              lang, floor, ceiling, cal["ref"])
-    ref = cfg["tts"]["reference_wav"]
+    ref = cfg.tts.reference_wav
     anchor = X.ecapa_embed(ref) if Path(ref).exists() else None
     rows, n_groups = [], 0
     for gid, ans in sorted(picks.items()):

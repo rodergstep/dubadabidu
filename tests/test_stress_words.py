@@ -183,7 +183,7 @@ def ingested(tmp_path, monkeypatch):
     from dubadabidu.core import manifest as M
     from dubadabidu.review import verdicts as V
     monkeypatch.chdir(tmp_path)
-    cfg = {"work_dir": "work"}
+    cfg = settings({"work_dir": "work"})
     video = "lesson.mp4"
     man = {"video": video, "duration": 20.0, "stages": {}, "utterances": [
         {"id": "u0001", "start": 0.0, "end": 5.0, "text_src": "a",
@@ -267,7 +267,7 @@ def test_an_export_without_word_marks_still_ingests(tmp_path, monkeypatch):
     from dubadabidu.core import manifest as M
     from dubadabidu.review import verdicts as V
     monkeypatch.chdir(tmp_path)
-    cfg = {"work_dir": "work"}
+    cfg = settings({"work_dir": "work"})
     man = {"video": "old.mp4", "duration": 5.0, "stages": {}, "utterances": [
         {"id": "u0001", "start": 0.0, "end": 4.0, "text_src": "a",
          "tr": {"ru": {"text": "Это краска", "fitted_text": "Это краска"}}}]}
@@ -290,7 +290,7 @@ def test_a_stale_mark_is_dropped_not_recorded(tmp_path, monkeypatch):
     from dubadabidu.core import manifest as M
     from dubadabidu.review import verdicts as V
     monkeypatch.chdir(tmp_path)
-    cfg = {"work_dir": "work"}
+    cfg = settings({"work_dir": "work"})
     man = {"video": "e.mp4", "duration": 5.0, "stages": {}, "utterances": [
         {"id": "u0001", "start": 0.0, "end": 4.0, "text_src": "a",
          "tr": {"ru": {"text": "Совсем другой текст",
@@ -329,7 +329,7 @@ def test_ingest_does_not_collapse_pre_existing_duplicate_rows(tmp_path,
     from dubadabidu.core import manifest as M
     from dubadabidu.review import verdicts as V
     monkeypatch.chdir(tmp_path)
-    cfg = {"work_dir": "work"}
+    cfg = settings({"work_dir": "work"})
     man = {"video": "lesson.mp4", "duration": 5.0, "stages": {}, "utterances": [
         {"id": "u0001", "start": 0.0, "end": 4.0, "text_src": "a",
          "tr": {"ru": {"text": "Это краска", "fitted_text": "Это краска"}}}]}
@@ -366,7 +366,7 @@ def test_ingest_replaces_the_rows_it_re_rates(tmp_path, monkeypatch):
     from dubadabidu.core import manifest as M
     from dubadabidu.review import verdicts as V
     monkeypatch.chdir(tmp_path)
-    cfg = {"work_dir": "work"}
+    cfg = settings({"work_dir": "work"})
     man = {"video": "lesson.mp4", "duration": 5.0, "stages": {}, "utterances": [
         {"id": "u0001", "start": 0.0, "end": 4.0, "text_src": "a",
          "tr": {"ru": {"text": "Это краска", "fitted_text": "Это краска"}}}]}

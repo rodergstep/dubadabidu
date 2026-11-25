@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 from dubadabidu.core import manifest as M
+from dubadabidu.core.config.schema import Config
 
 
-def report(cfg: dict, video: str) -> None:
+def report(cfg: Config, video: str) -> None:
     man = M.load(cfg, video)
     wd = M.video_workdir(cfg, video)
     print(f"\n{video} — {len(man['utterances'])} utterances, "
           f"{man['duration']:.0f}s | stages: {man.get('stages', {})}")
     langs = sorted({l for u in man["utterances"] for l in u["tr"]})
     stale_note = []
-    score_flag = cfg["qc"].get("eval", {}).get("score_flag", 0.55)
-    adeq_flag = cfg["translation"].get("adequacy_flag", 3)
+    score_flag = cfg.qc.eval.score_flag
+    adeq_flag = cfg.translation.adequacy_flag
     hdr = f"{'lang':5} {'engine':>10} {'ok':>4} {'stretch':>8} {'shorten':>8} " \
           f"{'overflow':>9} {'overlap':>8} {'wer>thr':>8} {'score<f':>8} {'adeq<f':>7}"
     print(hdr); print("-" * len(hdr))
@@ -23,11 +24,11 @@ def report(cfg: dict, video: str) -> None:
         if st["score"] or st["wer"]:
             stale_note.append(f"{lang} ({len(st['score'])} score, "
                               f"{len(st['wer'])} wer)")
-        engine = "⚠EDGE" if M.edge_fallback_langs(man, [lang], cfg["tts"]) else \
+        engine = "⚠EDGE" if M.edge_fallback_langs(man, [lang], cfg.tts) else \
             next((t["synth_engine"] for t in trs if t.get("synth_engine")), "-")
         fits = [t.get("fit") for t in trs]
         wer_bad = sum(1 for t in trs
-                      if t.get("qc_wer", 0) > cfg["qc"]["wer_flag_threshold"])
+                      if t.get("qc_wer", 0) > cfg.qc.wer_flag_threshold)
         score_bad = sum(1 for t in trs if "qc_score" in t
                         and t["qc_score"] < score_flag)
         # translation faithfulness flags (s3 adequacy judge), if scored

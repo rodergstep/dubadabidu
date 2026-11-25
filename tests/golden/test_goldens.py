@@ -79,11 +79,10 @@ def _sha(s: str) -> str:
 
 def test_cache_keys() -> None:
     keys: dict[str, JSONValue] = {}
-    for label, cfg in _combos().items():
+    for label, raw in _combos().items():
+        typed = api.typed_tts(raw)          # the validated, typed tts block
         for engine in (None, "edge"):
-            tts = dict(cfg["tts"])
-            if engine:
-                tts["engine"] = engine
+            tts = api.derive(typed, engine=engine) if engine else typed
             for lang in LANGS:
                 for i, text in enumerate(TEXTS):
                     keys[f"{label}|{engine or '-'}|{lang}|{i}"] = api.synth_hash(text, lang, tts)

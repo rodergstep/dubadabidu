@@ -26,21 +26,9 @@ import logging
 import subprocess
 from pathlib import Path
 from dubadabidu.core import manifest as M
+from dubadabidu.core.config.schema import Config, Prep
 
 log = logging.getLogger("dubadabidu.prep")
-
-PREP_DEFAULTS = {
-    "min_s": 12.0,
-    "max_s": 20.0,
-    "n_refs": 3,            # keep the pool WIDE — tune R1 makes the real call
-    "max_candidates": 12,   # cap gated spans (each = a cut + MOS/f0 pass)
-    # quality GATE (reject broken spans only — deliberately lenient so a good
-    # ref is never filtered out; tune R1 does the actual selecting):
-    "clip_peak": 0.99,      # peak at/above this = clipped, rejected
-    "min_voiced": 0.25,     # <25% voiced = mostly silence, rejected
-    "min_mos": 3.0,         # DistillMOS below this = noisy/artifacty, rejected
-}
-
 
 def _spread(items: list, n: int) -> list:
     """Up to `n` items evenly spaced across `items`, keeping its order.
@@ -100,20 +88,20 @@ def _quality(path: Path, clip_peak: float) -> dict:
             "clipped": pk >= clip_peak}
 
 
-def _gate_reason(q: dict, p: dict) -> str:
+def _gate_reason(q: dict, p: Prep) -> str:
     """'' if the span passes the gate, else why it was rejected."""
     if q["clipped"]:
         return f"clipped (peak {q['peak']})"
-    if q["voiced"] < p["min_voiced"]:
-        return f"too silent (voiced {q['voiced']} < {p['min_voiced']})"
-    if q["mos"] < p["min_mos"]:
-        return f"noisy (mos {q['mos']} < {p['min_mos']})"
+    if q["voiced"] < p.min_voiced:
+        return f"too silent (voiced {q['voiced']} < {p.min_voiced})"
+    if q["mos"] < p.min_mos:
+        return f"noisy (mos {q['mos']} < {p.min_mos})"
     return ""
 
 
-def run(cfg: dict, video: str) -> None:
-    p = {**PREP_DEFAULTS, **cfg.get("prep", {})}
-    min_s, max_s, n_refs = p["min_s"], p["max_s"], p["n_refs"]
+def run(cfg: Config, video: str) -> None:
+    p = cfg.prep
+    min_s, max_s, n_refs = p.min_s, p.max_s, p.n_refs
     man = M.load(cfg, video)
     wd = M.video_workdir(cfg, video)
     stem = Path(video).stem
@@ -122,7 +110,7 @@ def run(cfg: dict, video: str) -> None:
     # whichever separation backend s1 ran (roformer output name embeds the
     # model, so glob), then demucs, then the unseparated original.
     cand_srcs = sorted((wd / "roformer").glob("*(Vocals)*.wav")) + \
-        [wd / "demucs" / cfg["separation"]["demucs_model"] / "audio_full" / "vocals.wav"]
+        [wd / "demucs" / cfg.separation.demucs_model / "audio_full" / "vocals.wav"]
     src = next((c for c in cand_srcs if c.exists()), None)
     if src is None:
         src = wd / "audio_full.wav"
@@ -143,7 +131,7 @@ def run(cfg: dict, video: str) -> None:
     # left every candidate >= 14.5 s in a 10-20 s band, so widening min_s to
     # reach the 10-15 s optimum changed nothing. The cap is a COST limit (each
     # candidate is a cut plus a MOS/f0 pass), not a length preference.
-    spans = _spread(spans, p["max_candidates"])
+    spans = _spread(spans, p.max_candidates)
 
     cand_dir = wd / "refcand"
     cand_dir.mkdir(parents=True, exist_ok=True)
@@ -154,7 +142,7 @@ def run(cfg: dict, video: str) -> None:
         subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(src),
                         "-ac", "1", "-ss", str(u["start"]), "-t", str(dur),
                         str(cut)], check=True)
-        q = _quality(cut, p["clip_peak"])
+        q = _quality(cut, p.clip_peak)
         reason = _gate_reason(q, p)
         if reason:
             rejected.append((u, cut, q))

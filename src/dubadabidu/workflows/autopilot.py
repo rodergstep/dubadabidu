@@ -37,6 +37,7 @@ from dubadabidu.stages import s5_fit
 from dubadabidu.stages import s6_mix
 from dubadabidu.stages import s7_subtitles
 from dubadabidu.stages import s8_mux
+from dubadabidu.core.config.schema import Config
 
 log = logging.getLogger("dubadabidu.autopilot")
 DEFAULT_SPEC = "specs/batch.yaml"
@@ -51,7 +52,7 @@ def load_spec(path: str | None) -> dict:
     return yaml.safe_load(p.read_text(encoding="utf-8"))
 
 
-def _ensure_stages(cfg: dict, video: str, lang: str, mux: bool = True) -> None:
+def _ensure_stages(cfg: Config, video: str, lang: str, mux: bool = True) -> None:
     """Run whatever the manifest says is missing, via the normal stage code.
     mux=False stops after s7 (dubbed audio + subs): the remote GPU path skips
     the mux — a video stream-copy needing the 4K source the pod never gets — and
@@ -73,7 +74,7 @@ def _ensure_stages(cfg: dict, video: str, lang: str, mux: bool = True) -> None:
         s8_mux.run(cfg, video, [lang])
 
 
-def _ensure_qc(cfg: dict, video: str, lang: str) -> None:
+def _ensure_qc(cfg: Config, video: str, lang: str) -> None:
     """Run QC for segments missing it OR carrying stale scores. First pass:
     everything is missing, so this is the normal full sweep. After a re-roll:
     _reroll stripped qc_* from exactly the re-rolled segments, so only those
@@ -105,7 +106,7 @@ def _ensure_qc(cfg: dict, video: str, lang: str) -> None:
                      only=None if len(need_score) == total else need_score)
 
 
-def _assess(cfg: dict, video: str, lang: str, accept: dict) -> tuple[dict, list[str]]:
+def _assess(cfg: Config, video: str, lang: str, accept: dict) -> tuple[dict, list[str]]:
     from dubadabidu.review.batch_report import _lang_row
     man = M.load(cfg, video)
     trs = [u["tr"][lang] for u in man["utterances"]]
@@ -123,14 +124,14 @@ def _assess(cfg: dict, video: str, lang: str, accept: dict) -> tuple[dict, list[
     return row, fails
 
 
-def _bad_segments(cfg: dict, video: str, lang: str) -> list[str]:
+def _bad_segments(cfg: Config, video: str, lang: str) -> list[str]:
     """Segments fixable mechanically: bad WER or low score -> re-roll take.
     Human verdicts (M3 writeback) override the metrics in both directions:
     an accepted segment is settled and never re-rolled no matter its score;
     a rejected one re-rolls even when the metrics say it's fine — that
     disagreement is exactly the signal the weight re-fit learns from."""
-    score_flag = cfg["qc"].get("eval", {}).get("score_flag", 0.55)
-    wer_thr = cfg["qc"]["wer_flag_threshold"]
+    score_flag = cfg.qc.eval.score_flag
+    wer_thr = cfg.qc.wer_flag_threshold
     man = M.load(cfg, video)
     bad = []
     for u in man["utterances"]:
@@ -144,14 +145,14 @@ def _bad_segments(cfg: dict, video: str, lang: str) -> list[str]:
     return bad
 
 
-def _qc_snapshot(cfg: dict, video: str, lang: str,
+def _qc_snapshot(cfg: Config, video: str, lang: str,
                  ids: list[str]) -> dict[str, tuple]:
     man = M.load(cfg, video)
     return {u["id"]: (u["tr"][lang].get("qc_wer"), u["tr"][lang].get("qc_score"))
             for u in man["utterances"] if u["id"] in ids}
 
 
-def _stuck_after(cfg: dict, video: str, lang: str, rolled: list[str],
+def _stuck_after(cfg: Config, video: str, lang: str, rolled: list[str],
                  prev: dict[str, tuple]) -> set[str]:
     """ids from `rolled` that are still bad AND whose metrics didn't move:
     neither WER dropped nor composite score rose vs. the deleted take. A
@@ -178,13 +179,13 @@ def _stuck_after(cfg: dict, video: str, lang: str, rolled: list[str],
     return out
 
 
-def _reroll(cfg: dict, video: str, lang: str, ids: list[str],
+def _reroll(cfg: Config, video: str, lang: str, ids: list[str],
             mux: bool = True) -> None:
     """Delete the cached takes for `ids`; s4/s5/s6 re-synthesize only those.
     WER-flagged segments get tr.reroll_wer: s4 then back-transcribes every
     fresh take and vetoes hallucinated ones — re-rolling on the metric that
     actually failed instead of hoping the MOS-gated dice land differently."""
-    wer_thr = cfg["qc"]["wer_flag_threshold"]
+    wer_thr = cfg.qc.wer_flag_threshold
     man = M.load(cfg, video)
     wd = M.video_workdir(cfg, video)
     for u in man["utterances"]:
@@ -257,7 +258,7 @@ def _escalations(fails: list[str]) -> list[str]:
     return out
 
 
-def run(cfg: dict, video: str, langs: list[str],
+def run(cfg: Config, video: str, langs: list[str],
         spec_path: str | None = None, mux: bool = True) -> bool:
     spec = load_spec(spec_path)
     accept, budget = spec["accept"], spec["budget"]
@@ -329,7 +330,7 @@ def run(cfg: dict, video: str, langs: list[str],
     return all_ok
 
 
-def main(cfg: dict, videos: list[str], langs: list[str],
+def main(cfg: Config, videos: list[str], langs: list[str],
          spec_path: str | None, mux: bool = True) -> None:
     from dubadabidu.review import batch_report
     ok = True

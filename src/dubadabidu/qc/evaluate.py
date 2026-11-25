@@ -17,6 +17,7 @@ import logging
 from pathlib import Path
 from dubadabidu.core import manifest as M
 from dubadabidu.qc import metrics as X
+from dubadabidu.core.config.schema import Config, derive
 
 log = logging.getLogger("dubadabidu.qc.evaluate")
 
@@ -50,13 +51,13 @@ def _ua_slices(wd: Path, utterances: list[dict], max_slices: int = 6):
         yield wav
 
 
-def _floor_wav(cfg: dict, lang: str) -> Path | None:
+def _floor_wav(cfg: Config, lang: str) -> Path | None:
     """Cached different-voice sample (edge-tts). None if synth fails (offline)."""
     from dubadabidu.engines.tts_engine import synthesize
     out = Path("work/.models") / f"floor_{lang}.wav"
     if out.exists():
         return out
-    t = dict(cfg["tts"], engine="edge")
+    t = derive(cfg.tts, engine="edge")
     try:
         synthesize(FLOOR_SENTENCES.get(lang, FLOOR_SENTENCES["en"]), lang, out, t,
                    retries=0)
@@ -66,20 +67,20 @@ def _floor_wav(cfg: dict, lang: str) -> Path | None:
         return None
 
 
-def calibration(cfg: dict, wd: Path, man: dict, lang: str) -> dict:
-    ref_emb = X.ecapa_embed(cfg["tts"]["reference_wav"])
+def calibration(cfg: Config, wd: Path, man: dict, lang: str) -> dict:
+    ref_emb = X.ecapa_embed(cfg.tts.reference_wav)
     sims = [X.cosine(ref_emb, X.ecapa_embed(w))
             for w in _ua_slices(wd, man["utterances"])]
     ceiling = sum(sims) / len(sims) if sims else 1.0
     fw = _floor_wav(cfg, lang)
-    ecfg = cfg["qc"].get("eval", {})
+    ecfg = cfg.qc.eval
     floor = (X.cosine(ref_emb, X.ecapa_embed(fw)) if fw
-             else ecfg.get("sim_floor_default", 0.35))
+             else ecfg.sim_floor_default)
     return {"lang": lang, "floor": round(floor, 3), "ceiling": round(ceiling, 3),
-            "ref": cfg["tts"]["reference_wav"]}
+            "ref": cfg.tts.reference_wav}
 
 
-def run(cfg: dict, video: str, langs: list[str],
+def run(cfg: Config, video: str, langs: list[str],
         only: list[str] | None = None) -> None:
     """only: utterance ids to (re)score; None = all. Subset runs reuse the
     stored calibration band (same ref => same band; recomputing it costs an
@@ -88,16 +89,18 @@ def run(cfg: dict, video: str, langs: list[str],
     # similarity must be judged against the ref the video was actually synthesized
     # with — honor the per-video override written by `preamble`
     if man.get("tts_overrides"):
-        cfg = {**cfg, "tts": {**cfg["tts"], **man["tts_overrides"]}}
+        cfg = derive(cfg, tts=derive(cfg.tts, **man["tts_overrides"]))
     wd = M.video_workdir(cfg, video)
-    ecfg = cfg["qc"].get("eval", {})
-    weights = ecfg.get("weights", {"sim": 0.5, "mos": 0.35, "tempo": 0.15})
-    max_tempo = cfg["fit"]["max_tempo"]
-    ref_emb = X.ecapa_embed(cfg["tts"]["reference_wav"])
+    ecfg = cfg.qc.eval
+    # a plain dict: composite_score is the pure helper refit also calls with
+    # the weight lattices it searches
+    weights = ecfg.weights.model_dump()
+    max_tempo = cfg.fit.max_tempo
+    ref_emb = X.ecapa_embed(cfg.tts.reference_wav)
 
     for lang in langs:
         cal = man.get("qc_calibration", {}).get(lang)
-        if only is None or not cal or cal.get("ref") != cfg["tts"]["reference_wav"]:
+        if only is None or not cal or cal.get("ref") != cfg.tts.reference_wav:
             cal = calibration(cfg, wd, man, lang)
             man.setdefault("qc_calibration", {})[lang] = cal
         log.info("%s calibration: floor=%.3f ceiling=%.3f",

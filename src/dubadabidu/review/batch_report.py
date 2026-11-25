@@ -13,15 +13,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from dubadabidu.core import manifest as M
+from dubadabidu.core.config.schema import Config
 
 
 def _mean(vals: list[float]) -> float | None:
     return round(sum(vals) / len(vals), 3) if vals else None
 
 
-def _lang_row(cfg: dict, video: str, lang: str, trs: list[dict]) -> dict:
-    score_flag = cfg["qc"].get("eval", {}).get("score_flag", 0.55)
-    wer_thr = cfg["qc"]["wer_flag_threshold"]
+def _lang_row(cfg: Config, video: str, lang: str, trs: list[dict]) -> dict:
+    score_flag = cfg.qc.eval.score_flag
+    wer_thr = cfg.qc.wer_flag_threshold
     engines = {t.get("synth_engine") for t in trs} - {None}
     return {
         "video": video, "lang": lang, "segs": len(trs),
@@ -43,8 +44,8 @@ def _lang_row(cfg: dict, video: str, lang: str, trs: list[dict]) -> dict:
     }
 
 
-def run(cfg: dict, videos: list[str] | None = None) -> Path:
-    work = Path(cfg["work_dir"])
+def run(cfg: Config, videos: list[str] | None = None) -> Path:
+    work = Path(cfg.work_dir)
     if videos:
         manifests = [M.manifest_path(cfg, v) for v in videos]
     else:

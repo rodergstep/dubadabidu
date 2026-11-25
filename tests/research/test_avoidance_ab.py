@@ -34,7 +34,7 @@ def test_the_text_variant_key_is_scoped_to_its_only_consumer():
     like it changed what production synthesizes while only the bake-off read it
     — the shape of qc.eval.weights ranking nothing for weeks."""
     src = (source("dubadabidu.lab.bakeoff")).read_text(encoding="utf-8")
-    assert 'get("bakeoff", {}) or {}).get("text_variant")' in src
+    assert "bcfg.text_variant" in src          # read off the bakeoff block only
     for f in ("src/dubadabidu/stages/s4_synthesize.py",
               "src/dubadabidu/stages/s5_fit.py",
               "src/dubadabidu/engines/tts_engine.py"):

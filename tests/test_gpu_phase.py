@@ -6,6 +6,7 @@ hashing for the GPU phase."""
 from dubadabidu.core.logic import deep_merge
 from dubadabidu.core.manifest import resolve_engine, synth_hash
 from tests.paths import REPO, config, source
+from tests.cfgs import toy_tts
 
 TTS = {"engine": "chatterbox", "reference_wav": "ref/r.wav",
        "cfg_weight": 0.0, "exaggeration": 0.55}
@@ -21,8 +22,8 @@ def test_deep_merge_nested_and_replace():
 
 
 def test_resolve_engine_default_and_override():
-    assert resolve_engine(TTS, "en") == "chatterbox"
-    t = dict(TTS, engine_by_lang={"fr": "qwen"})
+    assert resolve_engine(toy_tts(TTS), "en") == "chatterbox"
+    t = toy_tts(TTS, engine_by_lang={"fr": "qwen"})
     assert resolve_engine(t, "fr") == "qwen"
     assert resolve_engine(t, "en") == "chatterbox"
 
@@ -30,20 +31,20 @@ def test_resolve_engine_default_and_override():
 def test_synth_hash_stable_without_new_features():
     # adding the empty engine_by_lang / reference_text keys must NOT change
     # hashes — existing seg caches stay valid
-    old_style = synth_hash("hello", "en", TTS)
+    old_style = synth_hash("hello", "en", toy_tts(TTS))
     new_style = synth_hash("hello", "en",
-                           dict(TTS, engine_by_lang={}, reference_text=""))
+                           toy_tts(TTS, engine_by_lang={}, reference_text=""))
     assert old_style == new_style
 
 
 def test_synth_hash_changes_with_engine_override():
-    base = synth_hash("hello", "fr", TTS)
-    routed = synth_hash("hello", "fr", dict(TTS, engine_by_lang={"fr": "qwen"}))
+    base = synth_hash("hello", "fr", toy_tts(TTS))
+    routed = synth_hash("hello", "fr", toy_tts(TTS, engine_by_lang={"fr": "qwen"}))
     assert base != routed
     # reference_text reaches no surviving engine's key (the UA ref cannot be
     # tokenized by any of them), so it must not perturb a hash
-    assert synth_hash("hello", "en", dict(TTS, reference_text="x")) == \
-        synth_hash("hello", "en", TTS)
+    assert synth_hash("hello", "en", toy_tts(TTS, reference_text="x")) == \
+        synth_hash("hello", "en", toy_tts(TTS))
 
 
 
@@ -64,7 +65,8 @@ def test_gpu_profile_actually_routes_production_to_qwen():
     root = REPO
     cfg = deep_merge(yaml.safe_load((root / "config.yaml").read_text()),
                      yaml.safe_load(config("config.gpu.yaml").read_text()))
-    t = cfg["tts"]
+    from dubadabidu.core.config.schema import validate
+    t = validate(cfg).tts
     for lang in cfg["languages"]:
         assert resolve_engine(t, lang) == "qwen", (
             f"{lang} resolves to {resolve_engine(t, lang)}, not the engine the "

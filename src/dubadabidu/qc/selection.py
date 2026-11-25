@@ -15,6 +15,7 @@ from pathlib import Path
 
 from dubadabidu.engines import tts_engine
 from dubadabidu.core.manifest import resolve_engine
+from dubadabidu.core.config.schema import Config, EvalWeights, Tts
 
 log = logging.getLogger("dubadabidu.tts")   # same logger as before the move
 
@@ -62,11 +63,11 @@ def _f0_delivered(cand: Path) -> float:
 # Fallback only. These are the values _take_rank hardcoded until 2026-08-09,
 # normalised: mos .4 / f0 .2 / sim .2 / pace .2. They were a hand-copy of
 # qc.eval.weights that then drifted out of contact with it — see _take_rank.
-DEFAULT_RANK_W = {"mos": 0.40, "f0": 0.20, "sim": 0.20, "tempo": 0.20}
+DEFAULT_RANK_W = EvalWeights(mos=0.40, f0=0.20, sim=0.20, tempo=0.20)
 
 
 def _take_rank(m: dict, target_dur: float | None = None,
-               weights: dict | None = None) -> float:
+               weights: EvalWeights | None = None) -> float:
     """Relative ranking of takes of the SAME text/ref, from `qc.eval.weights`.
 
     THE WEIGHTS ARE NOW CONFIG, AND THAT IS A FIX. They were hardcoded here as
@@ -103,12 +104,12 @@ def _take_rank(m: dict, target_dur: float | None = None,
     w = weights or DEFAULT_RANK_W
     mos_n = max(0.0, min(1.0, (m["mos_min"] - 1.0) / 4.0))
     f0_n = max(0.0, min(1.0, m.get("f0st", 0.0) / 4.0))
-    parts = [(float(w.get("mos", 0.0)), mos_n), (float(w.get("f0", 0.0)), f0_n)]
+    parts = [(float(w.mos), mos_n), (float(w.f0), f0_n)]
     if m.get("sim") is not None:
-        parts.append((float(w.get("sim", 0.0)), m["sim"]))
+        parts.append((float(w.sim), m["sim"]))
     if target_dur and m.get("dur"):
         pace = max(0.0, 1.0 - abs(m["dur"] / target_dur - 1.0) / PACE_TOL)
-        parts.append((float(w.get("tempo", 0.0)), pace))
+        parts.append((float(w.tempo), pace))
     total = sum(x for x, _ in parts)
     if total <= 0:
         # every applicable weight is zero — fall back to MOS rather than
@@ -143,11 +144,11 @@ def early_accept_ok(m: dict, mos_floor: float, sim_floor: float,
     return True
 
 
-def synth_best_of(text: str, lang: str, out: Path, t: dict,
-                  meta: list | None = None, verify_cfg: dict | None = None,
+def synth_best_of(text: str, lang: str, out: Path, t: Tts,
+                  meta: list | None = None, verify_cfg: Config | None = None,
                   verify_text: str | None = None,
                   target_dur: float | None = None,
-                  rank_weights: dict | None = None) -> float:
+                  rank_weights: EvalWeights | None = None) -> float:
     """Synthesize best_of takes; keep the winner at `out`.
 
     Two modes (tts.rank_takes, default true):
@@ -183,24 +184,24 @@ def synth_best_of(text: str, lang: str, out: Path, t: dict,
     """
     import soundfile as sf
     from dubadabidu.qc.metrics import ecapa_embed, cosine, mos_min_window
-    best_of = int(t.get("best_of", 1))
-    threshold = float(t.get("retake_mos_below", 0.0))
-    ranked = bool(t.get("rank_takes", True)) and best_of > 1
+    best_of = int(t.best_of)
+    threshold = float(t.retake_mos_below)
+    ranked = bool(t.rank_takes) and best_of > 1
     engine = resolve_engine(t, lang)
-    ref = t.get("reference_wav")
+    ref = t.reference_wav
     ref_emb = (ecapa_embed(ref) if ranked and engine != "edge"
                and ref and Path(ref).exists() else None)
-    wer_max = (float(verify_cfg["qc"]["wer_flag_threshold"])
+    wer_max = (float(verify_cfg.qc.wer_flag_threshold)
                if verify_cfg and verify_text else None)
     # adaptive best_of (ranked mode): if an early take already clears a HIGH bar
     # AND fits the slot AND passes any WER veto, stop rolling — the extra takes
     # rarely beat an already-excellent one and each costs GPU time. Quality-safe
     # because the bar is well above the retake floor; disable with
     # tts.best_of_early_accept: false to always synthesize all best_of takes.
-    early = ranked and bool(t.get("best_of_early_accept", True))
-    early_mos = float(t.get("early_accept_mos", 3.6))   # worst-3s window scores low
-    early_sim = float(t.get("early_accept_sim", 0.50))
-    min_f0st = float(t.get("min_f0st", 0.0))
+    early = ranked and bool(t.best_of_early_accept)
+    early_mos = float(t.early_accept_mos)   # worst-3s window scores low
+    early_sim = float(t.early_accept_sim)
+    min_f0st = float(t.min_f0st)
 
     def _early_ok(m: dict) -> bool:
         return early_accept_ok(m, early_mos, early_sim, min_f0st,
@@ -262,7 +263,7 @@ def synth_best_of(text: str, lang: str, out: Path, t: dict,
     # move f0 (measured 2026-07-14), so we sample instead of twiddling. The
     # composite ranker still picks the winner (a livelier take must also hold up
     # on MOS/sim), so this only ADDS candidates — it can't force a bad take in.
-    reroll_max = int(t.get("f0_reroll_max", 0))
+    reroll_max = int(t.f0_reroll_max)
     if ranked and min_f0st > 0 and reroll_max > 0:
         rr = 0
         while rr < reroll_max and max(

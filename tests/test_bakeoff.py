@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 from dubadabidu.core.manifest import synth_hash
 from dubadabidu.lab.bakeoff import beats_incumbent
+from tests.cfgs import settings, toy_tts
 from tests.paths import config, source
 
 
 def _tts(**over):
     base = {"engine": "chatterbox", "reference_wav": "ref/x.wav",
             "cfg_weight": 0.0, "exaggeration": 0.55}
-    return {**base, **over}
+    return toy_tts(base, **over)
 
 
 # --- adoption gate ---
@@ -48,12 +49,12 @@ def test_chatterbox_hash_stable():
 
 
 def _bakeoff_cfg(work_dir):
-    return {"work_dir": str(work_dir),
-            "tts": {"engine": "chatterbox", "reference_wav": "ref/x.wav",
-                    "cfg_weight": 0.0, "exaggeration": 0.55},
-            "bakeoff": {"engines": ["chatterbox"], "takes": 1,
-                        "subset_size": 2, "tune": {"enabled": False}},
-            "qc": {"wer_flag_threshold": 0.15}, "fit": {"max_tempo": 1.12}}
+    # validated (bakeoff.run reads the typed config); qwen stands in for the
+    # removed chatterbox, since the guard under test fires before any engine
+    return settings({"work_dir": str(work_dir),
+                     "tts": {"engine": "qwen", "reference_wav": "ref/x.wav"},
+                     "bakeoff": {"engines": ["qwen"], "takes": 1,
+                                 "subset_size": 2, "tune": {"enabled": False}}})
 
 
 def test_missing_voice_anchor_fails_with_an_actionable_message(tmp_path,
@@ -91,8 +92,9 @@ def test_incumbent_is_configurable():
     """Hardcoding it is how the gate died: engines became [qwen] while INCUMBENT
     stayed 'chatterbox', so beats_incumbent() never had a baseline."""
     from dubadabidu.lab.bakeoff import incumbent_of, INCUMBENT
-    assert incumbent_of({}) == INCUMBENT              # back-compatible default
-    assert incumbent_of({"incumbent": "qwen"}) == "qwen"
+    from dubadabidu.core.config.schema import Bakeoff
+    assert incumbent_of(None) == INCUMBENT            # no bakeoff block at all
+    assert incumbent_of(Bakeoff(engines=["qwen"], incumbent="qwen")) == "qwen"
 
 
 def test_missing_baseline_is_reported_as_advisory_not_as_a_pass():
@@ -120,9 +122,9 @@ def test_variant_label_separates_an_otherwise_identical_run():
     """A control run must NOT merge with the row it is being compared against —
     that is the whole experiment. Identical config + a label = distinct key."""
     from dubadabidu.lab.bakeoff import variant_key
-    t = {"engine": "qwen", "qwen_fast": True}
+    t = toy_tts(engine="qwen", qwen_fast=True)
     assert variant_key("qwen", t, "en") == "qwen+fast"
-    assert variant_key("qwen", dict(t, variant_label="control"), "en") \
+    assert variant_key("qwen", toy_tts(t._raw, variant_label="control"), "en") \
         == "qwen+fast+control"
 
 
@@ -133,8 +135,8 @@ def test_variant_label_is_not_in_synth_hash():
     from dubadabidu.core.manifest import synth_hash
     base = {"engine": "qwen", "reference_wav": "r.wav",
             "cfg_weight": 0.0, "exaggeration": 0.5}
-    assert synth_hash("hi", "en", base) == \
-        synth_hash("hi", "en", dict(base, variant_label="control"))
+    assert synth_hash("hi", "en", toy_tts(base)) == \
+        synth_hash("hi", "en", toy_tts(base, variant_label="control"))
 
 
 def test_a_bakeoff_that_measured_nothing_exits_nonzero():
@@ -166,9 +168,10 @@ def test_a_non_default_checkpoint_gets_its_own_variant_row():
     """PLAN_v0.5 P4: the ru-stress fine-tune must not overwrite the base
     model's row and audio (the control it is compared against)."""
     from dubadabidu.lab.bakeoff import variant_key
-    base = {"engine": "qwen", "engine_by_lang": {}, "qwen_fast": True}
-    ft = {**base, "qwen_model_dir": "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf"}
-    default = {**base, "qwen_model_dir": "Qwen/Qwen3-TTS-12Hz-1.7B-Base"}
+    raw = {"engine": "qwen", "engine_by_lang": {}, "qwen_fast": True}
+    base = toy_tts(raw)
+    ft = toy_tts(raw, qwen_model_dir="siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf")
+    default = toy_tts(raw, qwen_model_dir="Qwen/Qwen3-TTS-12Hz-1.7B-Base")
     assert variant_key("qwen", base, "ru") == variant_key("qwen", default, "ru")
     assert variant_key("qwen", ft, "ru") != variant_key("qwen", base, "ru")
     assert "+m:qwen3-tts-12hz-1.7b-ru-stress-cf" in variant_key("qwen", ft, "ru")

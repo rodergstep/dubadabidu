@@ -5,12 +5,14 @@ import pytest
 
 from dubadabidu.core import manifest as M
 from dubadabidu.engines import tts_engine as T
+from dubadabidu.core.config.schema import Tts
+from tests.cfgs import toy_tts
 
 FT = "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf"
 
 
-def _cfg(**kw: object) -> dict:
-    return {"engine": "qwen", "engine_by_lang": {}, "reference_wav": "r.wav", **kw}
+def _cfg(**kw: object) -> Tts:
+    return toy_tts({"engine": "qwen", "engine_by_lang": {}, "reference_wav": "r.wav", **kw})
 
 
 def test_per_language_checkpoint_resolves_and_falls_back() -> None:

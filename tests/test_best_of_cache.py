@@ -17,6 +17,7 @@ import pytest
 
 from dubadabidu.engines import tts_engine as T
 from dubadabidu.qc import selection as SEL
+from tests.cfgs import tts
 
 TCFG = {"engine": "edge", "best_of": 3, "rank_takes": True,
         "best_of_early_accept": False, "retake_mos_below": 0.0,
@@ -66,7 +67,7 @@ def test_crash_mid_best_of_caches_nothing(tmp_path, monkeypatch, stub_metrics):
     _fake_synthesizer(monkeypatch, fail_on=3)
 
     with pytest.raises(RuntimeError):
-        SEL.synth_best_of("hello", "en", out, TCFG)
+        SEL.synth_best_of("hello", "en", out, tts(**TCFG))
 
     assert not out.exists()
 
@@ -76,7 +77,7 @@ def test_successful_run_publishes_exactly_one_file(tmp_path, monkeypatch,
     out = tmp_path / "u0001_abcd1234.wav"
     _fake_synthesizer(monkeypatch)
 
-    SEL.synth_best_of("hello", "en", out, TCFG)
+    SEL.synth_best_of("hello", "en", out, tts(**TCFG))
 
     assert out.exists()
     assert list(tmp_path.iterdir()) == [out]     # no _take* left behind
@@ -92,7 +93,7 @@ def test_winner_content_is_published(tmp_path, monkeypatch, stub_metrics):
         "u0001_abcd1234_take2.wav": 3.5})
     meta: list = []
 
-    SEL.synth_best_of("hello", "en", out, TCFG, meta=meta)
+    SEL.synth_best_of("hello", "en", out, tts(**TCFG), meta=meta)
 
     with wave.open(str(out), "rb") as w:
         marker = struct.unpack("<h", w.readframes(1))[0]
@@ -110,7 +111,7 @@ def test_leftovers_from_a_crashed_attempt_are_swept(tmp_path, monkeypatch,
     _wav(tmp_path / "u0001_abcd1234_reroll1.wav", 99)
     _fake_synthesizer(monkeypatch)
 
-    SEL.synth_best_of("hello", "en", out, TCFG)            # best_of: 3 now
+    SEL.synth_best_of("hello", "en", out, tts(**TCFG))            # best_of: 3 now
 
     assert list(tmp_path.iterdir()) == [out]
 
@@ -129,7 +130,7 @@ def test_sweep_is_scoped_to_this_segment(tmp_path, monkeypatch, stub_metrics):
     _wav(placed, 10)
     _fake_synthesizer(monkeypatch)
 
-    SEL.synth_best_of("hello", "en", out, TCFG)
+    SEL.synth_best_of("hello", "en", out, tts(**TCFG))
 
     assert neighbour.exists() and keeper.exists()
     assert fitted.exists() and placed.exists()
@@ -141,7 +142,7 @@ def test_single_take_still_publishes_atomically(tmp_path, monkeypatch,
     out = tmp_path / "u0001_abcd1234.wav"
     _fake_synthesizer(monkeypatch)
 
-    SEL.synth_best_of("hello", "en", out, {**TCFG, "best_of": 1})
+    SEL.synth_best_of("hello", "en", out, tts(**{**TCFG, "best_of": 1}))
 
     assert out.exists()
     assert list(tmp_path.iterdir()) == [out]
@@ -153,7 +154,7 @@ def test_crash_on_the_very_first_take_caches_nothing(tmp_path, monkeypatch,
     _fake_synthesizer(monkeypatch, fail_on=1)
 
     with pytest.raises(RuntimeError):
-        SEL.synth_best_of("hello", "en", out, TCFG)
+        SEL.synth_best_of("hello", "en", out, tts(**TCFG))
 
     assert not out.exists()
     assert list(tmp_path.iterdir()) == []

@@ -28,6 +28,7 @@ import json
 import sys
 from pathlib import Path
 from dubadabidu.core import ledger
+from dubadabidu.core.config.schema import Config
 
 log = logging.getLogger("dubadabidu.qc.blind")
 
@@ -163,7 +164,7 @@ draw();
     return out
 
 
-def ingest(wd: Path, lang: str, export: Path, cfg: dict) -> Path:
+def ingest(wd: Path, lang: str, export: Path, cfg: Config) -> Path:
     """Rated keys -> ratings_<lang>.json rows carrying the metrics refit needs.
 
     Metrics are computed HERE rather than read from a manifest: these are

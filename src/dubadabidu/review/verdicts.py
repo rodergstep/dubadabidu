@@ -24,6 +24,7 @@ from pathlib import Path
 from dubadabidu.core import manifest as M
 from dubadabidu.qc import stress_words as SW
 from dubadabidu.core import ledger
+from dubadabidu.core.config.schema import Config
 
 log = logging.getLogger("dubadabidu.qc.verdicts")
 
@@ -65,7 +66,7 @@ def _seg_hash(utterances: list[dict], lang: str) -> str:
         ",".join(u["id"] + str(u["start"]) for u in us).encode()).hexdigest()[:6]
 
 
-def run(cfg: dict, video: str, export_file: str) -> None:
+def run(cfg: Config, video: str, export_file: str) -> None:
     data = json.loads(Path(export_file).read_text(encoding="utf-8"))
     key = data.get("key", "")
     ratings = {k: v for k, v in (data.get("ratings") or {}).items()

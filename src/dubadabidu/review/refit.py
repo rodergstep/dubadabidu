@@ -33,6 +33,7 @@ import json
 import logging
 from dubadabidu.qc import metrics as X
 from dubadabidu.core import ledger
+from dubadabidu.core.config.schema import Config
 
 log = logging.getLogger("dubadabidu.qc.refit")
 
@@ -372,19 +373,18 @@ def _load(langs: list[str]) -> tuple[list[dict], dict]:
     return rows, per_lang
 
 
-def run(cfg: dict, langs: list[str]) -> int:
-    ecfg = cfg["qc"].get("eval", {})
-    cur = ecfg.get("weights", {"sim": 0.25, "mos": 0.40, "f0": 0.20,
-                               "tempo": 0.15})
-    rcfg = cfg["qc"].get("refit", {})
-    min_rows = int(rcfg.get("min_rows", 30))
-    step = float(rcfg.get("step", 0.05))
-    k = int(rcfg.get("folds", 5))
-    margin = float(rcfg.get("adopt_margin", 0.02))
-    min_rho = float(rcfg.get("min_rho", 0.30))
-    max_p = float(rcfg.get("max_p", 0.05))
-    n_perm = int(rcfg.get("permutations", 50))
-    max_tempo = cfg["fit"]["max_tempo"]
+def run(cfg: Config, langs: list[str]) -> int:
+    # the incumbent as a plain dict, like every weighting the search builds
+    cur = cfg.qc.eval.weights.model_dump()
+    rcfg = cfg.qc.refit
+    min_rows = int(rcfg.min_rows)
+    step = float(rcfg.step)
+    k = int(rcfg.folds)
+    margin = float(rcfg.adopt_margin)
+    min_rho = float(rcfg.min_rho)
+    max_p = float(rcfg.max_p)
+    n_perm = int(rcfg.permutations)
+    max_tempo = cfg.fit.max_tempo
 
     raw, per_lang = _load(langs)
     rows = usable(raw)

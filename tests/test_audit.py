@@ -2,6 +2,7 @@
 import ast
 import sys
 import yaml
+from tests.cfgs import toy_tts
 from tests.paths import REPO, config, source
 
 
@@ -91,7 +92,8 @@ So: check names against their definitions, not against intent.
     code = "\n".join(p.read_text() for p in
                      sorted((ROOT / "src" / "dubadabidu").rglob("*.py")))
     unread = [k for k in merged_tts
-              if f'"{k}"' not in code and f"'{k}'" not in code]
+              if f'"{k}"' not in code and f"'{k}'" not in code
+              and f".{k}" not in code]          # typed reads: t.<key>
     if unread:
         bad(f"tts keys in config that NO code reads: {sorted(unread)}")
     else:
@@ -103,7 +105,9 @@ So: check names against their definitions, not against intent.
     from dubadabidu.core.manifest import resolve_engine               # noqa: E402
     m = deep_merge(cfg, gpu)
     bo_engines = set(m.get("bakeoff", {}).get("engines", []))
-    prod = {lang: resolve_engine(m["tts"], lang) for lang in m["languages"]}
+    from dubadabidu.core.config.schema import validate                # noqa: E402
+    typed_tts = validate(m).tts
+    prod = {lang: resolve_engine(typed_tts, lang) for lang in m["languages"]}
     if set(prod.values()) - bo_engines - {"edge"}:
         bad(f"production resolves to {sorted(set(prod.values()))} but the bake-off "
             f"validated {sorted(bo_engines)} — they must agree")
@@ -177,7 +181,7 @@ So: check names against their definitions, not against intent.
     from dubadabidu.core.manifest import synth_hash                   # noqa: E402
     base = {"engine": "qwen", "reference_wav": "r.wav", "cfg_weight": 0.0,
             "exaggeration": 0.5}
-    h0 = synth_hash("hi", "en", base)
+    h0 = synth_hash("hi", "en", toy_tts(base))
     # qwen_x_vector_only is deliberately absent: without a reference_text the
     # adapter forces x_only=True regardless, so the hash correctly does not move.
     OUTPUT_CHANGING = ["qwen_fast", "qwen_model_dir",
@@ -186,7 +190,7 @@ So: check names against their definitions, not against intent.
         v = {"qwen_model_dir": "other",
              "reference_max_s": 12, "qwen_fast": True,
              "qwen_gen_kwargs": {"temperature": 0.5}}[k]
-        if synth_hash("hi", "en", {**base, k: v}) == h0:
+        if synth_hash("hi", "en", toy_tts(base, **{k: v})) == h0:
             bad(f"synth_hash ignores {k} — the cache would serve audio made with a "
                 f"different setting")
     if not any("synth_hash ignores" in f for f in FAIL):
@@ -242,12 +246,14 @@ def test_asr_defends_against_repetition_loops():
         detects a bad decode via compression_ratio_threshold and retries hotter
     """
     src = (source("dubadabidu.engines.asr")).read_text()
-    assert 'condition_on_previous_text", False' in src, (
-        "condition_on_previous_text must DEFAULT to False — True propagates a "
+    from dubadabidu.engines import asr
+    assert asr.CONDITION_ON_PREVIOUS_TEXT is False, (
+        "condition_on_previous_text must be False — True propagates a "
         "hallucination into a repetition loop across a long file")
+    assert len(asr.TEMPERATURE_FALLBACK) > 1 and asr.TEMPERATURE_FALLBACK[0] == 0.0
     assert "compression_ratio_threshold" in src, (
         "without it Whisper cannot detect a repetitive decode")
-    assert "temperature_fallback" in src, (
+    assert "TEMPERATURE_FALLBACK" in src, (
         "a single temperature disables the fallback ladder that rescues a "
         "failed decode; healthy segments still decode greedily at 0.0")
     for backend in ("_transcribe_faster", "_transcribe_mlx"):
@@ -256,7 +262,7 @@ def test_asr_defends_against_repetition_loops():
         # carries a long comment and a 2000-char window cut the call in half
         nxt = src.find("\ndef ", i + 1)
         body = src[i:nxt if nxt != -1 else len(src)]
-        assert "temperature_fallback" in body and "condition_on_previous_text" in body, (
+        assert "TEMPERATURE_FALLBACK" in body and "CONDITION_ON_PREVIOUS_TEXT" in body, (
             f"{backend} must carry the same guards — the bug shipped on the mlx "
             f"path and the faster path had the identical settings")
 
@@ -316,12 +322,12 @@ def test_ru_stress_layer_is_wired_and_salted():
     from dubadabidu.core.manifest import synth_hash
     base = {"engine": "qwen", "reference_wav": "r.wav", "cfg_weight": 0.0,
             "exaggeration": 0.5}
-    assert synth_hash("привет", "ru", base) != \
-        synth_hash("привет", "ru", {**base, "ru_stress": True}), \
+    assert synth_hash("привет", "ru", toy_tts(base)) != \
+        synth_hash("привет", "ru", toy_tts(base, ru_stress=True)), \
         "ru_stress does not move synth_hash — cached unaccented takes would be " \
         "served for an accented config"
-    assert synth_hash("hi", "en", base) == \
-        synth_hash("hi", "en", {**base, "ru_stress": True}), \
+    assert synth_hash("hi", "en", toy_tts(base)) == \
+        synth_hash("hi", "en", toy_tts(base, ru_stress=True)), \
         "ru_stress must not invalidate non-Russian caches"
 
     # 3. plus notation must never reach the engine (measured 2026-07-08: it

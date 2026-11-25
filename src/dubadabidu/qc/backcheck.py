@@ -21,16 +21,17 @@ from pathlib import Path
 from dubadabidu.core import manifest as M
 from dubadabidu.core.device import whisper_device
 from dubadabidu.core.text_norm import localize_numbers
+from dubadabidu.core.config.schema import Config
 
 log = logging.getLogger("dubadabidu.qc.backcheck")
 _model = None
 _model_key = None
 
 
-def _whisper(cfg: dict):
+def _whisper(cfg: Config):
     global _model, _model_key
-    dev, ctype = whisper_device(cfg["asr"].get("device", "auto"))
-    key = (cfg["asr"]["model"], dev, ctype)
+    dev, ctype = whisper_device(cfg.asr.device)
+    key = (cfg.asr.model, dev, ctype)
     if _model is None or _model_key != key:
         from faster_whisper import WhisperModel
         log.info("loading %s on %s/%s ...", *key)
@@ -39,7 +40,7 @@ def _whisper(cfg: dict):
     return _model
 
 
-def transcribe_wav(cfg: dict, path: str | Path, lang: str) -> str:
+def transcribe_wav(cfg: Config, path: str | Path, lang: str) -> str:
     """Back-transcribe one wav in the target language (shared model)."""
     segs, _ = _whisper(cfg).transcribe(str(path), language=lang)
     return " ".join(s.text for s in segs)
@@ -120,7 +121,7 @@ def _norm(s: str, lang: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", "", s)).strip()
 
 
-def segment_wer(cfg: dict, spoken: str, wav: str | Path, lang: str) -> float:
+def segment_wer(cfg: Config, spoken: str, wav: str | Path, lang: str) -> float:
     """Number-normalized WER of one placed segment vs. the text TTS spoke."""
     from jiwer import wer
     if not spoken.strip():
@@ -129,14 +130,14 @@ def segment_wer(cfg: dict, spoken: str, wav: str | Path, lang: str) -> float:
     return wer(_norm(spoken, lang), _norm(hyp, lang))
 
 
-def run(cfg: dict, video: str, langs: list[str],
+def run(cfg: Config, video: str, langs: list[str],
         only: list[str] | None = None) -> None:
     """only: utterance ids to (re)check; None = all. The autopilot passes the
     handful of re-rolled segments so a fix round doesn't re-transcribe the
     whole video (minutes of Whisper per round on a 1h lesson)."""
     man = M.load(cfg, video)
     wd = M.video_workdir(cfg, video)
-    thr = cfg["qc"]["wer_flag_threshold"]
+    thr = cfg.qc.wer_flag_threshold
 
     for lang in langs:
         flagged = []

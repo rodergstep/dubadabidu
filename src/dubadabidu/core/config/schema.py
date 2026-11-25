@@ -201,13 +201,16 @@ class Qc(_Block):
 
 
 class Prep(_Block):
+    """`dubadabidu prep` (comments moved from prep.PREP_DEFAULTS)."""
     min_s: Number
     max_s: Number
-    n_refs: int
-    max_candidates: int
-    clip_peak: Number
-    min_voiced: Number
-    min_mos: Number
+    n_refs: int             # keep the pool WIDE — tune R1 makes the real call
+    max_candidates: int     # cap gated spans (each = a cut + MOS/f0 pass)
+    # quality GATE (reject broken spans only — deliberately lenient so a good
+    # ref is never filtered out; tune R1 does the actual selecting):
+    clip_peak: Number       # peak at/above this = clipped, rejected
+    min_voiced: Number      # <25% voiced = mostly silence, rejected
+    min_mos: Number         # DistillMOS below this = noisy/artifacty, rejected
 
 
 class R1Weights(_Block):
@@ -217,13 +220,47 @@ class R1Weights(_Block):
 
 
 class Tune(_Block):
+    """`dubadabidu tune`: the reference sweep (comments moved from tune.DEFAULTS)."""
     subset_size: int
     refs_glob: str
     best_of: int
-    rounds: list[Literal["R1", "R2", "R3"]] = Field(
+    rounds: list[Literal["R1", "R2", "R3"]] = Field(   # subset for tune-lite, e.g. ["R1"]
         default_factory=lambda: ["R1", "R2", "R3"])
+    # ---- tune's OWN objective. NOT qc.eval.weights, and that is the fix. ----
+    # qc.eval.weights ranks TAKES of one segment. It dropped sim to 0.0 on
+    # 2026-08-09 because sim does not predict this listener's per-take judgement
+    # (en rho -0.075 p 0.42, ru -0.136 p 0.15). Correct there — and silently
+    # catastrophic here, because tune R1 selects the CLONE SOURCE, where
+    # similarity is the entire question. Measured with the shipped weights:
+    #     ref A  sim_cal .80  mos 4.0  f0 2.0  -> 0.662
+    #     ref B  sim_cal .10  mos 4.0  f0 2.6  -> 0.715   <- wins
+    # A reference that sounds nothing like the speaker beat one that does, on
+    # six tenths of a semitone, and `preamble` wrote that winner into the
+    # manifest with no human in the loop.
+    #
+    # UNVALIDATED, and labelled so on purpose. sim_raw + mos is less degenerate
+    # than an objective with no identity term at all; it is NOT calibrated
+    # against the ear. The one blind test run picked the LOWEST-sim reference
+    # (FINDINGS 2.2, 2026-08-04) and the 42-judgement comparison came back
+    # 21-21. Treat R1 as a shortlist generator, not an arbiter — the ear
+    # decides, which is why the override gate below defaults to off.
     r1_weights: R1Weights
+    # Take-to-take spread here is mos +/-0.24-0.49 and f0st +/-0.438 (measured
+    # 2026-08-01 by running one config twice). Scoring a reference on ONE roll
+    # per segment therefore ranks the dice; qc/listen.py says so in as many
+    # words. Average this many rolls per point instead. Cost is
+    # refs x subset_size x this, and it is the one place in the project where
+    # paying for more samples buys a decision rather than a number.
     r1_takes: int = 3
+    # ---- per-video reference override: OFF, matching FINDINGS 2.2 ----------
+    # FINDINGS 2.2 records the verdict as "ENCODED — the reference is now a
+    # config default, not a per-video override", because source quality varies
+    # per lesson and a bad lesson yields a bad reference (its ref_04 was rated
+    # 12-of-18 unusable). Only the ROOT CAUSE was fixed (refs_glob was widened
+    # so R1 can at least see the curated pool); `preamble` still wrote
+    # man["tts_overrides"] on every video, and s4/s5/evaluate/bakeoff all merge
+    # it. The refuted mechanism was still live and regenerating itself.
+    # true + a margin re-enables it, gated: see dub.preamble.
     per_video_ref_override: bool = False
     override_margin: Number = 0.05
 

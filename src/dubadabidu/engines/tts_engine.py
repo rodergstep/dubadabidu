@@ -28,6 +28,7 @@ is decided by the bake-off (qc/bakeoff.py), not by reputation.
 from __future__ import annotations
 import asyncio, logging, subprocess, time
 from pathlib import Path
+from dubadabidu.core.config.schema import Tts
 from dubadabidu.core.device import require_gpu
 from dubadabidu.core.languages import qwen_language
 from dubadabidu.core.manifest import STRESS_TRAINED_MODELS, resolve_engine, resolve_qwen_model
@@ -82,14 +83,14 @@ def check_output_sr(model_id: str, sr: int) -> None:
 # The table lives in dubadabidu.core.languages (qwen_language).
 
 
-def _load_qwen(t: dict, lang: str | None = None):
+def _load_qwen(t: Tts, lang: str | None = None):
     """The qwen model for `lang`'s checkpoint (tts.qwen_model_dir_by_lang).
     Keyed on the checkpoint: a run whose languages resolve to DIFFERENT
     checkpoints (ru -> the stress fine-tune) releases and reloads instead of
     silently synthesizing every language with whichever loaded first."""
     global _qwen_model, _qwen_model_id
     want = resolve_qwen_model(t, lang) if lang else (
-        t.get("qwen_model_dir") or "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
+        t.qwen_model_dir or "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
     if _qwen_model is not None and _qwen_model_id != want:
         log.info("qwen checkpoint %s -> %s: reloading", _qwen_model_id, want)
         release_models()
@@ -103,7 +104,7 @@ def _load_qwen(t: dict, lang: str | None = None):
         # dispatch. Upstream measures 4.1x on a 4090.
         # NO silent fallback to the stock class: an opt-in that quietly does
         # nothing is how qwen ran on CPU for a week.
-        fast = bool(t.get("qwen_fast", False))
+        fast = bool(t.qwen_fast)
         try:
             import torch
             if fast:
@@ -120,7 +121,7 @@ def _load_qwen(t: dict, lang: str | None = None):
         # NOT torch_device() — a CPU-only torch in venvs/qwen used to degrade
         # silently to fp32-on-CPU at 126 s/take (vs 2.9 s for voxcpm on the same
         # pod). require_gpu turns that into a loud install error.
-        dev = require_gpu("qwen", bool(t.get("allow_cpu_fallback", False)))
+        dev = require_gpu("qwen", bool(t.allow_cpu_fallback))
         model_id = want
         if fast:
             # faster-qwen3-tts documents from_pretrained(model_id) only — it
@@ -134,7 +135,7 @@ def _load_qwen(t: dict, lang: str | None = None):
             # a missing wheel can't fail the load on a fresh pod. Note it is NOT
             # a fix for the speed problem: dispatch overhead dominates, which is
             # why eager vs sdpa measured only 1.57 vs 1.42 wall/audio.
-            if dev == "cuda" and t.get("qwen_flash_attn", False):
+            if dev == "cuda" and t.qwen_flash_attn:
                 kw["attn_implementation"] = "flash_attention_2"
         log.info("loading Qwen3-TTS from %s on %s (fast=%s) ...",
                  model_id, dev, fast)
@@ -145,7 +146,7 @@ def _load_qwen(t: dict, lang: str | None = None):
             # capture cost lazily, which is how a benchmark reads 1.49 wall/audio
             # and a warmed one reads 0.73 for the same setup.
             t0 = time.perf_counter()
-            _qwen_model.warmup(prefill_len=int(t.get("qwen_warmup_len", 100)))
+            _qwen_model.warmup(prefill_len=int(t.qwen_warmup_len))
             log.info("qwen warmup (CUDA graph capture): %.1fs",
                      time.perf_counter() - t0)
     return _qwen_model
@@ -181,16 +182,16 @@ def trimmed_ref(ref: str, max_s: float | None) -> str:
     return str(out)
 
 
-def _qwen_clone_prompt(m, t: dict):
+def _qwen_clone_prompt(m, t: Tts):
     """Reusable clone prompt for the current reference, built once and cached
     (a full video is hundreds of segments off ONE ref). x_vector_only_mode:
     speaker embedding only, no ref transcript — the path for a ref in the
     source language (a Ukrainian transcript can't be tokenized). Full mode needs a target-lang ref +
     reference_text and is opt-in via qwen_x_vector_only: false."""
     global _qwen_prompt
-    ref = trimmed_ref(t["reference_wav"], t.get("reference_max_s"))
-    ref_text = t.get("reference_text", "")
-    x_only = bool(t.get("qwen_x_vector_only", True)) or not ref_text
+    ref = trimmed_ref(t.reference_wav, t.reference_max_s)
+    ref_text = t.reference_text
+    x_only = bool(t.qwen_x_vector_only) or not ref_text
     key = (ref, x_only, ref_text if not x_only else "")
     if _qwen_prompt is None or _qwen_prompt[0] != key:
         kw = {"ref_audio": ref, "x_vector_only_mode": x_only}
@@ -203,11 +204,11 @@ def _qwen_clone_prompt(m, t: dict):
     return _qwen_prompt[1]
 
 
-def _synth_qwen(text: str, lang: str, out: Path, t: dict) -> None:
+def _synth_qwen(text: str, lang: str, out: Path, t: Tts) -> None:
     """Qwen3-TTS Base voice clone. Covers all 5 targets; UA ref cloned via the
     speaker-embedding-only path (see _qwen_clone_prompt). Returns (wavs, sr)."""
     import soundfile as sf
-    ref = t["reference_wav"]
+    ref = t.reference_wav
     if not Path(ref).exists():
         raise FileNotFoundError(f"reference_wav not found: {ref}")
     # attribute the wall-clock: load (once) / prompt (once per ref) / generate
@@ -228,7 +229,7 @@ def _synth_qwen(text: str, lang: str, out: Path, t: dict) -> None:
     # quality for consistency, which could buy back the takes it costs.
     # An unsupported kwarg fails the call outright, so the error names the knob
     # rather than surfacing as a bare TypeError from inside the library.
-    gen = dict(t.get("qwen_gen_kwargs") or {})
+    gen = dict(t.qwen_gen_kwargs or {})
     try:
         wavs, sr = m.generate_voice_clone(
             text=text, language=qwen_language(lang),
@@ -251,7 +252,7 @@ def _synth_qwen(text: str, lang: str, out: Path, t: dict) -> None:
     # synth_best_of re-rolls. Not passed as max_new_tokens: that kwarg is
     # undocumented for both implementations and an unknown kwarg would fail
     # the call outright.
-    cap = float(t.get("qwen_max_audio_s", 60.0))
+    cap = float(t.qwen_max_audio_s)
     if cap and dur > cap:
         raise RuntimeError(
             f"qwen produced {dur:.1f}s of audio for {len(text)} chars "
@@ -265,7 +266,7 @@ def _synth_qwen(text: str, lang: str, out: Path, t: dict) -> None:
              (t3 - t2) / dur if dur else float("nan"), len(text))
 
 
-def engine_available(engine: str, t: dict | None = None) -> bool:
+def engine_available(engine: str, t: Tts | None = None) -> bool:
     """Can `engine` synthesize HERE? Import check only — no weights, no CUDA.
 
     Exists so s5 can say "run this on a pod" instead of dying on a bare
@@ -279,7 +280,10 @@ def engine_available(engine: str, t: dict | None = None) -> bool:
         if importlib.util.find_spec("qwen_tts") is None:
             return False
         # qwen_fast is a different package and the one that actually runs
-        if (t or {}).get("qwen_fast", True):
+        # BUG (ARCHITECTURE_PLAN.md §10.2 #1), preserved: with qwen_fast UNSET
+        # the loader runs stock qwen, yet this probe has always demanded
+        # faster_qwen3_tts. Kept until a separate, approved fix.
+        if t is None or "qwen_fast" not in t.model_fields_set or t.qwen_fast:
             return importlib.util.find_spec("faster_qwen3_tts") is not None
         return True
     return False                         # unknown engine: assume unavailable
@@ -301,24 +305,24 @@ def release_models() -> None:
         pass
 
 
-def _synth_edge(text: str, lang: str, out: Path, t: dict) -> None:
+def _synth_edge(text: str, lang: str, out: Path, t: Tts) -> None:
     import edge_tts
-    voice = t["edge_voices"][lang]
+    voice = t.edge_voices[lang]
     mp3 = out.with_suffix(".tmp.mp3")
     asyncio.run(edge_tts.Communicate(text, voice).save(str(mp3)))
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(mp3),
-                    "-ar", str(t["sample_rate"]), "-ac", "1", str(out)], check=True)
+                    "-ar", str(t.sample_rate), "-ac", "1", str(out)], check=True)
     mp3.unlink(missing_ok=True)
 
 
-def _refuse_marks_on_untrained_model(tts_cfg: dict, lang: str, engine: str) -> None:
+def _refuse_marks_on_untrained_model(tts_cfg: Tts, lang: str, engine: str) -> None:
     """Stress marks on a checkpoint not trained on them destroy the audio
     (FINDINGS 2.1b: 97% unusable by ear). Refuse loudly — before any GPU time —
     unless tts.ru_stress_force keeps a refuted experiment reproducible."""
-    if not (lang == "ru" and tts_cfg.get("ru_stress") and engine == "qwen"):
+    if not (lang == "ru" and tts_cfg.ru_stress and engine == "qwen"):
         return
     model = resolve_qwen_model(tts_cfg, lang)
-    if model in STRESS_TRAINED_MODELS or tts_cfg.get("ru_stress_force"):
+    if model in STRESS_TRAINED_MODELS or tts_cfg.ru_stress_force:
         return
     raise RuntimeError(
         f"tts.ru_stress is on but ru resolves to {model}, which was not trained "
@@ -327,7 +331,7 @@ def _refuse_marks_on_untrained_model(tts_cfg: dict, lang: str, engine: str) -> N
         f"reproduce the refuted experiment on purpose.")
 
 
-def synthesize(text: str, lang: str, out: Path, tts_cfg: dict,
+def synthesize(text: str, lang: str, out: Path, tts_cfg: Tts,
                retries: int = 2) -> None:
     """Synthesize with retry (autoregressive TTS occasionally glitches; a retry
     with the same input often fixes it — final quality gate is qc/backcheck)."""

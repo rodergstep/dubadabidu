@@ -47,6 +47,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from dubadabidu.core import manifest as M
+from dubadabidu.core.config.schema import Bakeoff, BakeoffTune, Config, Tts, derive
 
 log = logging.getLogger("dubadabidu.qc.bakeoff")
 
@@ -103,14 +104,14 @@ def log_phase_totals(where: str) -> None:
 INCUMBENT = "qwen"           # default; override with bakeoff.incumbent
 
 
-def incumbent_of(bcfg: dict) -> str:
+def incumbent_of(bcfg: Bakeoff | None) -> str:
     """Which engine a challenger must beat. Configurable because the answer
     CHANGES: chatterbox was the incumbent while it was what we shipped, and
     qwen is now. Leaving it hardcoded is how the gate quietly died — with
     bakeoff.engines: [qwen] and INCUMBENT still 'chatterbox', beats_incumbent()
     never had a baseline and every run reported 'no incumbent baseline' while
     looking like it had adjudicated something."""
-    return (bcfg or {}).get("incumbent", INCUMBENT)
+    return bcfg.incumbent if bcfg is not None else INCUMBENT
 
 
 def beats_incumbent(challenger: dict, incumbent: dict,
@@ -130,7 +131,7 @@ def beats_incumbent(challenger: dict, incumbent: dict,
             and challenger["mos"] >= incumbent["mos"] + mos_eps)
 
 
-def variant_key(engine: str, t: dict, lang: str) -> str:
+def variant_key(engine: str, t: Tts, lang: str) -> str:
     """Scorecard/audio key for an engine AS CONFIGURED.
 
     Rows were keyed on the engine NAME alone, so testing the same engine with a
@@ -147,19 +148,19 @@ def variant_key(engine: str, t: dict, lang: str) -> str:
     # of the A/B is to see both rows AND keep both sets of audio for a listen —
     # without a suffix the second run overwrites the first, which is the exact
     # failure this function was written for.
-    if t.get("qwen_fast") and eng == "qwen":
+    if t.qwen_fast and eng == "qwen":
         suffix = "+fast"
     # ICL clone (ref audio + its transcript in context) vs x_vector_only
     # (speaker embedding alone). Documented to improve speaker similarity —
     # our weakest metric — at the risk of source-accent bleed, so both rows
     # must survive for the ear to arbitrate.
-    if eng == "qwen" and t.get("qwen_x_vector_only") is False:
+    if eng == "qwen" and t.qwen_x_vector_only is False:
         suffix += "+icl"
     # RU lexical stress (RUAccent combining acutes) changes the TEXT the engine
     # is given, so it is a different variant in every sense that matters. Without
     # this suffix a stress run would overwrite the unaccented row AND its audio —
     # destroying the control it is being compared against, in the same run.
-    if lang == "ru" and t.get("ru_stress"):
+    if lang == "ru" and t.ru_stress:
         suffix += "+stress"
     # A non-default checkpoint (e.g. the ru-stress fine-tune, PLAN_v0.5 P4) is a
     # different model: without a suffix its row and audio would OVERWRITE the
@@ -175,15 +176,15 @@ def variant_key(engine: str, t: dict, lang: str) -> str:
     # no synthesis input, so it is deliberately absent from synth_hash; the
     # bake-off writes takes under seg/<variant>/, so a distinct label is what
     # forces fresh takes rather than a cache hit.
-    if t.get("variant_label"):
-        suffix += "+" + str(t["variant_label"])
+    if t.variant_label:
+        suffix += "+" + str(t.variant_label)
     return engine + suffix
 
 
-def _engine_cfg(base_tts: dict, engine: str) -> dict:
+def _engine_cfg(base_tts: Tts, engine: str) -> Tts:
     """tts config for one candidate: base (merged with the video's tts_overrides
     by the caller) + engine + that engine's defaults."""
-    return {**base_tts, "engine": engine, "engine_by_lang": {}}
+    return derive(base_tts, engine=engine, engine_by_lang={})
 
 
 # Per-engine tune-lite grids. Only knobs that change a single take's OUTPUT
@@ -219,7 +220,7 @@ def _fmt_point(over: dict) -> str:
     return " ".join(f"{k}={v}" for k, v in sorted(over.items())) or "(defaults)"
 
 
-def _tune_engine(engine: str, base_t: dict, subset: list[dict], lang: str,
+def _tune_engine(engine: str, base_t: Tts, subset: list[dict], lang: str,
                  anchor, seg_root, takes: int, grid: dict,
                  min_f0st: float = 0.0) -> tuple:
     """tune-lite for ONE engine: score every grid point on a small subset and
@@ -265,7 +266,7 @@ def _tune_engine(engine: str, base_t: dict, subset: list[dict], lang: str,
     trials = []
     last_err = None
     for i, over in enumerate(points):
-        t = {**base_t, **over}
+        t = derive(base_t, **over)
         sims, moss, f0s = [], [], []
         failed = None
         for u in subset:
@@ -352,7 +353,16 @@ def _mean_stat(rows: list[dict], key: str) -> float:
     return round(sum(vals) / len(vals), 3) if vals else 0.0
 
 
-def run(cfg: dict, video: str, langs: list[str]) -> None:
+def _bakeoff(cfg: Config) -> Bakeoff:
+    """The bakeoff block. Without one (no gpu overlay) the bake-off always ran
+    the incumbent against qwen with the schema's counts; that is spelled out
+    here, the one place it is decided."""
+    if cfg.bakeoff is not None:
+        return cfg.bakeoff
+    return Bakeoff(engines=[INCUMBENT, "qwen"])
+
+
+def run(cfg: Config, video: str, langs: list[str]) -> None:
     import statistics
     import torch
     from dubadabidu.engines.tts_engine import release_models, synthesize
@@ -361,24 +371,24 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     from dubadabidu.qc.evaluate import _ua_slices
     from dubadabidu.review.review_page import _ua_slice
 
-    bcfg = cfg.get("bakeoff", {})
+    bcfg = _bakeoff(cfg)
     incumbent = incumbent_of(bcfg)
-    engines = bcfg.get("engines", [incumbent, "qwen"])
-    takes = int(bcfg.get("takes", 3))
-    n = int(bcfg.get("subset_size", 6))
+    engines = list(bcfg.engines)
+    takes = int(bcfg.takes)
+    n = int(bcfg.subset_size)
     # tune-lite: per-engine grids, overridable per engine (a config grid
     # REPLACES the default for that engine — that is how you widen or close
     # one). Its subset/takes are separate and smaller: the sweep is
     # points x segments x takes, so it grows fastest.
-    grids = {**ENGINE_GRIDS, **(bcfg.get("grids") or {})}
-    tcfg = bcfg.get("tune") or {}
-    tune_on = bool(tcfg.get("enabled", True))
-    tune_n = int(tcfg.get("subset_size", 3))
-    tune_takes = int(tcfg.get("takes", 2))
+    grids = {**ENGINE_GRIDS, **(bcfg.grids or {})}
+    tcfg = bcfg.tune or BakeoffTune()
+    tune_on = bool(tcfg.enabled)
+    tune_n = int(tcfg.subset_size)
+    tune_takes = int(tcfg.takes)
 
     man = M.load(cfg, video)
     wd = M.video_workdir(cfg, video)
-    base_tts = {**cfg["tts"], **man.get("tts_overrides", {})}
+    base_tts = derive(cfg.tts, **man.get("tts_overrides", {}))
     bo = wd / "bakeoff"
     bo.mkdir(parents=True, exist_ok=True)
 
@@ -414,7 +424,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         # TTS model, so each extra scorer is VRAM, not just a thread.
         # The overlap is free; the parallelism is not.
         pool = ThreadPoolExecutor(
-            max_workers=max(1, int(bcfg.get("scoring_workers", 1))),
+            max_workers=max(1, int(bcfg.scoring_workers)),
             thread_name_prefix="score")
         for engine in engines:
             t = _engine_cfg(base_tts, engine)
@@ -439,9 +449,9 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                     tune_dir, tune_takes, grid,
                     # the SAME floor take selection enforces, so tuning cannot
                     # hand the comparison a point that s4 would then reject
-                    min_f0st=float(t.get("min_f0st", 0.0) or 0.0))
+                    min_f0st=float(t.min_f0st or 0.0))
                 if not unavailable:
-                    t = {**t, **over}
+                    t = derive(t, **over)
                     tuning[vkey] = {"winner": over, "trials": trials,
                                       "n_points": len(points)}
             else:
@@ -461,7 +471,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 # shape of qc.eval.weights ranking nothing and tts.engine
                 # routing nothing. A segment with no such variant falls back to
                 # the shipped text, so an A/B covers only where they differ.
-                _tv = (cfg.get("bakeoff", {}) or {}).get("text_variant")
+                _tv = bcfg.text_variant
                 text = ((u["tr"][lang].get("text_variants") or {}).get(_tv)
                         if _tv else None) \
                     or u["tr"][lang].get("fitted_text") or u["tr"][lang]["text"]

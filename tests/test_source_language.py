@@ -13,7 +13,7 @@ from dubadabidu.stages import s3_translate as S3
 from dubadabidu.core.config.schema import ConfigError, validate
 from tests.paths import REPO, config
 from dubadabidu.core.config.schema import Config
-from tests.cfgs import settings
+from tests.cfgs import settings, toy_tts
 
 ROOT = REPO
 
@@ -92,13 +92,14 @@ def test_uk_is_voiced_by_edge() -> None:
     gpu = yaml.safe_load(config("config.gpu.yaml").read_text(encoding="utf-8"))
     from dubadabidu.core.logic import deep_merge
     for cfg in (base, deep_merge(base, gpu)):
-        assert M.resolve_engine(cfg["tts"], "uk") == "edge"
-        assert M.resolve_engine(cfg["tts"], "en") == "qwen"
+        t = validate(cfg).tts
+        assert M.resolve_engine(t, "uk") == "edge"
+        assert M.resolve_engine(t, "en") == "qwen"
 
 
 def test_edge_routed_on_purpose_is_not_a_plumbing_run() -> None:
     man = {"utterances": [{"id": "u0001", "tr": {
         "uk": {"synth_engine": "edge"}, "en": {"synth_engine": "edge"}}}]}
-    tts = {"engine": "qwen", "engine_by_lang": {"uk": "edge"}}
+    tts = toy_tts(engine="qwen", engine_by_lang={"uk": "edge"})
     assert M.edge_langs(man, ["en", "uk"]) == ["en", "uk"]   # verdicts refuse both
     assert M.edge_fallback_langs(man, ["en", "uk"], tts) == ["en"]

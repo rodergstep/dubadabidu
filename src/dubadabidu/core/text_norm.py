@@ -32,6 +32,10 @@ input, bump the version.
 from __future__ import annotations
 import logging
 import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from dubadabidu.core.config.schema import Tts
 
 log = logging.getLogger("dubadabidu.text_norm")
 _WARNED_NO_NUM2WORDS = False
@@ -205,7 +209,7 @@ def accent_ru(text: str) -> str:
         return text
 
 
-def normalize_for_tts(text: str, lang: str, tts_cfg: dict | None = None) -> str:
+def normalize_for_tts(text: str, lang: str, tts_cfg: Tts | None = None) -> str:
     """Stress-mark Russian when tts.ru_stress is on. Engine-agnostic now: the
     old version hardcoded chatterbox, which is why it became unreachable.
 
@@ -213,7 +217,6 @@ def normalize_for_tts(text: str, lang: str, tts_cfg: dict | None = None) -> str:
     writing `малако` does not tell a TTS where the stress is, it hands it a
     non-word to guess about (FINDINGS 2.1o).
     """
-    cfg = tts_cfg or {}
-    if lang == "ru" and cfg.get("ru_stress"):
+    if lang == "ru" and tts_cfg is not None and tts_cfg.ru_stress:
         return accent_ru(text)
     return text

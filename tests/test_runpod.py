@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 import time
 from dubadabidu.infra.remote.runpod_infra import _deadline, engine_install_cmd, ssh_target, DEFAULTS
+from tests.cfgs import settings
 from tests.paths import REPO, config, source
 
 
@@ -941,7 +942,7 @@ def test_multi_video_remote_run_is_one_pod_one_call(monkeypatch, tmp_path):
     monkeypatch.setattr(dub, "_run_local",
                         lambda cfg, v, langs, st: local.append((v, tuple(st))))
     rpi = _FakeRpi(tmp_path)
-    cfg = {"work_dir": str(tmp_path)}
+    cfg = settings({"work_dir": str(tmp_path)})
     assert dub._remote_run_batch(cfg, ["a", "b", "c"], ["en"], _batch_args(), rpi)
     assert rpi.calls == [(["a", "b", "c"], "--from s4_synthesize --to s5_fit",
                           False, False)]
@@ -957,7 +958,7 @@ def test_batch_video_that_did_not_finish_on_the_pod_skips_its_finish(
                         lambda cfg, v, langs, st: local.append(f"{v}:{st[0]}")
                         if st else None)
     rpi = _FakeRpi(tmp_path, fail=frozenset({"b"}))
-    cfg = {"work_dir": str(tmp_path)}
+    cfg = settings({"work_dir": str(tmp_path)})
     assert not dub._remote_run_batch(cfg, ["a", "b", "c"], ["en"],
                                      _batch_args(), rpi)
     assert "a:s6_mix" in local and "c:s6_mix" in local

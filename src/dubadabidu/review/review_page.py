@@ -14,6 +14,7 @@ import html
 import json
 from pathlib import Path
 from dubadabidu.core import manifest as M
+from dubadabidu.core.config.schema import Config
 
 CSS = """
 body{font:14px/1.5 -apple-system,sans-serif;margin:2rem auto;max-width:960px;
@@ -140,14 +141,14 @@ def _ua_slice(wd: Path, u: dict) -> Path:
     return out
 
 
-def run(cfg: dict, video: str, langs: list[str]) -> None:
+def run(cfg: Config, video: str, langs: list[str]) -> None:
     man = M.load(cfg, video)
     wd = M.video_workdir(cfg, video)
-    flag_score = cfg["qc"].get("eval", {}).get("score_flag", 0.55)
+    flag_score = cfg.qc.eval.score_flag
 
     from dubadabidu.qc.stress_words import STRESS_LANGS
     for lang in langs:
-        edge = bool(M.edge_fallback_langs(man, [lang], cfg["tts"]))
+        edge = bool(M.edge_fallback_langs(man, [lang], cfg.tts))
         # word marking only where stress is lexical and the engine can be wrong
         mark_words = lang in STRESS_LANGS
         # scores computed on audio s5/s6 has since rewritten: the badges would

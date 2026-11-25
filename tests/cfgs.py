@@ -32,3 +32,14 @@ def settings(patch: Patch | None = None, *overlays: str) -> Config:
 
 def tts(**fields: object) -> Tts:
     return settings({"tts": fields}).tts
+
+
+def toy_tts(fields: Mapping[str, object] | None = None, **more: object) -> Tts:
+    """An UNVALIDATED Tts holding exactly these fields (schema defaults for the
+    rest) — for unit tests of pure helpers (hashing, routing) that use toy
+    values the shipped schema would reject, such as the long-gone chatterbox
+    engine. Production code never builds one of these."""
+    data = {**dict(fields or {}), **more}
+    t = Tts.model_construct(**data)
+    t._raw = data
+    return t

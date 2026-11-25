@@ -22,53 +22,10 @@ import logging
 from pathlib import Path
 from dubadabidu.core import manifest as M
 from dubadabidu.engines.tts_engine import synthesize
+from dubadabidu.core.config.schema import Config, derive
+from dubadabidu.core.manifest import LEGACY_CFG_WEIGHT, LEGACY_EXAGGERATION
 
 log = logging.getLogger("dubadabidu.tune")
-
-DEFAULTS = {
-    "subset_size": 8,
-    "refs_glob": "ref/*.wav",
-    "best_of": 3,
-    "rounds": ["R1", "R2", "R3"],   # subset for tune-lite, e.g. ["R1"]
-    # ---- tune's OWN objective. NOT qc.eval.weights, and that is the fix. ----
-    # qc.eval.weights ranks TAKES of one segment. It dropped sim to 0.0 on
-    # 2026-08-09 because sim does not predict this listener's per-take judgement
-    # (en rho -0.075 p 0.42, ru -0.136 p 0.15). Correct there — and silently
-    # catastrophic here, because tune R1 selects the CLONE SOURCE, where
-    # similarity is the entire question. Measured with the shipped weights:
-    #     ref A  sim_cal .80  mos 4.0  f0 2.0  -> 0.662
-    #     ref B  sim_cal .10  mos 4.0  f0 2.6  -> 0.715   <- wins
-    # A reference that sounds nothing like the speaker beat one that does, on
-    # six tenths of a semitone, and `preamble` wrote that winner into the
-    # manifest with no human in the loop.
-    #
-    # UNVALIDATED, and labelled so on purpose. sim_raw + mos is less degenerate
-    # than an objective with no identity term at all; it is NOT calibrated
-    # against the ear. The one blind test run picked the LOWEST-sim reference
-    # (FINDINGS 2.2, 2026-08-04) and the 42-judgement comparison came back
-    # 21-21. Treat R1 as a shortlist generator, not an arbiter — the ear
-    # decides, which is why the override gate below defaults to off.
-    "r1_weights": {"sim": 0.6, "mos": 0.4, "f0": 0.0},
-    # Take-to-take spread here is mos +/-0.24-0.49 and f0st +/-0.438 (measured
-    # 2026-08-01 by running one config twice). Scoring a reference on ONE roll
-    # per segment therefore ranks the dice; qc/listen.py says so in as many
-    # words. Average this many rolls per point instead. Cost is
-    # refs x subset_size x this, and it is the one place in the project where
-    # paying for more samples buys a decision rather than a number.
-    "r1_takes": 3,
-    # ---- per-video reference override: OFF, matching FINDINGS 2.2 ----------
-    # FINDINGS 2.2 records the verdict as "ENCODED — the reference is now a
-    # config default, not a per-video override", because source quality varies
-    # per lesson and a bad lesson yields a bad reference (its ref_04 was rated
-    # 12-of-18 unusable). Only the ROOT CAUSE was fixed (refs_glob was widened
-    # so R1 can at least see the curated pool); `preamble` still wrote
-    # man["tts_overrides"] on every video, and s4/s5/evaluate/bakeoff all merge
-    # it. The refuted mechanism was still live and regenerating itself.
-    # true + a margin re-enables it, gated: see dub.preamble.
-    "per_video_ref_override": False,
-    "override_margin": 0.05,
-}
-
 
 def _subset(utterances: list[dict], n: int) -> list[dict]:
     """Stratified by source length: sort, take evenly spaced — short and long
@@ -86,20 +43,20 @@ def _subset(utterances: list[dict], n: int) -> list[dict]:
     return [us[round(i * step)] for i in range(n)]
 
 
-def _band(cfg: dict, wd: Path, man: dict, lang: str, ref: str) -> tuple[float, float]:
+def _band(cfg: Config, wd: Path, man: dict, lang: str, ref: str) -> tuple[float, float]:
     from dubadabidu.qc import evaluate as E
-    c = dict(cfg, tts=dict(cfg["tts"], reference_wav=ref))
+    c = derive(cfg, tts=derive(cfg.tts, reference_wav=ref))
     cal = E.calibration(c, wd, man, lang)
     return cal["floor"], cal["ceiling"]
 
 
-def _score_trial(cfg: dict, wd: Path, subset: list[dict], lang: str,
+def _score_trial(cfg: Config, wd: Path, subset: list[dict], lang: str,
                  tts: dict, band: tuple[float, float], w: dict,
                  take: int = 0, n_takes: int = 1) -> dict:
     """Mean metrics for one config point over `subset` x `n_takes` rolls.
 
     `w` is passed in rather than read from cfg: this objective belongs to tune
-    (DEFAULTS["r1_weights"]) and reading qc.eval.weights here is what let a
+    (tune.r1_weights) and reading qc.eval.weights here is what let a
     take-ranking decision silently redefine reference selection.
 
     `n_takes > 1` averages consecutive take indices from `take`. Rolls are
@@ -139,25 +96,25 @@ def _score_trial(cfg: dict, wd: Path, subset: list[dict], lang: str,
             "score": round(raw / tot, 4)}
 
 
-def run(cfg: dict, video: str, langs: list[str]) -> dict:
+def run(cfg: Config, video: str, langs: list[str]) -> dict:
     """Returns the winning tts config subset:
     {reference_wav, cfg_weight, exaggeration} — preamble consumes it."""
-    tn = {**DEFAULTS, **cfg.get("tune", {})}
-    rounds = set(tn["rounds"])
+    tn = cfg.tune
+    rounds = set(tn.rounds)
     lang = langs[0]
     if len(langs) > 1:
         log.info("tuning on %s only (config transfers across languages)", lang)
     man = M.load(cfg, video)
     wd = M.video_workdir(cfg, video)
-    subset = _subset(man["utterances"], tn["subset_size"])
+    subset = _subset(man["utterances"], tn.subset_size)
     missing = [u["id"] for u in subset if "text" not in u["tr"].get(lang, {})]
     if missing:
         raise SystemExit(f"segments missing {lang} translation: {missing} — run s3.")
     log.info("subset: %s", [u["id"] for u in subset])
 
-    refs = sorted(str(p) for p in Path().glob(tn["refs_glob"]))
+    refs = sorted(str(p) for p in Path().glob(tn.refs_glob))
     if not refs:
-        raise SystemExit(f"no reference candidates match {tn['refs_glob']}")
+        raise SystemExit(f"no reference candidates match {tn.refs_glob}")
     # refs.json (written by `dubadabidu prep`) carries each ref's transcript —
     # used as tts.reference_text (qwen ICL mode, qwen_x_vector_only: false)
     ref_meta = M.load_refs(wd)
@@ -166,28 +123,30 @@ def run(cfg: dict, video: str, langs: list[str]) -> dict:
         log.info("band %s: floor=%.3f ceiling=%.3f", r, *bands[r])
 
     # was hardcoded to chatterbox; tune must sweep whatever we actually ship
-    base = dict(cfg["tts"], engine=cfg["tts"]["engine"])
+    base = cfg.tts
     # chatterbox-era knobs: no current engine reads them, but synth_hash still
     # keys on their old defaults so cached takes keep their hashes.
-    base.setdefault("cfg_weight", 0.0)
-    base.setdefault("exaggeration", 0.55)
+    # the chatterbox-era knobs, at the defaults synth_hash keys on when unset
+    base_cw = base.cfg_weight if base.cfg_weight is not None else LEGACY_CFG_WEIGHT
+    base_ex = (base.exaggeration if base.exaggeration is not None
+               else LEGACY_EXAGGERATION)
     results = []  # (round, ref, cfg_weight, exaggeration, take, metrics)
-    w = tn["r1_weights"]
-    r1_takes = max(1, int(tn.get("r1_takes", 1)))
+    w = tn.r1_weights.model_dump()     # a plain dict, like the scorer expects
+    r1_takes = max(1, int(tn.r1_takes))
     log.info("R1 objective (tune.r1_weights, UNVALIDATED against the ear): %s; "
              "%d take(s) x %d segment(s) per reference",
              w, r1_takes, len(subset))
 
     def _tts_for(ref: str, **over) -> dict:
         rt = ref_meta.get(Path(ref).name, {}).get("text_src", "")
-        return dict(base, reference_wav=ref, reference_text=rt, **over)
+        return derive(base, reference_wav=ref, reference_text=rt, **over)
 
     # R1: reference selection at current params
     r1_scores: dict[str, float] = {}
     for ref in refs:
         m = _score_trial(cfg, wd, subset, lang, _tts_for(ref), bands[ref], w,
                          n_takes=r1_takes)
-        results.append(("R1", ref, base["cfg_weight"], base["exaggeration"], 0, m))
+        results.append(("R1", ref, base_cw, base_ex, 0, m))
         r1_scores[ref] = m["score"]
         log.info("R1 %s -> %s", ref, m)
     best_ref = max((r for r in results), key=lambda r: r[5]["score"])[1]
@@ -197,7 +156,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> dict:
     # distribution at full GPU price and "picked" noise. Accepted, ignored.
     if "R2" in rounds:
         log.info("R2 skipped: engine %s ignores cfg_weight/exaggeration",
-                 base["engine"])
+                 base.engine)
     on_ref = [r for r in results if r[1] == best_ref]
     _, _, best_cw, best_ex, _, best_m = max(on_ref, key=lambda r: r[5]["score"])
 
@@ -206,7 +165,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> dict:
         win = _tts_for(best_ref, cfg_weight=best_cw, exaggeration=best_ex)
         # SINGLE takes on purpose — R3 measures the per-take SPREAD, so
         # averaging here would erase the thing it exists to report.
-        for take in range(1, tn["best_of"]):
+        for take in range(1, tn.best_of):
             m = _score_trial(cfg, wd, subset, lang, win, bands[best_ref], w,
                              take=take, n_takes=1)
             results.append(("R3", best_ref, best_cw, best_ex, take, m))
@@ -233,7 +192,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> dict:
               "valid within a ref, biased across refs. When comparing DIFFERENT "
               "refs, judge by sim_raw + mos."]
     lines += ["", f"take-to-take score spread: {min(takes):.3f}–{max(takes):.3f} "
-              f"(best-of-{tn['best_of']} re-roll is worth it if this is wide)", "",
+              f"(best-of-{tn.best_of} re-roll is worth it if this is wide)", "",
               "## winning config — paste into config.yaml", "```yaml", "tts:",
               f"  reference_wav: {best_ref}",
               f"  cfg_weight: {best_cw}",

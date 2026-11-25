@@ -31,11 +31,11 @@ def doctor(cfg: Config, project: str = "") -> int:
     check("ffprobe", shutil.which("ffprobe"), "comes with ffmpeg")
     dev = torch_device()
     from dubadabidu.engines.asr import resolve_backend
-    backend = resolve_backend(cfg["asr"])
+    backend = resolve_backend(cfg.asr)
     if backend == "mlx":
         print(f"  [i ] torch device: {dev} | whisper: mlx-whisper (Metal/ANE)")
     else:
-        wdev, wct = whisper_device(cfg["asr"].get("device", "auto"))
+        wdev, wct = whisper_device(cfg.asr.device)
         print(f"  [i ] torch device: {dev} | whisper: faster-whisper {wdev}/{wct}")
         if dev == "mps":
             print("  [i ] ASR on CPU int8: `uv sync --extra mac` for mlx-whisper "
@@ -49,8 +49,8 @@ def doctor(cfg: Config, project: str = "") -> int:
             __import__(mod); check(f"python: {mod}", True)
         except ImportError:
             check(f"python: {mod}", False, "uv sync --extra dev")
-    sep = cfg.get("separation", {})
-    if sep.get("enabled") and sep.get("backend", "roformer") == "roformer":
+    sep = cfg.separation
+    if sep.enabled and sep.backend == "roformer":
         try:
             __import__("audio_separator"); check("python: audio_separator", True)
         except ImportError:
@@ -58,7 +58,7 @@ def doctor(cfg: Config, project: str = "") -> int:
                   'uv sync --extra sep (or separation.backend: demucs)')
     # s6 mastering chain: on in config.yaml, but pedalboard (GPLv3) is the
     # opt-in `.[master]` extra, so a plain `uv sync` stops at s6.
-    if cfg.get("mix", {}).get("master", {}).get("enabled"):
+    if cfg.mix.master.enabled:
         try:
             __import__("pedalboard"); check("python: pedalboard (mix.master)", True)
         except ImportError:
@@ -66,7 +66,7 @@ def doctor(cfg: Config, project: str = "") -> int:
                  "mix.master.enabled is on and s6 will stop without it: "
                  "uv sync --extra master (or set mix.master.enabled: false)")
     # s5 stretcher: rubberband when ffmpeg carries librubberband, else atempo
-    if cfg.get("fit", {}).get("stretcher", "auto") != "atempo" \
+    if cfg.fit.stretcher != "atempo" \
             and shutil.which("ffmpeg"):
         filters = subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
                                  capture_output=True, text=True).stdout
@@ -76,8 +76,8 @@ def doctor(cfg: Config, project: str = "") -> int:
             warn("ffmpeg: no rubberband filter",
                  "s5 falls back to atempo (WSOLA, softer consonants); install "
                  "an ffmpeg built with librubberband")
-    engines = {cfg["tts"]["engine"], *cfg["tts"].get("engine_by_lang", {}).values(),
-               *cfg.get("bakeoff", {}).get("engines", [])}
+    engines = {cfg.tts.engine, *(cfg.tts.engine_by_lang or {}).values(),
+               *(cfg.bakeoff.engines if cfg.bakeoff else [])}
     # engines are probed in THIS venv — the only one, since the per-engine
     # venvs merged on 2026-08-02. (The venvs/<engine>/bin/python fallback that
     # used to live here went with them; it could only ever find a tree this
@@ -109,13 +109,13 @@ def doctor(cfg: Config, project: str = "") -> int:
             else:
                 check(f"python: {mod}", False, hint)
     if engines - {"edge"}:
-        check("reference_wav", Path(cfg["tts"]["reference_wav"]).exists(),
-              f"put a 15-20s clean voice clip at {cfg['tts']['reference_wav']} "
+        check("reference_wav", Path(cfg.tts.reference_wav).exists(),
+              f"put a 15-20s clean voice clip at {cfg.tts.reference_wav} "
               f"or run `dubadabidu prep <video>`")
-    check(f"env {cfg['translation']['api_key_env']}",
-          os.environ.get(cfg["translation"]["api_key_env"]),
+    check(f"env {cfg.translation.api_key_env}",
+          os.environ.get(cfg.translation.api_key_env),
           "export it, or point translation.base_url at a local Ollama")
-    if os.environ.get(cfg["translation"]["api_key_env"]):
+    if os.environ.get(cfg.translation.api_key_env):
         _check_translation_models(cfg.translation, check)
     # remote (M2) readiness — informational; only needed for `dubadabidu remote`
     if os.environ.get("RUNPOD_API_KEY"):
@@ -157,13 +157,13 @@ def _check_translation_models(tcfg: Translation,
     from openai import OpenAI
     from dubadabidu.stages.s3_translate import missing_models
     try:
-        client = OpenAI(base_url=tcfg["base_url"],
-                        api_key=os.environ[tcfg["api_key_env"]], timeout=15)
+        client = OpenAI(base_url=tcfg.base_url,
+                        api_key=os.environ[tcfg.api_key_env], timeout=15)
         missing = missing_models(client, tcfg)
     except Exception as e:   # offline, local server down, no /models route
         print(f"  [i ] translation models not checked ({type(e).__name__}: {e})")
         return
     check("translation models listed by the endpoint", not missing,
-          f"{missing} not served by {tcfg['base_url']} — the name may be "
+          f"{missing} not served by {tcfg.base_url} — the name may be "
           f"retired or rerouted; check the provider changelog and update "
           f"translation.model")

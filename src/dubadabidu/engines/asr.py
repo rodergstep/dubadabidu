@@ -18,9 +18,17 @@ keeps faster-whisper + VAD unchanged (backend auto-resolves to `faster` there).
 from __future__ import annotations
 import logging
 from pathlib import Path
+from dubadabidu.core.config.schema import Asr
 from dubadabidu.core.device import torch_device, whisper_device
 
 log = logging.getLogger("dubadabidu.asr")
+
+# Decoder settings. Constants, not config: the schema never declared them
+# (extra="forbid" rejects them), so these values are the only ones that ever ran.
+NO_SPEECH_THRESHOLD = 0.6
+COMPRESSION_RATIO_THRESHOLD = 2.4
+CONDITION_ON_PREVIOUS_TEXT = False
+TEMPERATURE_FALLBACK = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)
 
 # faster-whisper short names -> mlx-community HF repos (Metal-ready conversions).
 _MLX_REPOS = {
@@ -34,14 +42,14 @@ _MLX_REPOS = {
 }
 
 
-def resolve_backend(a: dict) -> str:
+def resolve_backend(a: Asr) -> str:
     """-> 'faster' | 'mlx'. `asr.backend` (default 'auto') picks mlx on Apple
     Silicon when mlx-whisper is importable, else faster-whisper. An explicit
     `asr.device` of cuda/cpu keeps faster-whisper (that's its territory)."""
-    backend = a.get("backend", "auto")
+    backend = a.backend
     if backend != "auto":
         return backend
-    if a.get("device", "auto") in ("cuda", "cpu"):
+    if a.device in ("cuda", "cpu"):
         return "faster"
     if torch_device() == "mps":
         try:
@@ -54,10 +62,10 @@ def resolve_backend(a: dict) -> str:
     return "faster"
 
 
-def _mlx_repo(a: dict) -> str:
-    if a.get("mlx_model"):
-        return a["mlx_model"]
-    model = a["model"]
+def _mlx_repo(a: Asr) -> str:
+    if a.mlx_model:
+        return a.mlx_model
+    model = a.model
     if "/" in model:   # already an HF repo id
         return model
     repo = _MLX_REPOS.get(model)
@@ -88,24 +96,23 @@ def _norm_words(raw) -> list[dict]:
     return out
 
 
-def _transcribe_faster(a: dict, audio: Path, language: str,
+def _transcribe_faster(a: Asr, audio: Path, language: str,
                        prompt: str | None) -> list[dict]:
     from faster_whisper import WhisperModel
-    dev, ctype = whisper_device(a.get("device", "auto"))
-    log.info("ASR %s via faster-whisper on %s/%s", a["model"], dev, ctype)
-    model = WhisperModel(a["model"], device=dev, compute_type=ctype)
+    dev, ctype = whisper_device(a.device)
+    log.info("ASR %s via faster-whisper on %s/%s", a.model, dev, ctype)
+    model = WhisperModel(a.model, device=dev, compute_type=ctype)
     segments, _ = model.transcribe(
-        str(audio), language=language, vad_filter=a["vad_filter"],
+        str(audio), language=language, vad_filter=a.vad_filter,
         word_timestamps=True, initial_prompt=prompt,
-        no_speech_threshold=a.get("no_speech_threshold", 0.6),
+        no_speech_threshold=NO_SPEECH_THRESHOLD,
         # See _transcribe_mlx for the full account. temperature=0.0 alone
         # DISABLES Whisper's own repetition rescue; the fallback ladder only
         # engages when a decode fails compression_ratio_threshold, so ordinary
         # segments stay at 0.0 and reproducible.
-        compression_ratio_threshold=a.get("compression_ratio_threshold", 2.4),
-        condition_on_previous_text=a.get("condition_on_previous_text", False),
-        temperature=tuple(a.get("temperature_fallback",
-                                (0.0, 0.2, 0.4, 0.6, 0.8, 1.0))))
+        compression_ratio_threshold=COMPRESSION_RATIO_THRESHOLD,
+        condition_on_previous_text=CONDITION_ON_PREVIOUS_TEXT,
+        temperature=TEMPERATURE_FALLBACK)
     out = []
     for s in segments:
         out.append({"start": s.start, "end": s.end, "text": s.text,
@@ -113,12 +120,12 @@ def _transcribe_faster(a: dict, audio: Path, language: str,
     return out
 
 
-def _transcribe_mlx(a: dict, audio: Path, language: str,
+def _transcribe_mlx(a: Asr, audio: Path, language: str,
                     prompt: str | None) -> list[dict]:
     import mlx_whisper
     repo = _mlx_repo(a)
     log.info("ASR %s via mlx-whisper (Apple Silicon Metal/ANE)", repo)
-    if a.get("vad_filter"):
+    if a.vad_filter:
         log.info("mlx-whisper has no VAD; relying on s1 vocal separation "
                  "(non-speech already removed)")
     # THE REPETITION LOOP THIS DEFENDS AGAINST — it happened, on the first
@@ -147,11 +154,10 @@ def _transcribe_mlx(a: dict, audio: Path, language: str,
     res = mlx_whisper.transcribe(
         str(audio), path_or_hf_repo=repo, language=language,
         word_timestamps=True, initial_prompt=prompt,
-        no_speech_threshold=a.get("no_speech_threshold", 0.6),
-        compression_ratio_threshold=a.get("compression_ratio_threshold", 2.4),
-        condition_on_previous_text=a.get("condition_on_previous_text", False),
-        temperature=tuple(a.get("temperature_fallback",
-                                (0.0, 0.2, 0.4, 0.6, 0.8, 1.0))))
+        no_speech_threshold=NO_SPEECH_THRESHOLD,
+        compression_ratio_threshold=COMPRESSION_RATIO_THRESHOLD,
+        condition_on_previous_text=CONDITION_ON_PREVIOUS_TEXT,
+        temperature=TEMPERATURE_FALLBACK)
     out = []
     for s in res.get("segments", []):
         out.append({"start": s["start"], "end": s["end"],
@@ -159,7 +165,7 @@ def _transcribe_mlx(a: dict, audio: Path, language: str,
     return out
 
 
-def transcribe(a: dict, audio: Path, language: str,
+def transcribe(a: Asr, audio: Path, language: str,
                prompt: str | None) -> list[dict]:
     """Normalized transcription; backend chosen by resolve_backend(a)."""
     fn = _transcribe_mlx if resolve_backend(a) == "mlx" else _transcribe_faster

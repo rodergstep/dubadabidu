@@ -82,3 +82,14 @@ def remote_plan(ns: argparse.Namespace) -> tuple[list[str], list[str], list[str]
 
 def remote_stages(ns: argparse.Namespace) -> str:
     return remote._remote_stages(ns)
+
+
+def typed_tts(raw: Mapping[str, object]) -> object:
+    """The typed tts block the CLI would hand on for this merged config."""
+    from dubadabidu.core.config.schema import validate
+    return validate(dict(raw)).tts
+
+
+def derive(block: object, **updates: object) -> object:
+    from dubadabidu.core.config.schema import derive as _derive
+    return _derive(block, **updates)

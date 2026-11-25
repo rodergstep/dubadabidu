@@ -6,15 +6,15 @@ import logging
 from pathlib import Path
 
 from dubadabidu.core import manifest as M
-from dubadabidu.core.logic import deep_merge
 from dubadabidu.lab import prep as prep_mod
 from dubadabidu.lab import tune as tune_mod
 from dubadabidu.stages import s1_extract
 from dubadabidu.stages import s2_transcribe
 from dubadabidu.stages import s3_translate
+from dubadabidu.core.config.schema import Config, derive
 
 
-def preamble(cfg: dict, video: str, langs: list[str]) -> None:
+def preamble(cfg: Config, video: str, langs: list[str]) -> None:
     """Per-video preamble (IMPROVEMENT_PLAN Phase D), resumable:
     pass 1: s1 + s2 + prep, then pause for the text_src hand-review;
     pass 2 (re-run):  s3 on the tune language, tune-lite R1 over this video's
@@ -41,8 +41,8 @@ def preamble(cfg: dict, video: str, langs: list[str]) -> None:
     # rated audio from ref_04 12-of-18 unusable against ~3.5/5 for sketch60.
     # Source quality varies per lesson; the reference is a curated asset, so the
     # pool is this video's cuts PLUS whatever tune.refs_glob already names.
-    tcfg = deep_merge(cfg, {"tune": {"refs_glob": "ref/*.wav",
-                                     "subset_size": 5, "rounds": ["R1"]}})
+    tcfg = derive(cfg, tune=derive(cfg.tune, refs_glob="ref/*.wav",
+                                   subset_size=5, rounds=["R1"]))
     win = tune_mod.run(tcfg, video, [lang])
     man = M.load(cfg, video)
     ref = _pick_reference(cfg, win)
@@ -55,14 +55,14 @@ def preamble(cfg: dict, video: str, langs: list[str]) -> None:
             over["reference_text"] = rt
         man["tts_overrides"] = over
     M.save(cfg, video, man)
-    used = ref or cfg["tts"]["reference_wav"]
+    used = ref or cfg.tts.reference_wav
     print(f"\n[preamble] done — reference for this video: {used}"
           + ("  (per-video override)" if ref else "  (curated default)")
           + f"\nNext: skim {wd}/terms_{lang}.json, then:"
           f"\n  dubadabidu run {video} --from s3_translate")
 
 
-def _pick_reference(cfg: dict, win: dict) -> str | None:
+def _pick_reference(cfg: Config, win: dict) -> str | None:
     """R1's winner, or None to keep the curated `tts.reference_wav`.
 
     FINDINGS 2.2 refuted the per-video reference and recorded the verdict as
@@ -89,9 +89,9 @@ def _pick_reference(cfg: dict, win: dict) -> str | None:
     UNVALIDATED in tune.DEFAULTS because the ear has contradicted it every time
     it has been checked.
     """
-    tn = cfg.get("tune", {})
-    ref, default = win["reference_wav"], cfg["tts"]["reference_wav"]
-    if not tn.get("per_video_ref_override", False):
+    tn = cfg.tune
+    ref, default = win["reference_wav"], cfg.tts.reference_wav
+    if not tn.per_video_ref_override:
         logging.info(
             "per-video reference override is OFF (tune.per_video_ref_override) "
             "— keeping the curated %s. R1's pick was %s; see its report for the "
@@ -104,7 +104,7 @@ def _pick_reference(cfg: dict, win: dict) -> str | None:
             "in this sweep, so there is nothing to beat. Widen tune.refs_glob "
             "to include it.", default)
         return None
-    margin = float(tn.get("override_margin", 0.05))
+    margin = float(tn.override_margin)
     gain = scores[ref] - scores[default]
     if gain < margin:
         logging.info("keeping the curated %s — R1 gave %s only %+.3f "
