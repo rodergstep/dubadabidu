@@ -23,7 +23,7 @@ is caught by M.stale_qc on a content hash of the graded wav, and is unaffected.
 """
 from __future__ import annotations
 import sys
-from tests.paths import REPO, source
+from tests.paths import REPO, config, source
 
 ROOT = REPO
 sys.path.insert(0, str(ROOT))
@@ -121,7 +121,7 @@ def test_config_cleanup_did_not_move_any_cache_key():
     from dubadabidu.core.logic import deep_merge
     from dubadabidu.core.manifest import synth_hash
     with open("config.yaml", encoding="utf-8") as a, \
-            open("config.gpu.yaml", encoding="utf-8") as b:
+            open(config("config.gpu.yaml"), encoding="utf-8") as b:
         t = deep_merge(yaml.safe_load(a), yaml.safe_load(b))["tts"]
     assert synth_hash("Hello world.", "en", t) == "5999f900"
     assert synth_hash("Привет.", "ru", t) == "bfab9b5c"

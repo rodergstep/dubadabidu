@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 import time
 from dubadabidu.infra.remote.runpod_infra import _deadline, engine_install_cmd, ssh_target, DEFAULTS
-from tests.paths import REPO, source
+from tests.paths import REPO, config, source
 
 
 def _rp(**over):
@@ -124,7 +124,7 @@ def test_the_correct_invocation_passes():
     from dubadabidu.core.logic import deep_merge
     from dubadabidu.infra.remote.runpod_infra import DEFAULTS, ENGINE_MODULE, _require_something_to_validate
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
-                     yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
+                     yaml.safe_load(open(config("config.gpu.yaml"), encoding="utf-8")))
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
     engines = list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
     probe = [(e, ENGINE_MODULE[e], bool(rp.get("engine_setup", {}).get(e)))
@@ -175,7 +175,7 @@ def test_every_enabled_experiment_isolates_one_axis():
     from dubadabidu.lab.bakeoff import variant_key
     root = REPO
     spec = yaml.safe_load((root / "experiments.yaml").read_text())
-    base = yaml.safe_load((root / "config.gpu.yaml").read_text())["tts"]
+    base = yaml.safe_load(config("config.gpu.yaml").read_text())["tts"]
     keys = {}
     for e in spec["experiments"]:
         if not e.get("enabled"):
@@ -268,7 +268,7 @@ def test_config_puts_cheap_gpus_first_and_4090_last():
     put us back on the most expensive card."""
     import yaml
     cfg = yaml.safe_load(
-        (REPO / "config.gpu.yaml").read_text())
+        config("config.gpu.yaml").read_text())
     ids = cfg["runpod"]["gpu_type_ids"]
     assert "gpu_type_priority" not in cfg["runpod"], "v1-only key; v2 has no such field"
     assert ids[0] == "NVIDIA RTX A4000"
@@ -404,7 +404,7 @@ def test_torch_pin_and_cuda_filter_move_together():
     from dubadabidu.core.logic import deep_merge
     from dubadabidu.infra.remote.runpod_infra import DEFAULTS
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
-                     yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
+                     yaml.safe_load(open(config("config.gpu.yaml"), encoding="utf-8")))
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
     setup = open("pyproject.toml", encoding="utf-8").read()
     import re
@@ -445,7 +445,7 @@ def test_torch_wheel_matches_the_oldest_allowed_driver():
     from dubadabidu.core.logic import deep_merge
     from dubadabidu.infra.remote.runpod_infra import DEFAULTS
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
-                     yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
+                     yaml.safe_load(open(config("config.gpu.yaml"), encoding="utf-8")))
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
     # driver floor actually requested: v2 minCudaVersion, or min of an exact list
     allowed = ([float(rp["min_cuda_version"])] if rp.get("min_cuda_version")
@@ -550,7 +550,7 @@ def test_runtime_cap_fits_a_full_hour_lesson():
     from dubadabidu.core.logic import deep_merge
     from dubadabidu.infra.remote.runpod_infra import DEFAULTS
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
-                     yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
+                     yaml.safe_load(open(config("config.gpu.yaml"), encoding="utf-8")))
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
     SYNTH_MIN_PER_LANG_PER_VIDEO_MIN = 30.9 / 5 / 8.13   # measured
     BOOTSTRAP_H = 7.8 / 60
@@ -648,7 +648,7 @@ def test_unknown_remote_task_is_refused_before_provisioning():
     from dubadabidu.core.logic import deep_merge
     from dubadabidu.infra.remote.runpod_infra import REMOTE_TASK, remote_run
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
-                     yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
+                     yaml.safe_load(open(config("config.gpu.yaml"), encoding="utf-8")))
     # Neutralise the two API calls that run BEFORE the guard, so this tests the
     # guard and not whether RUNPOD_API_KEY happens to be exported: without the
     # key, sweep_orphans() raises about credentials first and the assertion
@@ -713,7 +713,7 @@ def test_engine_list_handed_to_the_installer_is_engine_names():
     from dubadabidu.core.logic import deep_merge
     from dubadabidu.infra.remote.runpod_infra import engines_for_task, ENGINE_MODULE
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
-                     yaml.safe_load(open("config.gpu.yaml", encoding="utf-8")))
+                     yaml.safe_load(open(config("config.gpu.yaml"), encoding="utf-8")))
     for task in ("bakeoff", "run"):
         for e in engines_for_task(cfg, task, ["en", "ru"]):
             assert e in ENGINE_MODULE, (
@@ -799,7 +799,7 @@ def test_dockerfile_stamps_the_lock_and_pins_the_engine_like_engine_setup():
     df = open("docker/Dockerfile", encoding="utf-8").read()
     assert "/opt/venv/.uv-lock-sha256" in df
     sha = re.search(r"ARG QWEN_SHA=([0-9a-f]{40})", df).group(1)
-    gpu = yaml.safe_load(open("config.gpu.yaml", encoding="utf-8"))
+    gpu = yaml.safe_load(open(config("config.gpu.yaml"), encoding="utf-8"))
     snippet = gpu["runpod"]["engine_setup"]["qwen"]
     assert sha in snippet, "image and engine_setup pin different qwen commits"
     fq = re.search(r"ARG FASTER_QWEN=(\S+)", df).group(1)
@@ -811,7 +811,7 @@ def test_a_ghcr_image_in_config_is_tagged_with_the_current_lock():
     lock's — otherwise every pod pays the full bootstrap (stamp mismatch)."""
     import hashlib
     import yaml
-    gpu = yaml.safe_load(open("config.gpu.yaml", encoding="utf-8"))
+    gpu = yaml.safe_load(open(config("config.gpu.yaml"), encoding="utf-8"))
     image = gpu["runpod"]["image"]
     if "dubadabidu-pod" not in image:
         return

@@ -4,6 +4,7 @@ record (PLAN_v0.5 P1)."""
 from types import SimpleNamespace
 
 from dubadabidu.stages import s3_translate as s3
+from tests.paths import config
 
 
 class _Models:
@@ -55,5 +56,5 @@ def test_chat_records_the_model_that_answered() -> None:
 def test_shipped_config_uses_the_current_deepseek_alias() -> None:
     import yaml
     for f in ("config.yaml", "config.deepseek.yaml"):
-        with open(f, encoding="utf-8") as fh:
+        with open(config(f), encoding="utf-8") as fh:
             assert yaml.safe_load(fh)["translation"]["model"] == "deepseek-flash", f

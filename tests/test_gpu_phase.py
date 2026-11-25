@@ -5,7 +5,7 @@ hashing for the GPU phase."""
 
 from dubadabidu.core.logic import deep_merge
 from dubadabidu.core.manifest import resolve_engine, synth_hash
-from tests.paths import REPO, source
+from tests.paths import REPO, config, source
 
 TTS = {"engine": "chatterbox", "reference_wav": "ref/r.wav",
        "cfg_weight": 0.0, "exaggeration": 0.55}
@@ -63,7 +63,7 @@ def test_gpu_profile_actually_routes_production_to_qwen():
     from dubadabidu.core.logic import deep_merge
     root = REPO
     cfg = deep_merge(yaml.safe_load((root / "config.yaml").read_text()),
-                     yaml.safe_load((root / "config.gpu.yaml").read_text()))
+                     yaml.safe_load(config("config.gpu.yaml").read_text()))
     t = cfg["tts"]
     for lang in cfg["languages"]:
         assert resolve_engine(t, lang) == "qwen", (

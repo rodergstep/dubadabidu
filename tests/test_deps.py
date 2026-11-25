@@ -420,7 +420,7 @@ def test_no_comment_states_a_stale_runtime_cap():
     """
     import re
     import yaml
-    text = (ROOT / "config.gpu.yaml").read_text(encoding="utf-8")
+    text = config("config.gpu.yaml").read_text(encoding="utf-8")
     actual = yaml.safe_load(text)["runpod"]["max_runtime_hours"]
     claims = re.findall(r"(?:caps? a run at|capped at[^\n]*?=)\s*([\d.]+)\s*h",
                         text)
@@ -443,7 +443,7 @@ def _doctor_lines(monkeypatch, *, device, runpod_key):
     import yaml
     from dubadabidu.core.logic import deep_merge
     cfg = deep_merge(yaml.safe_load((ROOT / "config.yaml").read_text()),
-                     yaml.safe_load((ROOT / "config.gpu.yaml").read_text()))
+                     yaml.safe_load(config("config.gpu.yaml").read_text()))
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         rc = dub.doctor(cfg)

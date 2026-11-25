@@ -2,7 +2,7 @@
 import ast
 import sys
 import yaml
-from tests.paths import REPO, source
+from tests.paths import REPO, config, source
 
 
 def test_audit():
@@ -86,7 +86,7 @@ So: check names against their definitions, not against intent.
 
     print("\n=== 3. tts config keys: set-but-unread and read-but-unset ===")
     cfg = yaml.safe_load((ROOT / "config.yaml").read_text())
-    gpu = yaml.safe_load((ROOT / "config.gpu.yaml").read_text())
+    gpu = yaml.safe_load(config("config.gpu.yaml").read_text())
     merged_tts = {**cfg.get("tts", {}), **(gpu.get("tts") or {})}
     code = "\n".join(p.read_text() for p in
                      sorted((ROOT / "src" / "dubadabidu").rglob("*.py")))
@@ -136,7 +136,7 @@ So: check names against their definitions, not against intent.
     # if the setting is absent, the comment is a claim, not a description.
     import re as _re
     for f in ("config.yaml", "config.gpu.yaml"):
-        text = (ROOT / f).read_text()
+        text = config(f).read_text()
         live = set(_re.findall(r"^\s{0,6}([a-z_][a-z0-9_]*):", text, _re.M))
         # "# key: value" — a commented-out setting is fine (it is a default),
         # but a comment REFERRING to tts.foo / bakeoff.bar must resolve

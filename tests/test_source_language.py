@@ -11,7 +11,7 @@ import pytest
 from dubadabidu.core import manifest as M
 from dubadabidu.stages import s3_translate as S3
 from dubadabidu.core.config.schema import ConfigError, validate
-from tests.paths import REPO
+from tests.paths import REPO, config
 
 ROOT = REPO
 
@@ -86,7 +86,7 @@ def test_uk_is_voiced_by_edge() -> None:
     """FINDINGS §2.4: qwen's "Auto" Ukrainian was unusable by ear."""
     import yaml
     base = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
-    gpu = yaml.safe_load((ROOT / "config.gpu.yaml").read_text(encoding="utf-8"))
+    gpu = yaml.safe_load(config("config.gpu.yaml").read_text(encoding="utf-8"))
     from dubadabidu.core.logic import deep_merge
     for cfg in (base, deep_merge(base, gpu)):
         assert M.resolve_engine(cfg["tts"], "uk") == "edge"

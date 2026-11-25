@@ -177,9 +177,9 @@ SSH; the watchdog still fires), `--reuse` (attach to that pod).
 | File | What it sets |
 |---|---|
 | `config.yaml` | everything; defaults for a Mac |
-| `config.gpu.yaml` | the pod profile: qwen + fast path, takes, RunPod GPU list, image, budget, runtime cap |
-| `config.deepseek.yaml` | translation via DeepSeek (also forwarded to every pod run) |
-| `config.gemini.yaml` | translation via Google Gemini's OpenAI-compatible endpoint. Its model id is **unverified**: run `doctor` before using it |
+| `configs/config.gpu.yaml` | the pod profile: qwen + fast path, takes, RunPod GPU list, image, budget, runtime cap |
+| `configs/config.deepseek.yaml` | translation via DeepSeek (also forwarded to every pod run) |
+| `configs/config.gemini.yaml` | translation via Google Gemini's OpenAI-compatible endpoint. Its model id is **unverified**: run `doctor` before using it |
 | `configs/experiments/config.exp.*.yaml` | experiment arms; the record behind FINDINGS.md |
 
 ```bash
