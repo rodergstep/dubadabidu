@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-from dubadabidu.infra.remote import runpod_infra
+from dubadabidu.infra.remote import runpod
 from dubadabidu.core.config.schema import Config, validate
 from dubadabidu.core.logic import deep_merge
 
@@ -26,4 +26,4 @@ def config_path(name: str) -> str:
 
 def defaults_tables() -> Mapping[str, Mapping[str, object]]:
     """Module dicts merged UNDER a config block ({**DEFAULTS, **cfg[block]})."""
-    return {"runpod": runpod_infra.DEFAULTS}
+    return {"runpod": runpod.DEFAULTS}

@@ -16,7 +16,7 @@ from unittest import mock
 from dubadabidu import cli as dub
 from dubadabidu.cli import remote
 from dubadabidu.core import manifest
-from dubadabidu.infra.remote import runpod_infra
+from dubadabidu.infra.remote import bootstrap, runpod, transport
 from dubadabidu.stages import s3_translate
 from dubadabidu.core.logic import deep_merge
 from dubadabidu.lab.bakeoff import variant_key
@@ -28,9 +28,9 @@ __all__ = ["deep_merge", "variant_key"]
 synth_hash = manifest.synth_hash
 resolve_engine = manifest.resolve_engine
 resolve_qwen_model = manifest.resolve_qwen_model
-apt_setup = runpod_infra.apt_setup
-engine_install_cmd = runpod_infra.engine_install_cmd
-pod_payload = runpod_infra.pod_payload
+apt_setup = bootstrap.apt_setup
+engine_install_cmd = bootstrap.engine_install_cmd
+pod_payload = runpod.pod_payload
 terms_block = s3_translate.terms_block
 cli_main = dub.main
 
@@ -54,21 +54,21 @@ def glossary_block(src: str, lang: str) -> str:
 
 
 def runpod_defaults() -> dict[str, object]:
-    return dict(runpod_infra.DEFAULTS)
+    return dict(runpod.DEFAULTS)
 
 
 def remote_setup(remote_dir: str) -> str:
-    return runpod_infra.REMOTE_SETUP.format(dir=remote_dir)
+    return bootstrap.REMOTE_SETUP.format(dir=remote_dir)
 
 
 def remote_tasks() -> Mapping[str, str]:
-    return runpod_infra.REMOTE_TASK
+    return bootstrap.REMOTE_TASK
 
 
 def watchdog_command(rp: Mapping[str, object], seconds: float) -> str:
     """The shell command arm_pod_watchdog sends to the pod."""
-    with mock.patch.object(runpod_infra, "ssh_exec", return_value=0) as ssh:
-        runpod_infra.arm_pod_watchdog(dict(rp), "203.0.113.7", 22022, seconds)
+    with mock.patch.object(transport, "ssh_exec", return_value=0) as ssh:
+        runpod.arm_pod_watchdog(dict(rp), "203.0.113.7", 22022, seconds)
     return str(ssh.call_args.args[3])
 
 

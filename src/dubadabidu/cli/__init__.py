@@ -148,25 +148,25 @@ def main() -> None:
             bakeoff.run(cfg, v, langs)
         return
     if a.cmd == "remote":    # M2: RunPod lifecycle. `remote <task> [video]`
-        from dubadabidu.infra.remote import runpod_infra as rpi
+        from dubadabidu.infra.remote import diagnostics, orchestrator, state
         task = a.rest[0] if a.rest else "status"
         if task == "status":
-            rpi.status(); return
+            diagnostics.status(); return
         if task == "kill":
-            rpi.sweep_orphans(); print("[remote] swept orphaned pods"); return
+            state.sweep_orphans(); print("[remote] swept orphaned pods"); return
         if task == "smoke":
-            sys.exit(0 if rpi.smoke_test(cfg) else 1)
+            sys.exit(0 if diagnostics.smoke_test(cfg) else 1)
         if task in ("setup-check", "setup_check"):
             # dry-run the bake-off install path on a cheap pod (no comparison):
             # reports which engine_setup snippets import. Run before a real
             # `remote bakeoff` to avoid debugging installs on a billing run.
-            sys.exit(0 if rpi.setup_check(cfg, a.budget) else 1)
+            sys.exit(0 if diagnostics.setup_check(cfg, a.budget) else 1)
         vids = a.rest[1:]
         if not vids:
             ap.error(f"remote {task} needs a video path")
         if task == "run":
-            sys.exit(0 if _remote_run_batch(cfg, vids, langs, a, rpi) else 1)
-        ok = all(rpi.remote_run(cfg, v, langs, task, a.budget,
+            sys.exit(0 if _remote_run_batch(cfg, vids, langs, a, orchestrator) else 1)
+        ok = all(orchestrator.remote_run(cfg, v, langs, task, a.budget,
                                 keep_alive=a.keep_alive,
                                 reuse=a.reuse,
                                 overlays=a.overlay or [],

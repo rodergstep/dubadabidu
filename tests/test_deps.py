@@ -15,7 +15,7 @@ import tomllib
 
 import pytest
 from tests.cfgs import settings
-from tests.paths import REPO, config, source
+from tests.paths import REPO, config, source, remote_source
 
 ROOT = REPO
 EXPORT_CMD = ["uv", "export", "--frozen", "--no-hashes", "--no-emit-project",
@@ -149,7 +149,7 @@ def test_run_ledger_is_machine_written_not_hand_maintained():
     """runs.jsonl must be appended by the code that spends the money. A
     hand-kept stats file rots, which is how 'what does an hour cost' got three
     different answers in one day."""
-    src = (source("dubadabidu.infra.remote.runpod_infra")).read_text(encoding="utf-8")
+    src = remote_source()
     assert "runlog.append" in src, (
         "remote_run no longer records the run — the ledger will silently stop "
         "reflecting reality")
@@ -205,13 +205,13 @@ def test_reused_pods_reach_the_ledger_with_a_price():
     silent UNDER-reporting of precisely the runs --keep-alive encourages, and
     cost_per_video_hour averages the zeros in. Measured 2026-08-09: two real
     A/B arms billed ~20 min of pod time and recorded as free."""
-    src = (source("dubadabidu.infra.remote.runpod_infra")).read_text(encoding="utf-8")
-    body = src.split("alive = _live_pod() if reuse else None", 1)[1]
+    src = remote_source()
+    body = src.split("alive = state._live_pod() if reuse else None", 1)[1]
     branch = body.split("else:", 1)[0]
     assert "_LAST_POD.update" in branch, (
         "the --reuse branch does not stamp _LAST_POD, so its runs land in "
         "runs.jsonl with price_per_hr 0 and cost $0.000")
-    assert "pod_price(info)" in branch, (
+    assert "provider.active().price(info)" in branch, (
         "the reuse branch must read the REAL rate from the API, not fall back "
         "to assumed_price_per_hr (deliberately the worst case, ~2.5x high)")
 

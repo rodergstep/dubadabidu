@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from types import ModuleType
 
-from dubadabidu.infra.remote import runpod_infra
+from dubadabidu.infra.remote import (bootstrap, diagnostics, orchestrator,
+                                     runpod, state, transport)
 
-remote_run = runpod_infra.remote_run
+remote_run = orchestrator.remote_run
 
 
 def time_users() -> list[ModuleType]:
     """Every infra module that reads the clock through its own `time` name."""
-    return [runpod_infra]
+    return [m for m in (bootstrap, diagnostics, orchestrator, runpod, state, transport)
+            if hasattr(m, "time")]

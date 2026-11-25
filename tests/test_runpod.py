@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 import time
-from dubadabidu.infra.remote.runpod_infra import _deadline, engine_install_cmd, ssh_target, DEFAULTS
+from dubadabidu.infra.remote.bootstrap import engine_install_cmd
+from dubadabidu.infra.remote.orchestrator import _deadline
+from dubadabidu.infra.remote.runpod import ssh_target, DEFAULTS
 from tests.cfgs import settings
-from tests.paths import REPO, config, source
+from tests.paths import REPO, config, remote_source
 
 
 def _rp(**over):
@@ -66,14 +68,14 @@ def test_ssh_target_not_ready():
 
 
 def _probe(engines, snippets):
-    from dubadabidu.infra.remote.runpod_infra import ENGINE_MODULE
+    from dubadabidu.infra.remote.bootstrap import ENGINE_MODULE
     return [(e, ENGINE_MODULE[e], e in snippets)
             for e in engines if e != "chatterbox" and e in ENGINE_MODULE]
 
 
 def test_no_engines_configured_is_refused_before_provisioning():
     import pytest
-    from dubadabidu.infra.remote.runpod_infra import _require_something_to_validate
+    from dubadabidu.infra.remote.diagnostics import _require_something_to_validate
     with pytest.raises(SystemExit, match="no bakeoff.engines configured"):
         _require_something_to_validate([], [])
 
@@ -82,14 +84,14 @@ def test_incumbent_only_is_refused():
     """chatterbox installs via REMOTE_SETUP on every run — probing it alone
     tells you nothing a real run wouldn't."""
     import pytest
-    from dubadabidu.infra.remote.runpod_infra import _require_something_to_validate
+    from dubadabidu.infra.remote.diagnostics import _require_something_to_validate
     with pytest.raises(SystemExit, match="only the incumbent"):
         _require_something_to_validate(["chatterbox"], _probe(["chatterbox"], {}))
 
 
 def test_challengers_without_install_snippets_are_refused():
     import pytest
-    from dubadabidu.infra.remote.runpod_infra import _require_something_to_validate
+    from dubadabidu.infra.remote.diagnostics import _require_something_to_validate
     engines = ["chatterbox", "indextts", "qwen"]
     with pytest.raises(SystemExit, match="no runpod.engine_setup snippet"):
         _require_something_to_validate(engines, _probe(engines, {}))
@@ -97,7 +99,7 @@ def test_challengers_without_install_snippets_are_refused():
 
 def test_one_snippet_is_enough_to_proceed():
     """A partial bake-off is legitimate — only a total absence is refused."""
-    from dubadabidu.infra.remote.runpod_infra import _require_something_to_validate
+    from dubadabidu.infra.remote.diagnostics import _require_something_to_validate
     engines = ["chatterbox", "indextts", "qwen"]
     _require_something_to_validate(engines, _probe(engines, {"qwen"}))
 
@@ -109,7 +111,9 @@ def test_the_actual_missing_overlay_case_is_caught():
     and still returns True because the incumbent imports."""
     import pytest
     import yaml
-    from dubadabidu.infra.remote.runpod_infra import DEFAULTS, ENGINE_MODULE, _require_something_to_validate
+    from dubadabidu.infra.remote.bootstrap import ENGINE_MODULE
+    from dubadabidu.infra.remote.diagnostics import _require_something_to_validate
+    from dubadabidu.infra.remote.runpod import DEFAULTS
     cfg = yaml.safe_load(open("config.yaml", encoding="utf-8"))
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
     engines = list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
@@ -123,7 +127,9 @@ def test_the_correct_invocation_passes():
     """config.yaml + config.gpu.yaml (what --overlay produces) must proceed."""
     import yaml
     from dubadabidu.core.logic import deep_merge
-    from dubadabidu.infra.remote.runpod_infra import DEFAULTS, ENGINE_MODULE, _require_something_to_validate
+    from dubadabidu.infra.remote.bootstrap import ENGINE_MODULE
+    from dubadabidu.infra.remote.diagnostics import _require_something_to_validate
+    from dubadabidu.infra.remote.runpod import DEFAULTS
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
                      yaml.safe_load(open(config("config.gpu.yaml"), encoding="utf-8")))
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
@@ -139,7 +145,7 @@ def test_extra_overlays_reach_the_pod_command():
     then executed the BASE config while the logs implied otherwise. Measured
     2026-08-01: ~10 min of pod time re-sweeping references during what was
     supposed to be an ICL test."""
-    from dubadabidu.infra.remote.runpod_infra import REMOTE_TASK
+    from dubadabidu.infra.remote.bootstrap import REMOTE_TASK
     base = REMOTE_TASK["bakeoff"].format(video="v.mp4", langs="en")
     extras = [o for o in ["config.gpu.yaml", "config.exp.icl.yaml"]
               if o != "config.gpu.yaml"]
@@ -196,10 +202,10 @@ def test_provisioning_logs_the_price_not_a_gpu_name():
     """REST v1 GET /pods/{id} returns an EMPTY machine object and no gpuTypeId
     (checked 2026-08-01), so the card's identity is not retrievable. Price is
     the better signal anyway — it is what the budget is spent in."""
-    from dubadabidu.infra.remote.runpod_infra import provision
+    from dubadabidu.infra.remote.orchestrator import provision
     import inspect
     src = inspect.getsource(provision)
-    assert "pod_price(info)" in src and "OVER the budgeted" in src
+    assert "provider.active().price(info)" in src and "OVER the budgeted" in src
 
 
 def test_gpu_types_are_tried_in_list_order_and_400_falls_through():
@@ -207,39 +213,39 @@ def test_gpu_types_are_tried_in_list_order_and_400_falls_through():
     ours to enforce. (v1's "availability" priority ignored the order and landed
     every run on a 4090 at 7% utilisation.) A 400 means no capacity for that
     type -> next one; a 422 is a schema bug and must NOT be retried."""
-    import dubadabidu.infra.remote.runpod_infra as R
-    from dubadabidu.infra.remote.runpod_infra import DEFAULTS
+    from dubadabidu.infra.remote import runpod
+    from dubadabidu.infra.remote.runpod import DEFAULTS
     tried: list[str] = []
-    orig = R._req
+    orig = runpod._req
 
     def fake(method, path, body=None):
         tried.append(body["gpu"]["id"])
         if len(tried) < 3:
             raise RuntimeError("RunPod POST /pods -> HTTP 400: no capacity")
         return {"id": "p1"}
-    R._req = fake
+    runpod._req = fake
     try:
         rp = {**DEFAULTS, "gpu_type_ids": ["a", "b", "c", "d"]}
-        assert R.create_pod(rp) == {"id": "p1"}
+        assert runpod.create_pod(rp) == {"id": "p1"}
         assert tried == ["a", "b", "c"]
         tried.clear()
 
         def schema_err(method, path, body=None):
             tried.append(body["gpu"]["id"])
             raise RuntimeError("RunPod POST /pods -> HTTP 422: bad field")
-        R._req = schema_err
+        runpod._req = schema_err
         import pytest
         with pytest.raises(RuntimeError, match="422"):
-            R.create_pod(rp)
+            runpod.create_pod(rp)
         assert tried == ["a"], "a schema error must not be retried per GPU type"
     finally:
-        R._req = orig
+        runpod._req = orig
 
 
 def test_v2_payload_has_only_documented_fields():
     """v2 rejects unknown keys with 422, so a v1 field left behind fails every
     create. This is the shape from docs.runpod.io/api-reference-v2."""
-    from dubadabidu.infra.remote.runpod_infra import DEFAULTS, pod_payload
+    from dubadabidu.infra.remote.runpod import DEFAULTS, pod_payload
     body = pod_payload({**DEFAULTS, "network_volume_id": "v1"}, "NVIDIA RTX A4000")
     allowed = {"name", "image", "gpu", "cloud", "disk", "ports", "env",
                "mounts", "registry", "startSsh"}
@@ -251,7 +257,7 @@ def test_v2_payload_has_only_documented_fields():
 
 
 def test_v2_pod_shapes_are_read():
-    from dubadabidu.infra.remote.runpod_infra import pod_price, pod_ram_gb, pod_status, pod_vcpu, ssh_target
+    from dubadabidu.infra.remote.runpod import pod_price, pod_ram_gb, pod_status, pod_vcpu, ssh_target
     pod = {"status": "RUNNING", "cost": 0.44,
            "gpu": {"id": "x", "count": 1, "vcpuCount": 16, "memory": 64},
            "ssh": {"direct": {"host": "195.26.233.3", "port": 34446}},
@@ -280,14 +286,14 @@ def test_config_puts_cheap_gpus_first_and_4090_last():
 def test_ready_probe_is_conservative(monkeypatch):
     """Any doubt re-runs setup: skipping wrongly costs a whole experiment,
     running needlessly costs ~50 s."""
-    import dubadabidu.infra.remote.runpod_infra as R
-    monkeypatch.setattr(R, "ssh_exec", lambda *a, **k: 1)      # probe fails
-    assert R._verify_ready({}, "h", 22, "~/d", ["qwen"]) is False
+    from dubadabidu.infra.remote import transport
+    monkeypatch.setattr(transport, "ssh_exec", lambda *a, **k: 1)      # probe fails
+    assert transport._verify_ready({}, "h", 22, "~/d", ["qwen"]) is False
     # no engines to prove anything about -> do not skip
-    monkeypatch.setattr(R, "ssh_exec", lambda *a, **k: 0)
-    assert R._verify_ready({}, "h", 22, "~/d", []) is False
+    monkeypatch.setattr(transport, "ssh_exec", lambda *a, **k: 0)
+    assert transport._verify_ready({}, "h", 22, "~/d", []) is False
     # an engine with no module mapping (chatterbox lives in the base venv)
-    assert R._verify_ready({}, "h", 22, "~/d", ["edge"]) is False
+    assert transport._verify_ready({}, "h", 22, "~/d", ["edge"]) is False
 
 
 def test_remote_run_has_no_function_local_shlex_import():
@@ -296,7 +302,7 @@ def test_remote_run_has_no_function_local_shlex_import():
     raised UnboundLocalError — after provisioning a pod. Python scoping, not a
     typo: the failure is invisible to reading the call site."""
     import ast
-    src = (source("dubadabidu.infra.remote.runpod_infra")).read_text()
+    src = remote_source()
     fn = next(n for n in ast.walk(ast.parse(src))
               if isinstance(n, ast.FunctionDef) and n.name == "remote_run")
     shadowed = [a.name for n in ast.walk(fn) if isinstance(n, ast.Import)
@@ -351,7 +357,7 @@ def test_remote_plan_translates_locally_and_finishes_locally():
 def test_run_upload_sends_only_this_videos_workdir():
     """Uploading all of work/ shipped every other lesson (2.3 GB for a
     339 MB video) and was most of a 22.6 min bootstrap."""
-    src = source("dubadabidu.infra.remote.runpod_infra").read_text(encoding="utf-8")
+    src = remote_source()
     assert ("_rsync_paths(rp, port, [str(M.video_workdir(cfg, v))\n"
             "                                    for v in videos], up)") in src
     assert 'extra_excludes=("input", "output"))' not in src
@@ -363,7 +369,7 @@ def test_pod_never_runs_a_stage_needing_an_extra_it_does_not_install():
     mix.master.enabled dies AFTER all the billed GPU work is done."""
     import argparse
     from dubadabidu.cli.remote import ORDER, _remote_stages
-    from dubadabidu.infra.remote.runpod_infra import REMOTE_TASK
+    from dubadabidu.infra.remote.bootstrap import REMOTE_TASK
     default = argparse.Namespace(from_stage="s1_extract", to_stage="s8_mux")
     stop = _remote_stages(default).split("--to ")[1].strip()
     assert ORDER.index(stop) < ORDER.index("s6_mix"), (
@@ -382,7 +388,7 @@ def test_bootstrap_pins_torch_itself_now_that_chatterbox_is_gone():
 
     2.14.1 is only safe because the driver floor guarantees a driver that
     supports it — see test_torch_pin_and_cuda_filter_move_together."""
-    from dubadabidu.infra.remote.runpod_infra import REMOTE_SETUP
+    from dubadabidu.infra.remote.bootstrap import REMOTE_SETUP
     setup = REMOTE_SETUP.format(dir="~/d")
     assert "chatterbox" not in setup
     # v0.5: the pin lives in pyproject/uv.lock and the pod installs the lock
@@ -403,7 +409,7 @@ def test_torch_pin_and_cuda_filter_move_together():
     exact failure, and nothing else in the repo would catch it before a pod."""
     import yaml
     from dubadabidu.core.logic import deep_merge
-    from dubadabidu.infra.remote.runpod_infra import DEFAULTS
+    from dubadabidu.infra.remote.runpod import DEFAULTS
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
                      yaml.safe_load(open(config("config.gpu.yaml"), encoding="utf-8")))
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
@@ -444,7 +450,7 @@ def test_torch_wheel_matches_the_oldest_allowed_driver():
     import re
     import yaml
     from dubadabidu.core.logic import deep_merge
-    from dubadabidu.infra.remote.runpod_infra import DEFAULTS
+    from dubadabidu.infra.remote.runpod import DEFAULTS
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
                      yaml.safe_load(open(config("config.gpu.yaml"), encoding="utf-8")))
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
@@ -474,22 +480,22 @@ def test_torch_wheel_matches_the_oldest_allowed_driver():
 
 def test_pod_payload_sends_the_cuda_filter():
     """It is only a guarantee if it reaches the API."""
-    from dubadabidu.infra.remote.runpod_infra import DEFAULTS
-    import dubadabidu.infra.remote.runpod_infra as R
+    from dubadabidu.infra.remote.runpod import DEFAULTS
+    from dubadabidu.infra.remote import runpod
     sent = {}
-    orig = R._req
-    R._req = lambda method, path, body=None: sent.update(body or {}) or {}
+    orig = runpod._req
+    runpod._req = lambda method, path, body=None: sent.update(body or {}) or {}
     try:
-        R.create_pod({**DEFAULTS, "allowed_cuda_versions": ["12.9"]})
+        runpod.create_pod({**DEFAULTS, "allowed_cuda_versions": ["12.9"]})
         assert sent["gpu"].get("allowedCudaVersions") == ["12.9"]
         assert "minCudaVersion" not in sent["gpu"], "v2 400s on both together"
         sent.clear()
-        R.create_pod({**DEFAULTS, "allowed_cuda_versions": []})
+        runpod.create_pod({**DEFAULTS, "allowed_cuda_versions": []})
         assert sent["gpu"].get("minCudaVersion") == "13.0"
         assert "allowedCudaVersions" not in sent["gpu"], (
             "an empty list must be omitted, not sent — it would filter to no hosts")
     finally:
-        R._req = orig
+        runpod._req = orig
 
 
 def test_qc_does_not_call_torchaudio_load():
@@ -525,15 +531,15 @@ def test_ready_probe_checks_cuda_in_the_main_venv():
     """Skipping setup is only safe if the probe checks what setup guarantees.
     A CPU-only torch is silent — it cost a week of 126 s/take runs — so the
     probe must assert cuda availability, not merely that the module imports."""
-    import dubadabidu.infra.remote.runpod_infra as R
+    from dubadabidu.infra.remote import transport
     seen = {}
-    R_ssh = R.ssh_exec
+    R_ssh = transport.ssh_exec
     try:
-        R.ssh_exec = lambda rp, h, p, cmd, timeout=None: (
+        transport.ssh_exec = lambda rp, h, p, cmd, timeout=None: (
             seen.__setitem__("cmd", cmd) or 0)
-        assert R._verify_ready({}, "h", 22, "~/d", ["qwen"]) is True
+        assert transport._verify_ready({}, "h", 22, "~/d", ["qwen"]) is True
     finally:
-        R.ssh_exec = R_ssh
+        transport.ssh_exec = R_ssh
     assert ".venv/bin/python" in seen["cmd"]
     assert "torch.cuda.is_available()" in seen["cmd"]
     assert "import qwen_tts" in seen["cmd"]
@@ -549,7 +555,7 @@ def test_runtime_cap_fits_a_full_hour_lesson():
     ~3.94 h, which the old 3.0 h cap would have cut off at ~76% done."""
     import yaml
     from dubadabidu.core.logic import deep_merge
-    from dubadabidu.infra.remote.runpod_infra import DEFAULTS
+    from dubadabidu.infra.remote.runpod import DEFAULTS
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
                      yaml.safe_load(open(config("config.gpu.yaml"), encoding="utf-8")))
     rp = {**DEFAULTS, **cfg.get("runpod", {})}
@@ -569,7 +575,7 @@ def test_reuse_probe_covers_run_tasks_not_just_bakeoff():
     """The reuse probe was hardcoded to bakeoff.engines and saw [] for `run`,
     and _verify_ready([]) is False by design — so `remote run --reuse` could
     never skip setup and course.py re-bootstrapped once per video."""
-    from dubadabidu.infra.remote.runpod_infra import engines_for_task
+    from dubadabidu.infra.remote.bootstrap import engines_for_task
     cfg = {"tts": {"engine": "qwen", "engine_by_lang": {}},
            "bakeoff": {"engines": ["qwen"]}}
     assert engines_for_task(cfg, "run", ["en", "ru"]) == ["qwen"]
@@ -578,7 +584,7 @@ def test_reuse_probe_covers_run_tasks_not_just_bakeoff():
 
 
 def test_engines_for_task_honours_per_language_routing():
-    from dubadabidu.infra.remote.runpod_infra import engines_for_task
+    from dubadabidu.infra.remote.bootstrap import engines_for_task
     cfg = {"tts": {"engine": "qwen", "engine_by_lang": {"en": "edge"}}}
     assert engines_for_task(cfg, "run", ["en", "de"]) == ["edge", "qwen"]
 
@@ -587,12 +593,13 @@ def test_remote_run_probes_with_the_engines_it_installs():
     """Both call sites must read the SAME list, or the bug returns wearing a
     different hat."""
     import ast
-    src = (source("dubadabidu.infra.remote.runpod_infra")).read_text()
+    src = remote_source()
     fn = next(n for n in ast.walk(ast.parse(src))
               if isinstance(n, ast.FunctionDef) and n.name == "remote_run")
-    calls = {n.func.id: [a.id for a in n.args if isinstance(a, ast.Name)]
+    calls = {(n.func.attr if isinstance(n.func, ast.Attribute) else n.func.id):
+             [a.id for a in n.args if isinstance(a, ast.Name)]
              for n in ast.walk(fn)
-             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+             if isinstance(n, ast.Call) and isinstance(n.func, (ast.Name, ast.Attribute))}
     assert "needed" in calls.get("_verify_ready", []), \
         "_verify_ready must probe the engines the task actually needs"
     assert "needed" in calls.get("_install_engines", [])
@@ -600,25 +607,25 @@ def test_remote_run_probes_with_the_engines_it_installs():
 
 def test_edge_alone_still_refuses_to_skip_setup(monkeypatch):
     """edge needs no install, so it proves nothing about the venv."""
-    import dubadabidu.infra.remote.runpod_infra as R
-    monkeypatch.setattr(R, "ssh_exec", lambda *a, **k: 0)
-    assert R._verify_ready({}, "h", 22, "~/d", ["edge"]) is False
-    assert R._verify_ready({}, "h", 22, "~/d", ["edge", "qwen"]) is True
+    from dubadabidu.infra.remote import transport
+    monkeypatch.setattr(transport, "ssh_exec", lambda *a, **k: 0)
+    assert transport._verify_ready({}, "h", 22, "~/d", ["edge"]) is False
+    assert transport._verify_ready({}, "h", 22, "~/d", ["edge", "qwen"]) is True
 
 
 # --- watchdog: re-armable, or a reused pod dies on the FIRST run's clock ---
 
 def test_watchdog_kills_the_previous_sleeper_before_arming(monkeypatch):
-    import dubadabidu.infra.remote.runpod_infra as R
+    from dubadabidu.infra.remote import runpod, transport
     sent = []
-    monkeypatch.setattr(R, "ssh_exec",
+    monkeypatch.setattr(transport, "ssh_exec",
                         lambda rp, h, p, cmd, timeout=30: sent.append(cmd) or 0)
-    R.arm_pod_watchdog({}, "h", 22, 3600)
+    runpod.arm_pod_watchdog({}, "h", 22, 3600)
     cmd = sent[0]
-    assert f"kill \"$(cat {R.WATCHDOG_PID})\"" in cmd, \
+    assert f"kill \"$(cat {runpod.WATCHDOG_PID})\"" in cmd, \
         "re-arming must cancel the deadline the previous run set"
     assert cmd.index("kill") < cmd.index("nohup"), "kill the old one FIRST"
-    assert f"echo $! > {R.WATCHDOG_PID}" in cmd, "record the pid to kill next time"
+    assert f"echo $! > {runpod.WATCHDOG_PID}" in cmd, "record the pid to kill next time"
     assert "sleep 3600" in cmd
 
 
@@ -626,12 +633,12 @@ def test_reuse_path_rearms_the_watchdog():
     """course.py attaches ONE pod for twenty videos; each call recomputes a
     fresh deadline locally, so the pod must be told about it."""
     import ast
-    src = (source("dubadabidu.infra.remote.runpod_infra")).read_text()
+    src = remote_source()
     fn = next(n for n in ast.walk(ast.parse(src))
               if isinstance(n, ast.FunctionDef) and n.name == "remote_run")
     n_arm = sum(1 for n in ast.walk(fn) if isinstance(n, ast.Call)
-                and isinstance(n.func, ast.Name)
-                and n.func.id == "arm_pod_watchdog")
+                and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "arm_watchdog")
     # 3: the fresh provision, the reuse attach, and the failure HOLD (which
     # shortens the deadline to hold_on_failure_min)
     assert n_arm == 3, ("arm on every path: fresh provision, reuse attach, "
@@ -647,22 +654,23 @@ def test_unknown_remote_task_is_refused_before_provisioning():
     import pytest
     import yaml
     from dubadabidu.core.logic import deep_merge
-    from dubadabidu.infra.remote.runpod_infra import REMOTE_TASK, remote_run
+    from dubadabidu.infra.remote.bootstrap import REMOTE_TASK
+    from dubadabidu.infra.remote.orchestrator import remote_run
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
                      yaml.safe_load(open(config("config.gpu.yaml"), encoding="utf-8")))
     # Neutralise the two API calls that run BEFORE the guard, so this tests the
     # guard and not whether RUNPOD_API_KEY happens to be exported: without the
     # key, sweep_orphans() raises about credentials first and the assertion
     # passes or fails depending on the shell.
-    import dubadabidu.infra.remote.runpod_infra as R
-    orig_sweep, orig_live = R.sweep_orphans, R._live_pod
-    R.sweep_orphans = lambda *a, **k: None
-    R._live_pod = lambda *a, **k: None
+    from dubadabidu.infra.remote import state
+    orig_sweep, orig_live = state.sweep_orphans, state._live_pod
+    state.sweep_orphans = lambda *a, **k: None
+    state._live_pod = lambda *a, **k: None
     try:
         with pytest.raises(SystemExit, match="unknown remote task"):
             remote_run(cfg, "v.mp4", ["en"], "typoed-task")
     finally:
-        R.sweep_orphans, R._live_pod = orig_sweep, orig_live
+        state.sweep_orphans, state._live_pod = orig_sweep, orig_live
     # and the tasks that DO exist must stay reachable
     assert {"run", "bakeoff", "autopilot", "preamble"} <= set(REMOTE_TASK)
 
@@ -670,7 +678,7 @@ def test_unknown_remote_task_is_refused_before_provisioning():
 def test_preamble_has_a_pod_command_because_tune_synthesizes():
     """preamble runs tune R1, which SYNTHESIZES to score each reference by real
     ECAPA similarity — so it cannot run on the laptop with a GPU-only engine."""
-    from dubadabidu.infra.remote.runpod_infra import REMOTE_TASK
+    from dubadabidu.infra.remote.bootstrap import REMOTE_TASK
     cmd = REMOTE_TASK["preamble"].format(video="v.mp4", langs="en", stages="")
     assert cmd.startswith("dubadabidu preamble ")
     assert "--overlay config.gpu.yaml" in cmd        # engine + pod settings
@@ -690,14 +698,14 @@ def test_bakeoff_rsync_does_not_clobber_the_engine_list():
     provisioned their own pod on 2026-08-09 and both returned empty scorecards.
     """
     import re
-    src = (source("dubadabidu.infra.remote.runpod_infra")).read_text(encoding="utf-8")
+    src = remote_source()
     body = src.split("def remote_run", 1)[1].split("\ndef ", 1)[0]
     # the engine list is assigned exactly once in remote_run
     assigns = re.findall(r"^\s*needed\s*=", body, re.M)
     assert len(assigns) == 1, (
         f"`needed` is assigned {len(assigns)}x in remote_run — the engine list "
         f"must not be reused as a scratch variable")
-    assert "needed = engines_for_task" in body, (
+    assert "needed = bootstrap.engines_for_task" in body, (
         "the single assignment must be the engine list itself")
     # and it must still be the value handed to the installer
     assert "_install_engines(rp, host, port, remote, needed" in body
@@ -712,7 +720,7 @@ def test_engine_list_handed_to_the_installer_is_engine_names():
     shipped config must be a known engine."""
     import yaml
     from dubadabidu.core.logic import deep_merge
-    from dubadabidu.infra.remote.runpod_infra import engines_for_task, ENGINE_MODULE
+    from dubadabidu.infra.remote.bootstrap import engines_for_task, ENGINE_MODULE
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
                      yaml.safe_load(open(config("config.gpu.yaml"), encoding="utf-8")))
     for task in ("bakeoff", "run"):
@@ -729,9 +737,9 @@ def test_deadline_is_recomputed_from_the_price_actually_paid():
     ledger says it often was not: prices actually paid are 0.25, 0.26, 0.28 and
     0.49. The cap is on TIME, so on the 0.49 pod a "$10 cap" bought nearly twice
     the dollars it promised."""
-    src = (source("dubadabidu.infra.remote.runpod_infra")).read_text(encoding="utf-8")
+    src = remote_source()
     block = src[src.index("RE-DERIVE THE DEADLINE"):]
-    block = block[:block.index("arm_pod_watchdog")]
+    block = block[:block.index("arm_watchdog")]
     assert "_LAST_POD" in block, "the actual price is never consulted"
     assert "if tighter < deadline" in block, (
         "the correction must only ever SHORTEN — extending would spend past "
@@ -743,9 +751,9 @@ def test_bootstrap_time_is_recorded_in_the_ledger():
     from real work, and nothing ever wrote it — 15 of 17 rows carry 0, so setup
     was being billed as synthesis. 'Is batching worth it' has to be answerable
     from the ledger, not from memory."""
-    src = (source("dubadabidu.infra.remote.runpod_infra")).read_text(encoding="utf-8")
+    src = remote_source()
     assert '"bootstrap_s": _boot_s' in src, "bootstrap_s still never written"
-    assert src.index("_boot_s = round(") < src.index("rc = ssh_exec(rp, host, port, full"), (
+    assert src.index("_boot_s = round(") < src.index("rc = transport.ssh_exec(rp, host, port, full"), (
         "bootstrap must be stamped BEFORE the task runs, or it measures the task")
 
 
@@ -768,7 +776,7 @@ def test_missing_engine_setup_fails_before_provisioning():
     and the bake-off reports "engine unavailable" over zero measurements.
     Happened 2026-08-13: ~10 minutes billed for a result that could not exist.
     The refusal has to come BEFORE the money starts."""
-    src = (source("dubadabidu.infra.remote.runpod_infra")).read_text(encoding="utf-8")
+    src = remote_source()
     guard = src.index("FAIL BEFORE PROVISIONING")
     assert guard < src.index("deadline = _deadline(rp, budget)"), \
         "the guard must run before the deadline/provision path"
@@ -785,7 +793,7 @@ def test_bootstrap_reuses_a_prebuilt_venv_only_when_the_lock_matches():
     """P3: the image's venv is linked in ONLY when its uv.lock stamp equals the
     project's. A mismatched image must fall through to a fresh build, never be
     used — an old venv against a new lock is the silent-wrong-env failure."""
-    from dubadabidu.infra.remote.runpod_infra import REMOTE_SETUP
+    from dubadabidu.infra.remote.bootstrap import REMOTE_SETUP
     setup = REMOTE_SETUP.format(dir="~/d")
     assert "/opt/venv/.uv-lock-sha256" in setup
     assert "sha256sum uv.lock" in setup
@@ -821,7 +829,7 @@ def test_a_ghcr_image_in_config_is_tagged_with_the_current_lock():
 
 
 def test_payload_sends_only_the_public_half_of_the_ssh_key(tmp_path):
-    from dubadabidu.infra.remote.runpod_infra import DEFAULTS, pod_payload
+    from dubadabidu.infra.remote.runpod import DEFAULTS, pod_payload
     key = tmp_path / "k"
     key.write_text("PRIVATE-NEVER-SENT")
     (tmp_path / "k.pub").write_text("ssh-ed25519 AAAA test\n")
@@ -835,20 +843,20 @@ def test_a_proxy_only_host_is_retried_on_the_next_gpu_type(monkeypatch):
     the ssh.runpod.io proxy (no rsync possible) must be replaced by a pod on
     the NEXT gpu type, not waited on for the whole provision timeout."""
     import time as _t
-    import dubadabidu.infra.remote.runpod_infra as R
+    from dubadabidu.infra.remote import orchestrator, provider, runpod
     starts: list[str] = []
 
     def fake_once(rp, deadline):
         starts.append(rp["gpu_type_ids"][0])
         if len(starts) == 1:
-            raise R._NoDirectSsh("pod p1 (NVIDIA RTX 4000 Ada Generation) RUNNING 150s ...")
+            raise provider.NoDirectSsh("pod p1 (NVIDIA RTX 4000 Ada Generation) RUNNING 150s ...")
         return "p2", "1.2.3.4", 2222, "NVIDIA RTX A4500"
-    monkeypatch.setattr(R, "_provision_once", fake_once)
-    monkeypatch.setattr(R, "get_pod", lambda pid: {"cost": 0.25})
-    rp = {**R.DEFAULTS, "gpu_type_ids": ["NVIDIA RTX A4000",
+    monkeypatch.setattr(orchestrator, "_provision_once", fake_once)
+    monkeypatch.setattr(runpod, "get_pod", lambda pid: {"cost": 0.25})
+    rp = {**runpod.DEFAULTS, "gpu_type_ids": ["NVIDIA RTX A4000",
                                          "NVIDIA RTX 4000 Ada Generation",
                                          "NVIDIA RTX A4500"]}
-    assert R.provision(rp, _t.time() + 3600) == ("p2", "1.2.3.4", 2222)
+    assert orchestrator.provision(rp, _t.time() + 3600) == ("p2", "1.2.3.4", 2222)
     assert starts == ["NVIDIA RTX A4000", "NVIDIA RTX A4500"]
 
 
@@ -856,21 +864,21 @@ def test_failed_task_holds_the_pod_and_next_run_reuses_it(tmp_path, monkeypatch)
     """A failure after a 20+ min bootstrap must not throw the pod away: it is
     held (state file flag) and the next remote command picks it up."""
     import json
-    from dubadabidu.infra.remote import runpod_infra as R
-    monkeypatch.setattr(R, "STATE_FILE", tmp_path / "s.json")
-    assert R._held_pod() is None
-    R._save_state({"pod_id": "abc", "created_at": 0})
-    assert R._held_pod() is None            # plain tracked pod: not held
-    R._save_state({"pod_id": "abc", "created_at": 0, "held_for_hotfix": True})
-    assert R._held_pod() == "abc"
+    from dubadabidu.infra.remote import runpod, state
+    monkeypatch.setattr(state, "STATE_FILE", tmp_path / "s.json")
+    assert state._held_pod() is None
+    state._save_state({"pod_id": "abc", "created_at": 0})
+    assert state._held_pod() is None            # plain tracked pod: not held
+    state._save_state({"pod_id": "abc", "created_at": 0, "held_for_hotfix": True})
+    assert state._held_pod() == "abc"
     assert json.loads((tmp_path / "s.json").read_text())["pod_id"] == "abc"
-    assert R.DEFAULTS["hold_on_failure_min"] > 0
+    assert runpod.DEFAULTS["hold_on_failure_min"] > 0
 
 
 def test_proxy_only_clock_starts_at_container_start():
     """v2 reports RUNNING while the image is still pulling (runtime null);
     only a started container without ssh.direct is a proxy-only host."""
-    from dubadabidu.infra.remote.runpod_infra import container_started
+    from dubadabidu.infra.remote.runpod import container_started
     assert not container_started({"status": "RUNNING", "runtime": None})
     assert container_started({"status": "RUNNING",
                               "runtime": {"uptime": 3, "ports": []}})
@@ -880,7 +888,7 @@ def test_no_capacity_anywhere_waits_and_resweeps(monkeypatch):
     """All types empty -> sleep and sweep the list again; succeed when stock
     returns, give up after capacity_wait_min."""
     import pytest
-    import dubadabidu.infra.remote.runpod_infra as R
+    from dubadabidu.infra.remote import runpod
     calls: list[str] = []
     sleeps: list[float] = []
 
@@ -889,18 +897,18 @@ def test_no_capacity_anywhere_waits_and_resweeps(monkeypatch):
         if len(calls) <= 4:          # first full sweep of 2 types x 2 sweeps
             raise RuntimeError("RunPod POST /pods -> HTTP 400: no capacity")
         return {"id": "p9"}
-    monkeypatch.setattr(R, "_req", fake)
-    monkeypatch.setattr(R.time, "sleep", sleeps.append)
-    rp = {**R.DEFAULTS, "gpu_type_ids": ["a", "b"],
+    monkeypatch.setattr(runpod, "_req", fake)
+    monkeypatch.setattr(runpod.time, "sleep", sleeps.append)
+    rp = {**runpod.DEFAULTS, "gpu_type_ids": ["a", "b"],
           "capacity_wait_min": 10, "capacity_retry_s": 60}
-    assert R.create_pod(rp) == {"id": "p9"}
+    assert runpod.create_pod(rp) == {"id": "p9"}
     assert calls == ["a", "b", "a", "b", "a"] and sleeps == [60, 60]
 
     calls.clear()
-    monkeypatch.setattr(R, "_req", lambda m, p, b=None: (_ for _ in ()).throw(
+    monkeypatch.setattr(runpod, "_req", lambda m, p, b=None: (_ for _ in ()).throw(
         RuntimeError("RunPod POST /pods -> HTTP 400: no capacity")))
     with pytest.raises(RuntimeError, match="no capacity"):
-        R.create_pod({**rp, "capacity_wait_min": 0})
+        runpod.create_pod({**rp, "capacity_wait_min": 0})
 
 
 class _FakeRpi:
@@ -969,7 +977,7 @@ def test_pod_command_keeps_going_and_carries_every_video():
     """The pod-side `run` must not stop at the first bad video, and every
     path is quoted (lesson names have spaces)."""
     import shlex
-    from dubadabidu.infra.remote.runpod_infra import REMOTE_TASK
+    from dubadabidu.infra.remote.bootstrap import REMOTE_TASK
     assert "--keep-going" in REMOTE_TASK["run"]
     vids = ["input/a b.mp4", "input/c.mp4"]
     cmd = REMOTE_TASK["run"].format(

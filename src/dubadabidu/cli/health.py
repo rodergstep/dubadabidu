@@ -119,7 +119,7 @@ def doctor(cfg: Config, project: str = "") -> int:
         _check_translation_models(cfg.translation, check)
     # remote (M2) readiness — informational; only needed for `dubadabidu remote`
     if os.environ.get("RUNPOD_API_KEY"):
-        from dubadabidu.infra.remote.runpod_infra import DEFAULTS as RP_DEFAULTS
+        from dubadabidu.infra.remote.runpod import DEFAULTS as RP_DEFAULTS
         rp = {**RP_DEFAULTS, **(cfg.get("runpod") or {})}
         key_path = Path(rp["ssh_key"]).expanduser()
         check("remote: ssh_key", key_path.exists(),

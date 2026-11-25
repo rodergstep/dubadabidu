@@ -29,3 +29,10 @@ def ledger_file(root: Path, name: str) -> Path:
     p = root / "ledger" / name
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
+
+
+def remote_source() -> str:
+    """The text of the whole remote-infrastructure package (it used to be one
+    module, runpod_infra.py), for tests that check what the code says."""
+    pkg = SRC / "infra" / "remote"
+    return "\n".join(p.read_text(encoding="utf-8") for p in sorted(pkg.glob("*.py")))
