@@ -7,6 +7,11 @@ license-files = ["LICENSE"]
 requires-python = ">=3.11,<3.13"   # 3.11 = Mac venv, 3.12 = pod + CI; numpy 2.4 dropped 3.10
 dependencies = [
   "faster-whisper==1.2.1",
+  # faster-whisper's own av dependency, capped: PyAV 19 removed the
+  # metadata_errors argument it passes (see constraint-dependencies below).
+  # Declared here as well because [tool.uv] constraints do not travel in the
+  # wheel — a plain pip install resolved av 19.0.2 on Linux/py3.12.
+  "av<19",
   # torch/torchaudio: DECLARED and LOCKED since v0.5 (uv.lock). On Linux they
   # resolve from the cu128 index ([tool.uv.sources] below) — the wheel must
   # match the OLDEST driver runpod.allowed_cuda_versions admits (plain PyPI

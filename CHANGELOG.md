@@ -10,7 +10,7 @@ Measured results and refuted ideas live in `FINDINGS.md`; per-run costs live in
 ## [1.0.0] — 2026-11-25
 
 Release cleanup. No pipeline logic, default config values, model choices or
-pins changed.
+locked versions changed.
 
 ### Added
 - `doctor` warns, without failing, when `pedalboard` is missing while
@@ -44,6 +44,10 @@ pins changed.
 - `FIXES.md` is no longer tracked: it is the autopilot's runtime log.
 
 ### Fixed
+- `av<19` is now also a `[project]` dependency, so an install from the wheel
+  carries it: `[tool.uv]` constraints do not travel in package metadata, and an
+  unlocked install resolved PyAV 19.0.2 on Linux/Python 3.12 (the 0.5.0 ASR
+  crash). The lock still resolves av 18.1.0.
 - Stale comments: chatterbox/CosyVoice references in `device.py`, `prep.py`,
   `tune.py`, `s3_translate.py`; the Python range in the CI workflow; FINDINGS §5
   item 1 marked closed, duplicate paragraph removed.
