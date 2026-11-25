@@ -50,7 +50,7 @@ provider (MIGRATION_VAST.md).
 ### The flywheel — human verdicts are training data
 Review pages carry accept/reject buttons per segment; `dubadabidu verdicts`
 writes them back to the manifest (`human_rating`/`human_verdict`) and
-accumulates rows in `ratings_<lang>.json`. `dubadabidu refit` re-derives
+accumulates rows in `ledger/ratings_<lang>.json`. `dubadabidu refit` re-derives
 qc.eval.weights from those rows and **proposes only** (the spec forbids the
 agent editing weights). Adoption needs three gates: a cross-validated rho floor,
 a permutation test, and beating the incumbent out of fold; it refuses below
@@ -65,7 +65,7 @@ a permutation test, and beating the incumbent out of fold; it refuses below
 ## Milestones (all done; code comments cite them by number)
 - **M1** orchestrator loop against the spec, locally (edge engine).
 - **M2** RunPod lifecycle (`dubadabidu remote`), validated on a real lesson.
-- **M3** review-page verdict capture -> manifest + `ratings_<lang>.json`.
+- **M3** review-page verdict capture -> manifest + `ledger/ratings_<lang>.json`.
 - **M4** weight re-fit (`dubadabidu refit`) + the FIXES.md playbook.
 
 ## Invariants

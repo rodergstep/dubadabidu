@@ -23,6 +23,7 @@ import logging
 from pathlib import Path
 from dubadabidu.core import manifest as M
 from dubadabidu.qc import stress_words as SW
+from dubadabidu.core import ledger
 
 log = logging.getLogger("dubadabidu.qc.verdicts")
 
@@ -118,7 +119,7 @@ def run(cfg: dict, video: str, export_file: str) -> None:
             f"  dubadabidu qc {video} --langs {lang}\n"
             f"  dubadabidu review {video} --langs {lang}")
 
-    rows_path = Path(f"ratings_{lang}.json")
+    rows_path = ledger.for_writing(f"ratings_{lang}.json")
     rows = (json.loads(rows_path.read_text(encoding="utf-8"))
             if rows_path.exists() else [])
     # DO NOT re-key the whole file into a dict. It used to be
@@ -214,7 +215,7 @@ def _update_lexicon(stem: str, lang: str,
     lemmatised: a TTS can be right about one inflected form and wrong about
     another, and the surface form is what every remediation route matches on.
     """
-    lex_path = Path(f"stress_lexicon_{lang}.json")
+    lex_path = ledger.for_writing(f"stress_lexicon_{lang}.json")
     lex = (json.loads(lex_path.read_text(encoding="utf-8"))
            if lex_path.exists() else {})
     n_new = 0

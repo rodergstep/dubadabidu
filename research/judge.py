@@ -30,6 +30,7 @@ import numpy as np
 import soundfile as sf
 
 from dubadabidu.review.refit import chance_rate, load_comparisons
+from dubadabidu.core import ledger
 
 TARGET_DBFS = -20.0
 
@@ -151,7 +152,7 @@ def report(results: list[GroupResult], gate_p: float = 0.05) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--langs", default="en,ru")
-    ap.add_argument("--out", default="judge_validation.json")
+    ap.add_argument("--out", default=str(ledger.path("judge_validation.json")))
     a = ap.parse_args()
     results = score_groups(AudioboxAesthetics(), a.langs.split(","))
     summary = report(results)

@@ -119,7 +119,7 @@ def test_findings_entries_carry_evidence_and_a_verdict():
     without EVIDENCE is an opinion; one without a VERDICT is an open loop that
     reads as settled. Both failure modes already happened in this repo's
     comments — four claims this week asserted behaviour nobody had checked."""
-    text = (ROOT / "FINDINGS.md").read_text(encoding="utf-8")
+    text = (ROOT / "ledger" / "FINDINGS.md").read_text(encoding="utf-8")
     claims = text.count("**CLAIM**")
     verdicts = text.count("**VERDICT**")
     evidence = text.count("**EVIDENCE**")
@@ -137,7 +137,7 @@ def test_findings_entries_carry_evidence_and_a_verdict():
 def test_findings_leads_with_the_noise_floor():
     """Every measurement in the file is unreadable without it — two prior
     results were retroactively invalidated once the floor was known."""
-    text = (ROOT / "FINDINGS.md").read_text(encoding="utf-8")
+    text = (ROOT / "ledger" / "FINDINGS.md").read_text(encoding="utf-8")
     head = text[:text.index("## 1.")]
     assert "noise floor" in head.lower(), "the noise floor must come first"
     for band in ("sim ±0.010", "mos ±0.007", "f0st ±0.438"):
@@ -384,7 +384,7 @@ def test_the_closed_list_survives_and_stays_near_the_top():
     same answers more than once — "what does an hour cost" got three numbers in
     one day, and a refuted hypothesis was re-proposed twice. It only works if it
     is the first thing read, so it must stay above the detail sections."""
-    text = (ROOT / "FINDINGS.md").read_text(encoding="utf-8")
+    text = (ROOT / "ledger" / "FINDINGS.md").read_text(encoding="utf-8")
     assert "## CLOSED — do not re-attempt" in text
     assert text.index("## CLOSED") < text.index("## 1. ASR"), (
         "the closed list moved below the detail — it is an index, and an index "
@@ -399,7 +399,7 @@ def test_russian_ships_as_is_is_recorded_as_a_DECISION():
     """A known defect that is shipped on purpose has to be written down, or the
     next session reads ~29% wrong stress as a bug to chase — which is what four
     failed experiments already cost."""
-    text = (ROOT / "FINDINGS.md").read_text(encoding="utf-8")
+    text = (ROOT / "ledger" / "FINDINGS.md").read_text(encoding="utf-8")
     assert "ru ships with the defect" in text
     assert "SYSTEMATIC" in text, (
         "the REASON must survive alongside the decision: the errors are partly "

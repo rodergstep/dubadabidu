@@ -35,6 +35,7 @@ from statistics import pstdev
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # repo root
 from dubadabidu.review.refit import spearman, usable, cv_rho, fit, _ranks
+from dubadabidu.core import ledger
 
 FEATS = ("qc_sim2", "qc_mos", "qc_f0st")
 RNG = random.Random(20260809)
@@ -65,7 +66,7 @@ def spread(d: dict[str, tuple[float, int]]) -> float:
 
 def main() -> None:
     for lang in ("en", "ru"):
-        rows = json.load(open(f"ratings_{lang}.json", encoding="utf-8"))
+        rows = json.load(open(ledger.path(f"ratings_{lang}.json"), encoding="utf-8"))
         print(f"\n{'='*70}\n{lang.upper()}  n={len(rows)}")
 
         # --- 0. how much rating variance does each round even have? ---

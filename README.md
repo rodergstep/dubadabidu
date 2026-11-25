@@ -13,7 +13,7 @@ tracks + N subtitle tracks), and optionally one MP4 per language.
 Voice-over content with loose sync: dubs may drift a little against the source
 instead of being squeezed (`fit.drift_max_s`). Russian ships with a known
 lexical-stress defect (~29% of takes carry one wrong stress); everything tried
-against it is recorded in `FINDINGS.md` (CLOSED table).
+against it is recorded in `ledger/FINDINGS.md` (CLOSED table).
 
 ## How it runs
 
@@ -220,12 +220,12 @@ per-video references measured worse (FINDINGS §2.2).
 
 ## Cost
 
-Measured on RunPod, from `runs.jsonl`: about **$1.10–1.22 per hour of video for
+Measured on RunPod, from `ledger/runs.jsonl`: about **$1.10–1.22 per hour of video for
 all 5 languages** (~$0.22 per language), plus a fixed bootstrap of a few
 minutes per pod. RAM and vCPU are bundled with the GPU and not billed
 separately. Translation with DeepSeek costs well under $1 per video. Re-derive
 the number from your own runs instead of quoting it:
-`python -c "from pipeline.runlog import cost_per_video_hour as c; print(c())"`.
+`python -c "from dubadabidu.core.runlog import cost_per_video_hour as c; print(c())"`.
 Always cap a run with `--budget` and check `remote status` afterwards.
 
 ## Development
@@ -244,18 +244,18 @@ Linux export, `+cu130` torch; CI checks it is current).
 
 Pinned versions that matter, and why, are commented in `pyproject.toml`
 (`transformers==4.57.3`, `av<19`, torch 2.14.1 from the cu130 index on Linux,
-torchaudio 2.11.1). Glossaries live in `glossary/<source>/<target>.csv`. Measured results and closed questions are in `FINDINGS.md`; read
+torchaudio 2.11.1). Glossaries live in `glossary/<source>/<target>.csv`. Measured results and closed questions are in `ledger/FINDINGS.md`; read
 its CLOSED table before spending a pod.
 
 ## Roadmap
 
 Open work, in order. Everything else from the earlier planning docs is done
-or closed by evidence (FINDINGS.md, CLOSED table).
+or closed by evidence (`ledger/FINDINGS.md`, CLOSED table).
 
 **Next**
 - One full ~1 h lesson end-to-end on the pod, all 5 languages
   (`python -m pipeline.course`, `--reuse --keep-alive`), wall clock and $
-  recorded in `runs.jsonl`. Re-test `tts.best_of: 2` on it: how often is the
+  recorded in `ledger/runs.jsonl`. Re-test `tts.best_of: 2` on it: how often is the
   shipped take marked unusable?
 - The 20-video batch (~15 min/video of review on worst-first pages), then
   publish per-language audio (YouTube multi-language audio; `per_language`

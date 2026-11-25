@@ -22,16 +22,18 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from dubadabidu.core import ledger
 
 log = logging.getLogger("dubadabidu.runlog")
 
-LEDGER = Path("runs.jsonl")
+LEDGER = ledger.path("runs.jsonl")
 
 
 def append(record: dict) -> None:
     """Append one run. Best-effort: never raises into the caller."""
     try:
         rec = {k: v for k, v in record.items() if v is not None}
+        LEDGER.parent.mkdir(parents=True, exist_ok=True)
         with LEDGER.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec, ensure_ascii=False, sort_keys=True) + "\n")
     except Exception as e:                                   # noqa: BLE001

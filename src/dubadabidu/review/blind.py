@@ -27,6 +27,7 @@ import logging
 import json
 import sys
 from pathlib import Path
+from dubadabidu.core import ledger
 
 log = logging.getLogger("dubadabidu.qc.blind")
 
@@ -231,7 +232,7 @@ def ingest(wd: Path, lang: str, export: Path, cfg: dict) -> Path:
             # separated the variants — the question that motivated the page
             "variant": c["variant"],
         })
-    out = Path(f"ratings_{lang}.json")
+    out = ledger.for_writing(f"ratings_{lang}.json")
     prev = json.loads(out.read_text()) if out.exists() else []
     if not isinstance(prev, list):
         raise SystemExit(f"{out} is not the flywheel format — see qc/refit.py")

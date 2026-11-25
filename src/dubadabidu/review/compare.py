@@ -38,6 +38,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from dubadabidu.core import ledger
 
 log = logging.getLogger("dubadabidu.qc.compare")
 
@@ -358,7 +359,7 @@ def ingest(wd: Path, lang: str, export: Path, cfg: dict,
                 "dur": round(_dur(w), 2),
                 "axis": truth.get("_axis", ""), "build": build_id,
             })
-    out = Path(f"comparisons_{lang}.json")
+    out = ledger.for_writing(f"comparisons_{lang}.json")
     prev = _json.loads(out.read_text(encoding="utf-8")) if out.exists() else []
     # a re-export of the SAME build replaces that build's rows; other builds and
     # other videos are untouched (verdicts learned this the expensive way)

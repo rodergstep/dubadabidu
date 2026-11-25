@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from tests.paths import REPO, source
+from tests.paths import REPO, ledger_file, source
 
 ROOT = REPO
 sys.path.insert(0, str(ROOT))
@@ -220,7 +220,7 @@ def test_marks_land_in_the_manifest(ingested):
 
 def test_lexicon_is_written_with_counts_and_context(ingested):
     _, _, tmp, _ = ingested
-    lex = json.loads((tmp / "stress_lexicon_ru.json").read_text(encoding="utf-8"))
+    lex = json.loads((tmp / "ledger" / "stress_lexicon_ru.json").read_text(encoding="utf-8"))
     assert set(lex) == {"хром-кобальт", "охра"}
     e = lex["охра"]
     assert e["marked"] == 1 and e["forms"] == ["охра"]
@@ -234,7 +234,7 @@ def test_re_ingesting_the_same_page_does_not_inflate_the_count(ingested):
     cfg, video, tmp, M = ingested
     from dubadabidu.review import verdicts as V
     V.run(cfg, video, str(tmp / "export.json"))
-    lex = json.loads((tmp / "stress_lexicon_ru.json").read_text(encoding="utf-8"))
+    lex = json.loads((tmp / "ledger" / "stress_lexicon_ru.json").read_text(encoding="utf-8"))
     assert lex["охра"]["marked"] == 1
 
 
@@ -254,7 +254,7 @@ def test_a_second_video_accumulates_into_the_same_entry(ingested):
     p = tmp / "export2.json"
     p.write_text(json.dumps(export, ensure_ascii=False), encoding="utf-8")
     V.run(cfg, "lesson2.mp4", str(p))
-    lex = json.loads((tmp / "stress_lexicon_ru.json").read_text(encoding="utf-8"))
+    lex = json.loads((tmp / "ledger" / "stress_lexicon_ru.json").read_text(encoding="utf-8"))
     assert lex["охра"]["marked"] == 2
     assert {o["video"] for o in lex["охра"]["occurrences"]} == \
         {"lesson", "lesson2"}
@@ -279,7 +279,7 @@ def test_an_export_without_word_marks_still_ingests(tmp_path, monkeypatch):
     V.run(cfg, "old.mp4", str(p))
     assert M.load(cfg, "old.mp4")["utterances"][0]["tr"]["ru"][
         "human_rating"] == 5
-    assert not (tmp_path / "stress_lexicon_ru.json").exists(), (
+    assert not (tmp_path / "ledger" / "stress_lexicon_ru.json").exists(), (
         "no marks means no lexicon file — an empty table is not evidence")
 
 
@@ -304,7 +304,7 @@ def test_a_stale_mark_is_dropped_not_recorded(tmp_path, monkeypatch):
     V.run(cfg, "e.mp4", str(p))
     tr = M.load(cfg, "e.mp4")["utterances"][0]["tr"]["ru"]
     assert "stress_words" not in tr
-    lex_p = tmp_path / "stress_lexicon_ru.json"
+    lex_p = tmp_path / "ledger" / "stress_lexicon_ru.json"
     assert not lex_p.exists() or "хром-кобальт" not in json.loads(
         lex_p.read_text(encoding="utf-8"))
 
@@ -344,7 +344,7 @@ def test_ingest_does_not_collapse_pre_existing_duplicate_rows(tmp_path,
         {"video": "other", "id": "u0009", "rating": 5, "qc_mos": 4.1,
          "qc_f0st": 2.0, "qc_sim_cal": 0.9},
     ]
-    Path("ratings_ru.json").write_text(json.dumps(prior), encoding="utf-8")
+    ledger_file(Path("."), "ratings_ru.json").write_text(json.dumps(prior), encoding="utf-8")
 
     export = {"key": f"lesson_ru_{V._seg_hash(man['utterances'], 'ru')}",
               "ratings": {"u0001": 4}, "verdicts": {}}
@@ -352,7 +352,7 @@ def test_ingest_does_not_collapse_pre_existing_duplicate_rows(tmp_path,
     p.write_text(json.dumps(export, ensure_ascii=False), encoding="utf-8")
     V.run(cfg, "lesson.mp4", str(p))
 
-    after = json.loads(Path("ratings_ru.json").read_text(encoding="utf-8"))
+    after = json.loads(Path("ledger/ratings_ru.json").read_text(encoding="utf-8"))
     kept = [r for r in after if r["id"] == "u0001:qwen"]
     assert len(kept) == 2, "pre-existing duplicate measurements were collapsed"
     assert {r["qc_mos"] for r in kept} == {2.93, 1.95}, "a measurement changed"
@@ -371,7 +371,7 @@ def test_ingest_replaces_the_rows_it_re_rates(tmp_path, monkeypatch):
          "tr": {"ru": {"text": "Это краска", "fitted_text": "Это краска"}}}]}
     wd = M.video_workdir(cfg, "lesson.mp4")
     (wd / "manifest.json").write_text(json.dumps(man), encoding="utf-8")
-    Path("ratings_ru.json").write_text(json.dumps(
+    ledger_file(Path("."), "ratings_ru.json").write_text(json.dumps(
         [{"video": "lesson", "id": "u0001", "rating": 1}]), encoding="utf-8")
 
     export = {"key": f"lesson_ru_{V._seg_hash(man['utterances'], 'ru')}",
@@ -380,7 +380,7 @@ def test_ingest_replaces_the_rows_it_re_rates(tmp_path, monkeypatch):
     p.write_text(json.dumps(export, ensure_ascii=False), encoding="utf-8")
     V.run(cfg, "lesson.mp4", str(p))
 
-    after = json.loads(Path("ratings_ru.json").read_text(encoding="utf-8"))
+    after = json.loads(Path("ledger/ratings_ru.json").read_text(encoding="utf-8"))
     assert len(after) == 1 and after[0]["rating"] == 5
 
 
@@ -390,7 +390,7 @@ def _write_lex(tmp_path, **words):
     """words: name -> (marked, [forms])"""
     lex = {k: {"marked": n, "forms": f, "occurrences": []}
            for k, (n, f) in words.items()}
-    (tmp_path / "stress_lexicon_ru.json").write_text(
+    ledger_file(tmp_path, "stress_lexicon_ru.json").write_text(
         json.dumps(lex, ensure_ascii=False), encoding="utf-8")
 
 
@@ -437,7 +437,7 @@ def test_missing_or_broken_lexicon_is_not_fatal(tmp_path, monkeypatch):
     """s3 is the expensive stage; a malformed table must not abort a run."""
     monkeypatch.chdir(tmp_path)
     assert SW.load_avoid_list("ru") == []
-    (tmp_path / "stress_lexicon_ru.json").write_text("{not json", encoding="utf-8")
+    ledger_file(tmp_path, "stress_lexicon_ru.json").write_text("{not json", encoding="utf-8")
     assert SW.load_avoid_list("ru") == []
 
 
@@ -489,7 +489,7 @@ def test_avoid_block_is_empty_when_disabled_or_inapplicable(tmp_path,
     _write_lex(tmp_path, цвета=(3, ["цвета"]))
     assert _avoid_block(_cfg(avoid_mis_stressed=False), "ru", "") == ""
     assert _avoid_block(_cfg(), "en", "") == ""
-    (tmp_path / "stress_lexicon_ru.json").unlink()
+    ledger_file(tmp_path, "stress_lexicon_ru.json").unlink()
     assert _avoid_block(_cfg(), "ru", "") == ""
 
 
@@ -525,7 +525,7 @@ def test_avoid_block_forbids_the_failure_modes_measured_on_a_live_ab():
     cwd = os.getcwd()
     try:
         os.chdir(d)
-        Path("stress_lexicon_ru.json").write_text(json.dumps(
+        ledger_file(Path("."), "stress_lexicon_ru.json").write_text(json.dumps(
             {"цвета": {"marked": 3, "forms": ["цвета"], "occurrences": []}}),
             encoding="utf-8")
         out = _avoid_block(_cfg(), "ru", "").lower()

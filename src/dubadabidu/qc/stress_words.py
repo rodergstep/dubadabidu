@@ -51,6 +51,7 @@ import json
 import re
 import unicodedata
 from pathlib import Path
+from dubadabidu.core import ledger
 
 # Languages whose stress is lexical, mobile and unmarked in writing — i.e.
 # where a TTS must GUESS and can be wrong. A linguistic fact, not a preference,
@@ -129,7 +130,7 @@ def lexicon_key(word: str) -> str:
 
 
 def lexicon_path(lang: str) -> Path:
-    return Path(f"stress_lexicon_{lang}.json")
+    return ledger.path(f"stress_lexicon_{lang}.json")
 
 
 def load_avoid_list(lang: str, min_marks: int = 1) -> list[tuple[str, int]]:

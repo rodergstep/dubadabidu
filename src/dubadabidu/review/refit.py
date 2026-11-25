@@ -31,8 +31,8 @@ Method (the 2026-07-08 procedure, automated):
 from __future__ import annotations
 import json
 import logging
-from pathlib import Path
 from dubadabidu.qc import metrics as X
+from dubadabidu.core import ledger
 
 log = logging.getLogger("dubadabidu.qc.refit")
 
@@ -346,7 +346,7 @@ def permutation_p(rows: list[dict], max_tempo: float, observed: float,
 def _load(langs: list[str]) -> tuple[list[dict], dict]:
     rows, per_lang = [], {}
     for lang in langs:
-        p = Path(f"ratings_{lang}.json")
+        p = ledger.path(f"ratings_{lang}.json")
         if not p.exists():
             per_lang[lang] = 0
             continue
@@ -596,7 +596,7 @@ def load_comparisons(langs: list[str]) -> list[dict]:
     """Rows written by qc.compare.ingest, grouped by sentence."""
     out = []
     for lang in langs:
-        p = Path(f"comparisons_{lang}.json")
+        p = ledger.path(f"comparisons_{lang}.json")
         if not p.exists():
             continue
         try:

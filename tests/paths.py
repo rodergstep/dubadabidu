@@ -22,3 +22,10 @@ def config(name: str) -> Path:
     (project root, configs/, configs/experiments/)."""
     from dubadabidu.core.config.loader import overlay_path
     return overlay_path(REPO, name)
+
+
+def ledger_file(root: Path, name: str) -> Path:
+    """`root`/ledger/`name`, with ledger/ created (a test's throwaway project)."""
+    p = root / "ledger" / name
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p

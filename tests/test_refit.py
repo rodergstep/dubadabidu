@@ -5,6 +5,7 @@ The re-fit moves the objective every downstream decision is made against, from
 a handful of human ratings. The tests that matter are therefore the ones that
 prove it REFUSES to move on evidence that isn't there.
 """
+from tests.paths import ledger_file
 import json
 import random
 
@@ -173,7 +174,7 @@ def test_legacy_ratings_format_is_refused_not_silently_skipped(tmp_path,
     qc metrics per row, unusable for a fit. Silently skipping such a file would
     understate how much evidence exists, so it must raise."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "ratings_en.json").write_text(
+    ledger_file(tmp_path, "ratings_en.json").write_text(
         json.dumps({"key": "test_en", "ratings": {"u0001": 3}}))
     with pytest.raises(SystemExit, match="pre-flywheel format"):
         R._load(["en"])
