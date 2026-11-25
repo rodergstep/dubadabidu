@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """s6 timeline assembly.
 
 The loop this replaced was `track = track.overlay(seg, position=pos)`. pydub

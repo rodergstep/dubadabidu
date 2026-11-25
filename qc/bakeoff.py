@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Engine bake-off (IMPROVEMENT_PLAN Phase C, turnkey).
 
 `dubadabidu bakeoff <video> --langs en` synthesizes the SAME subset of segments

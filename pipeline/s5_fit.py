@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """s5: place segments on a soft-anchored timeline. Each dub starts at its
 source time or right after the previous dub (retime_step in logic.py) and may
 drift forward within fit.drift_max_s; drift resets naturally at source pauses.

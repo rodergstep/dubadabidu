@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Blind rating page — the input the take-ranking weights have never had.
 
     python -m qc.blind build sketch60 en [N] [variant ...]  # make the page

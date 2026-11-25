@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Does qwen's Russian stress placement VARY between takes of the same text?
 
 This is the premise the whole oracle-veto idea rests on. If the model always
@@ -26,7 +27,7 @@ import numpy as np
 import soundfile as sf
 
 warnings.filterwarnings("ignore")
-sys.path.insert(0, "/Users/diadumenoss/Documents/projects/dubadabidu")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # repo root
 
 VOWELS = set("аеёиоуыэюя")
 SR = 16000
@@ -89,7 +90,7 @@ def nuclei_stress(y: np.ndarray, n_vowels: int) -> int | None:
     return int(np.argmax(scores))
 
 
-def words_of(path: str, model) -> list[tuple[str, float, float]]:
+def words_of(path: str, model: str) -> list[tuple[str, float, float]]:
     import mlx_whisper
     r = mlx_whisper.transcribe(path, path_or_hf_repo=model, language="ru",
                                word_timestamps=True, verbose=False)

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """dubadabidu — Ukrainian -> multilingual video dubbing.
 
   dubadabidu doctor                          # validate environment before anything
@@ -11,6 +12,7 @@
 from __future__ import annotations
 import argparse, logging, shutil, subprocess, sys
 from pathlib import Path
+from typing import Callable
 import yaml
 
 from pipeline import s1_extract, s2_transcribe, s3_translate, s4_synthesize, \
@@ -40,10 +42,14 @@ def doctor(cfg: dict) -> int:
     import os
     ok = True
 
-    def check(name, cond, hint=""):
+    def check(name: str, cond: object, hint: str = "") -> None:
         nonlocal ok
         print(f"  [{'OK' if cond else '!!'}] {name}" + ("" if cond else f" — {hint}"))
         ok = ok and bool(cond)
+
+    def warn(name: str, hint: str) -> None:
+        """A degraded-but-runnable setup: shown, never fails doctor."""
+        print(f"  [w ] {name} — {hint}")
 
     print("dubadabidu doctor")
     check("ffmpeg", shutil.which("ffmpeg"), "install ffmpeg and add to PATH")
@@ -75,6 +81,26 @@ def doctor(cfg: dict) -> int:
         except ImportError:
             check("python: audio_separator", False,
                   'uv sync --extra sep (or separation.backend: demucs)')
+    # s6 mastering chain: on in config.yaml, but pedalboard (GPLv3) is the
+    # opt-in `.[master]` extra, so a plain `uv sync` stops at s6.
+    if cfg.get("mix", {}).get("master", {}).get("enabled"):
+        try:
+            __import__("pedalboard"); check("python: pedalboard (mix.master)", True)
+        except ImportError:
+            warn("python: pedalboard missing",
+                 "mix.master.enabled is on and s6 will stop without it: "
+                 "uv sync --extra master (or set mix.master.enabled: false)")
+    # s5 stretcher: rubberband when ffmpeg carries librubberband, else atempo
+    if cfg.get("fit", {}).get("stretcher", "auto") != "atempo" \
+            and shutil.which("ffmpeg"):
+        filters = subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
+                                 capture_output=True, text=True).stdout
+        if "rubberband" in filters:
+            check("ffmpeg: rubberband filter (s5 stretcher)", True)
+        else:
+            warn("ffmpeg: no rubberband filter",
+                 "s5 falls back to atempo (WSOLA, softer consonants); install "
+                 "an ffmpeg built with librubberband")
     engines = {cfg["tts"]["engine"], *cfg["tts"].get("engine_by_lang", {}).values(),
                *cfg.get("bakeoff", {}).get("engines", [])}
     # engines are probed in THIS venv — the only one, since the per-engine
@@ -145,7 +171,8 @@ def doctor(cfg: dict) -> int:
     return 0 if ok else 1
 
 
-def _check_translation_models(tcfg: dict, check) -> None:
+def _check_translation_models(tcfg: dict,
+                              check: Callable[[str, object, str], None]) -> None:
     """Ask the endpoint which models it serves. A provider can retire a name
     and keep routing it to a different model (DeepSeek did, 2026-09-10), so a
     config that "works" may be translating with a model nobody evaluated.

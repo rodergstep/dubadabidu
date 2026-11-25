@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Eval layer: per-segment perceptual metrics -> manifest + printed scorecard.
 
 Writes per segment (tr.<lang>):

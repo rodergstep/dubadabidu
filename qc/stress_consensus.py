@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Pick the take whose stress agrees with the other takes — no oracle, no human.
 
 THE ONE FACT THIS RESTS ON. Russian stress errors from qwen are STOCHASTIC per
@@ -30,7 +31,6 @@ already; this one gets the same treatment.
 from __future__ import annotations
 
 import logging
-import random
 from collections import Counter
 from pathlib import Path
 
@@ -102,13 +102,3 @@ def pick(per_take: dict[str, dict[str, int]]) -> str | None:
     r = rank_takes(per_take)
     return r[0][0] if r else None
 
-
-def status_quo(takes: list[str], seed: str) -> str:
-    """A take chosen WITHOUT regard to stress — the honest comparison.
-
-    Today's selector ranks on mos/f0/sim/pace, all of which are blind to stress
-    (measured: it picks the stress-error take 5 of 8, i.e. a coin flip), so a
-    seeded random draw is a fair stand-in and does not require re-running s4.
-    Deterministic so the A/B page can be rebuilt without reshuffling.
-    """
-    return random.Random(seed).choice(sorted(takes))

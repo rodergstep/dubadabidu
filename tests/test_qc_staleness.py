@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """QC staleness stamps (manifest.stamp_qc / stale_qc).
 
 Regression guard for the defect these were added for: s5/s6 rewrite the placed

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Early-accept gate (tts_engine.early_accept_ok).
 
 Regression guard: accepting early leaves a ONE-take pool, and every downstream

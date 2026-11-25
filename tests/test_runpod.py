@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 import time
 from pipeline.runpod_infra import (_deadline, engine_install_cmd, ssh_target,
                                    DEFAULTS)

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """PLAN_v0.5 P4.5: per-language qwen checkpoint, the model-keyed loader, and
 the guard against stress marks on a checkpoint not trained on them."""
 import pytest

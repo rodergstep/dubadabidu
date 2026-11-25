@@ -1,247 +1,279 @@
-# dubadabidu — Ukrainian → multilingual AI dubbing tool
+# dubadabidu — Ukrainian → multilingual AI dubbing
 
-Batch pipeline: `input/*.mp4` (Ukrainian) → `output/*.mp4` with dubbed audio tracks
-(en, fr, de, es, ru) + soft subtitle tracks, cloned to your own voice.
+Turns a Ukrainian lesson video into one MP4 with dubbed audio tracks in
+English, French, German, Spanish and Russian, plus soft subtitles, in **your
+own cloned voice**.
 
-Architecture follows the pattern converged on by pyVideoTrans / Softcatala open-dubbing /
-KrillinAI plus the "isometric translation + n-best shorter variants + mild prosodic
-stretch" stack from the automatic-dubbing literature.
+`input/lesson01.mp4` → `output/lesson01_multi.mp4` (video copy + N audio
+tracks + N subtitle tracks), and optionally one MP4 per language.
 
-## Stages (each independently re-runnable, cached via manifest)
+Voice-over content with loose sync: dubs may drift a little against the source
+instead of being squeezed (`fit.drift_max_s`). Russian ships with a known
+lexical-stress defect (~29% of takes carry one wrong stress); everything tried
+against it is recorded in `FINDINGS.md` (CLOSED table).
+
+## How it runs
+
+The Mac drives everything. Only synthesis needs an NVIDIA GPU, so that part
+runs on a rented RunPod pod that is created, used and **always terminated** by
+`dubadabidu remote run`. The source video never leaves your machine.
 
 ```
-s1_extract     ffmpeg audio extraction + BS-RoFormer vocal/background separation
-               (audio-separator; ~12.9 dB vocal SDR vs htdemucs' ~9 — Demucs
-               stays as the fallback backend, separation.backend: demucs)
-s2_transcribe  Whisper large-v3 (uk; mlx-whisper on Apple Silicon, faster-whisper
-               elsewhere) → utterance manifest (EDIT THIS BY HAND!)
-s3_translate   LLM translation, ±10% isometric constraint, glossary, per-segment
-s4_synthesize  Qwen3-TTS 12Hz Base (tts.qwen_fast), cloned from your reference
-               clip via the speaker-embedding-only path (UA ref, no transcript)
-s5_fit         soft-anchor timeline (dub may drift ≤ fit.drift_max_s); rubberband
-               stretch ≤ 1.12 (atempo fallback); else a shorter variant
-s6_mix         per-segment level match + light master + ducked background stem,
-               two-pass loudnorm -16 LUFS
-s7_subtitles   per-language SRT from fitted segments
-s8_mux         one MP4: video copy + N audio tracks + N mov_text subtitle tracks
-qc/backcheck   re-transcribe each dubbed track, WER vs. source text (hallucination catch)
-qc/similarity  speaker-embedding cosine vs. your reference (clone drift catch)
+s1_extract     ffmpeg audio + BS-RoFormer vocal/background separation  local
+               (demucs fallback: separation.backend: demucs)
+s2_transcribe  Whisper large-v3 (mlx-whisper on Apple Silicon,           local
+               faster-whisper elsewhere) → utterance manifest
+s3_translate   LLM translation (OpenAI-compatible endpoint), ±10%       local
+               isometric constraint, glossary, 3-pass draft/reflect/adapt
+s4_synthesize  Qwen3-TTS 1.7B Base, cloned from your reference clip      GPU pod
+               (speaker-embedding path), best-of-N takes
+s5_fit         soft-anchor timeline; rubberband stretch ≤ 1.12          GPU pod
+               (atempo fallback), else a shorter translation variant
+s6_mix         per-segment level match + mastering + ducked background, local
+               two-pass loudnorm to -16 LUFS
+s7_subtitles   per-language SRT from the placed dub timing               local
+s8_mux         one MP4: video copy + audio tracks + mov_text subtitles   local
+qc             back-transcription WER (hallucination catch) + speaker
+               similarity (clone-drift catch)
 ```
 
-The central data structure is `work/<video>/manifest.json` — one editable JSON per video
-(idea borrowed from Softcatala/open-dubbing's utterance_metadata). Fix a mistranslation
-there, re-run from s4, and only the changed segments are re-synthesized (content-hash cache).
+The central data structure is `work/<video>/manifest.json`, one editable JSON
+per video. Fix a transcript or translation there and re-run from s4: only the
+changed segments are re-synthesized (content-hash cache).
 
-## Verified versions (2026-11-19; pyproject.toml declares, uv.lock pins)
+## Requirements
 
-| Component | Version | Notes |
-|---|---|---|
-| Python | 3.11 (Mac) / 3.12 (pod, CI) | `requires-python >=3.11,<3.13` |
-| torch / torchaudio | **2.11.0 / 2.11.0** | declared in pyproject, locked in uv.lock; `+cu128` on Linux. 2.11 is the ceiling (torchaudio stopped there). Moves together with `runpod.min_cuda_version` |
-| faster-whisper | 1.2.1 | model `large-v3` |
-| whisperx | 3.8.6 | optional, word-level alignment for tighter subs |
-| audio-separator | 0.44.5 | BS-RoFormer separation, `.[sep]` extra (s1, LOCAL only) |
-| demucs | 4.1.0 | fallback separation backend (`htdemucs`), `.[sep]` extra — never installed on a pod |
-| faster-qwen3-tts | 0.3.2 | CUDA-graph decode for qwen (GPU); 5.9x measured (THIRD_PARTY.md) |
-| qwen_tts | git-clone | Qwen3-TTS bake-off engine (GPU); Apache-2.0, ~4 GB VRAM (THIRD_PARTY.md) |
-| edge-tts | 7.2.8 | free fallback voices (no cloning) |
-| openai SDK | 2.52.0 | universal client → DeepSeek / OpenAI / LM Studio / Ollama via `base_url` |
-| jiwer | 4.0.0 | WER for QC |
-| ffmpeg | 7.x system binary | required in PATH |
+- Apple-Silicon Mac (the driver) or Linux x86_64. Python 3.11 or 3.12.
+- [uv](https://docs.astral.sh/uv/) and `ffmpeg` 7.x on `PATH`. An ffmpeg built
+  with librubberband gives cleaner time-stretching; without it s5 uses atempo
+  (`doctor` tells you which).
+- A translation API key (DeepSeek by default; any OpenAI-compatible endpoint,
+  including a local LM Studio or Ollama, works).
+- For cloned voices: a RunPod account and API key, plus an SSH key pair. A
+  pod needs an NVIDIA GPU with ≥ 16 GB VRAM (measured peak ~12 GB) and a
+  CUDA ≥ 12.8 driver; `config.gpu.yaml` picks the cards.
+- 2–4 clean 15–20 s WAV clips of your voice (see "Reference voice").
 
-## Install (macOS or Linux)
+dubadabidu runs **from a clone of this repository**. Config, prompts, glossary,
+`.env`, `work/` and the ledgers are resolved relative to the checkout, so a
+wheel installed elsewhere only supports `dubadabidu --help`.
 
-Dependencies are locked (`uv.lock`); install with [uv](https://docs.astral.sh/uv/):
+## Quickstart
+
+### 1. Install
 
 ```bash
-cd dubadabidu
-uv sync --extra dev --extra sep --extra mac   # Apple Silicon; --extra master for
-                                              # the s6 mastering chain (GPLv3 opt-in)
-uv sync --extra dev                           # GPU box: s1 (sep) stays local
-brew install ffmpeg                           # macOS; apt install ffmpeg on Linux
-uv run dubadabidu doctor                      # validates everything before you start
+git clone https://github.com/rodergstep/dubadabidu && cd dubadabidu
 ```
-
-Change a dependency in `pyproject.toml`, then `uv lock` and
-`scripts/export_requirements.sh` (`requirements.txt` is generated; CI checks it).
-
-### macOS reality check
-Your Mac has no CUDA. For ASR, `uv sync --extra mac` pulls in **mlx-whisper**
-(Whisper via Apple's Metal/ANE, ~4-5× vs CPU int8) and `asr.backend: auto`
-picks it up automatically — makes local transcription of full lessons
-tolerable. mlx-whisper has no VAD, but s1 already isolates vocals so that gap
-is minor; the rented CUDA box auto-resolves back to faster-whisper + VAD.
-Without `.[mac]`, faster-whisper runs CPU (int8) — OK but slow for 1h videos;
-(Historical: Chatterbox ran on MPS, validated 2026-07-09 on test60, ~16 it/s —
-fine for short clips, slow for full lessons). Recommended split:
-**prototype on the Mac with `--engine edge`** (free MS voices, CPU, validates the
-whole chain incl. translation/fit/mux), then **run the cloned batch on a rented
-CUDA GPU** (RunPod/vast.ai, ~$0.3–0.5/h) — rsync the project folder, run, rsync
-`work/` + `output/` back. The manifest/caching design makes this split painless.
-
-## Running on CUDA (real cloned voice)
-
-The Mac path above uses `--engine edge` (no cloning). For your actual cloned voice
-you need an NVIDIA GPU: qwen is a CUDA-only install (`require_gpu` refuses a
-CPU-only torch rather than degrading to 126 s/take silently), and Whisper runs
-~10× faster there. Device selection is **automatic** — `pipeline/device.py`
-picks `cuda`+`float16` whenever `torch.cuda.is_available()`, so `config.yaml`
-needs no edits (`asr.device: auto`, `tts.engine: qwen` are already correct).
-Requirements: NVIDIA 16 GB VRAM (measured peak ~12 GB), CUDA 12.8+ driver.
-Stages run sequentially, so ASR and TTS never share VRAM.
-
-Prefer `dubadabidu remote run` / `python -m pipeline.course` over the manual
-recipe below — they provision, bootstrap, cap the spend and *always* terminate.
-
-Rent a box (RunPod / vast.ai, ~$0.3–0.5/h; pick a "CUDA 12.x / PyTorch" template).
-
-**1. Send the project up** (include `work/` so cached translations aren't redone,
-`ref/` for your voice, `input/` for the video). **Exclude `.env`** — a rented pod
-must never hold your RunPod full-access key; the only key the pod needs is
-`TRANSLATE_API_KEY`, exported directly in step 3:
 
 ```bash
-rsync -avz --exclude .venv --exclude __pycache__ --exclude .env \
-  ./ user@GPU_HOST:~/dubadabidu/
+uv sync --extra dev --extra sep --extra mac --extra master
 ```
-
-**2. Install on the GPU box** — the same locked environment the pod bootstrap
-installs (`runpod_infra.REMOTE_SETUP`); torch resolves to the cu128 build:
 
 ```bash
-sudo apt install -y --no-install-recommends ffmpeg   # recommends would swap the
-                                                     # C runtime and kill sshd
-pip install uv && uv sync --frozen --extra dev       # no sep: s1 stays local
-# qwen: git-clone engine, pinned by SHA — see runpod.engine_setup in config.gpu.yaml
-uv run python -c "import torch; print('CUDA:', torch.cuda.is_available())"   # True
-uv run dubadabidu doctor                             # 'torch device: cuda'
+brew install ffmpeg
 ```
-
-**3. Run.** Translations are cached in `work/<video>/manifest.json`, so start at s4 to
-skip the LLM entirely (no LM Studio / API key needed on the GPU box):
 
 ```bash
-dubadabidu run input/sketch60/sketch60.mp4 --from s4_synthesize   # cloned voice, all langs
+cp .env.example .env
 ```
 
-If you instead run from scratch (`run ...` without `--from`), stage s3 still validates
-`TRANSLATE_API_KEY` even when cached — either `export TRANSLATE_API_KEY=x` (any value)
-or run LM Studio / a remote provider on that box.
-
-**4. Bring results back:**
+Fill in `TRANSLATE_API_KEY` (and `RUNPOD_API_KEY` for remote runs) in `.env`.
+The extras: `sep` = RoFormer/demucs separation, `mac` = mlx-whisper,
+`master` = the s6 mastering chain (pedalboard, GPLv3, on by default in
+`config.yaml`; without it set `mix.master.enabled: false`). On Linux drop
+`--extra mac` and use `apt install --no-install-recommends ffmpeg`.
 
 ```bash
-rsync -avz user@GPU_HOST:~/dubadabidu/work/   ./work/
-rsync -avz user@GPU_HOST:~/dubadabidu/output/ ./output/
+uv run dubadabidu doctor
 ```
 
-## Reference voice
+`doctor` checks ffmpeg, devices, imports, the reference clip, the translation
+key and the models the endpoint serves, and (with `RUNPOD_API_KEY`) the SSH key.
 
-Put 2–4 clean 15–20 s WAV clips of your voice (no music, typical teaching tone) in
-`glossary/../ref/` — actually anywhere; set `tts.reference_wav` in `config.yaml`.
-The Ukrainian reference is cloned through Qwen3-TTS's `x_vector_only_mode`
-(speaker embedding only — a Ukrainian transcript cannot be tokenized for a
-target-language generation). `tts.reference_max_s` trims it: cloning quality
-climbs to ~15 s and then degrades, and an over-long reference is the documented
-trigger for Qwen's never-emits-EOS failure.
-(`tts.cfg_weight` survives at 0.0 only to keep old cache hashes valid — it was a
-Chatterbox knob and no current engine reads it.)
+### 2. Local run — plumbing check, no GPU, no cloning
 
-## Translation backend (local or remote)
-
-Stage `s3_translate` talks to any **OpenAI-compatible** chat endpoint through the
-`openai` SDK, so the provider is a pure config choice in `config.yaml` under
-`translation:` — no code changes. In all cases set the key env var first:
+Put a video at `input/lesson01.mp4`, then:
 
 ```bash
-export TRANSLATE_API_KEY=...   # real key for remote; any non-empty string for local
+uv run dubadabidu run input/lesson01.mp4 --engine edge --langs en
 ```
 
-| Provider | `base_url` | `model` | `response_format` | `TRANSLATE_API_KEY` |
+This runs every stage with free Microsoft Edge voices. The output is named
+`output/lesson01_multi_EDGE-PLUMBING-ONLY.mp4` on purpose: it validates the
+chain (separation, transcription, translation, fit, mix, mux), not the voice.
+
+### 3. Remote run — your cloned voice on a RunPod GPU
+
+Create the SSH key the pod is reached with (its `.pub` is sent to the pod):
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_runpod
+```
+
+Transcribe locally, then **hand-review the Ukrainian text** in
+`work/lesson01/manifest.json`; one fix there propagates to every language:
+
+```bash
+uv run dubadabidu run input/lesson01.mp4 --to s2_transcribe
+```
+
+Translate locally, synthesize on a pod, then mix and mux locally:
+
+```bash
+uv run dubadabidu remote run input/lesson01.mp4 --overlay config.gpu.yaml --budget 5
+```
+
+`--budget` is a hard dollar cap: the pod is terminated when it is reached, and a
+pod-side watchdog self-destructs independently. Several videos in one command
+share one pod. Check that nothing is left running:
+
+```bash
+uv run dubadabidu remote status
+```
+
+Then score the result and fix what it flags:
+
+```bash
+uv run dubadabidu qc input/lesson01.mp4
+```
+
+Edit flagged segments in the manifest and re-run (`--from s4_synthesize`).
+`dubadabidu evaluate` scores every segment, `dubadabidu review` then builds
+worst-first review pages (`work/<video>/review_<lang>.html`), and
+`dubadabidu verdicts <video> <export.json>` writes your accept/reject calls back.
+
+## Commands
+
+```
+dubadabidu doctor                          validate the environment
+dubadabidu run <video...>                  all stages (--from/--to, --langs, --engine edge, --force)
+dubadabidu stage <stage> <video...>        one stage
+dubadabidu preamble <video>                s1+s2+reference candidates, then a pause for review
+dubadabidu qc | report | evaluate | review <video>
+dubadabidu verdicts <video> <export.json>  ingest review-page verdicts
+dubadabidu batch [video...]                per-video × per-language matrix
+dubadabidu autopilot <video...>            spec-driven accept/fix loop (AUTOPILOT.md)
+dubadabidu refit                           propose qc weights from your ratings (never applies)
+dubadabidu bakeoff | tune | prep <video>   engine / reference experiments
+dubadabidu remote status | kill | smoke | setup-check
+dubadabidu remote run | bakeoff | autopilot <video...>
+python -m pipeline.course ...              many videos, one pod
+python -m pipeline.experiments ...         queue experiments (experiments.yaml) on one pod
+```
+
+`remote` flags: `--budget USD`, `--keep-alive` (leave the pod up to debug over
+SSH; the watchdog still fires), `--reuse` (attach to that pod).
+
+## Configuration
+
+`config.yaml` is the base; overlays are deep-merged over it, left to right:
+
+| File | What it sets |
+|---|---|
+| `config.yaml` | everything; defaults for a Mac |
+| `config.gpu.yaml` | the pod profile: qwen + fast path, takes, RunPod GPU list, image, budget, runtime cap |
+| `config.deepseek.yaml` | translation via DeepSeek (also forwarded to every pod run) |
+| `config.gemini.yaml` | translation via Google Gemini's OpenAI-compatible endpoint. Its model id is **unverified**: run `doctor` before using it |
+| `config.exp.*.yaml` | experiment arms; the record behind FINDINGS.md |
+
+```bash
+uv run dubadabidu run input/lesson01.mp4 --overlay config.gpu.yaml --overlay config.gemini.yaml
+```
+
+Every key is validated against `pipeline/config_schema.py`, so a typo fails
+with its dotted path instead of being silently ignored.
+
+### Translation backend
+
+s3 talks to any OpenAI-compatible chat endpoint; the provider is a config
+choice under `translation:`. The key is read from the variable named by
+`translation.api_key_env` (`TRANSLATE_API_KEY`).
+
+| Provider | `base_url` | `model` | `response_format` | key |
 |---|---|---|---|---|
-| **DeepSeek (remote, DEFAULT)** | `https://api.deepseek.com` | `deepseek-flash` | `json_object` | real key |
-| OpenAI (remote) | `https://api.openai.com/v1` | `gpt-5-mini` | `json_object` | real key |
+| **DeepSeek (default)** | `https://api.deepseek.com` | `deepseek-flash` | `json_object` | real key |
+| OpenAI | `https://api.openai.com/v1` | e.g. `gpt-5-mini` | `json_object` | real key |
 | LM Studio (local) | `http://127.0.0.1:1234/v1` | e.g. `google/gemma-4-e4b` | `json_schema` | any non-empty string |
 | Ollama (local) | `http://localhost:11434/v1` | e.g. `qwen3:32b` | `json_object` | any non-empty string |
 
-DeepSeek is the default: every downstream stage inherits translation quality,
-it costs <$1/video with automatic context caching, and small local models were
-the weakest link of the whole chain. Local endpoints remain a pure config swap
-(restore a `base_url`/`model`/`response_format` triple above) for offline work.
-Optional `translation.reflect_model` runs only the reflect (critic) pass of the
-3-pass scheme on a stronger model — the cheapest known quality lever.
-
-**`response_format`** — providers diverge on how they enforce JSON output:
-`json_object` (DeepSeek/OpenAI/Ollama), `json_schema` (LM Studio — strict schema,
-best for small local models), or `text` (no server enforcement; ```json fences
-are stripped automatically). Using the wrong one yields errors like
+`translation.reflect_model` runs only the critic pass of the 3-pass scheme on a
+stronger model. Small local models can drop segments; if you see
+`LLM dropped segments … re-run s3`, lower `translation.batch_size`. For local
+endpoints the transcript context is capped at `translation.max_context_chars`.
+A wrong `response_format` produces errors like
 `'response_format.type' must be 'json_schema' or 'text'`.
 
-### LM Studio setup
-1. Developer tab (`>_`) → load `google/gemma-4-e4b` → **Start Server**. Default port
-   is `1234` (pin it in Developer > Settings if you don't want it to change); use
-   the exact model id from `GET /v1/models` as `model`.
-2. If you enabled *"Require API Key"* in the server settings, `export
-   TRANSLATE_API_KEY=<that-key>`; otherwise any non-empty value works, e.g.
-   `export TRANSLATE_API_KEY=lm-studio`.
-3. Set `response_format: json_schema` in `config.yaml` (LM Studio rejects
-   `json_object`).
+### Reference voice
 
-Small local models can still drop or mangle segments; if you hit
-`LLM dropped segments … re-run s3`, lower `translation.batch_size` (e.g. 20 → 5).
+Record 2–4 clean 15–20 s WAV clips (quiet room, no music, natural teaching
+tone; `ref/README.txt` has the checklist), put them in `ref/` (git-ignored) and
+set `tts.reference_wav`. The Ukrainian reference is cloned through Qwen3-TTS's
+speaker-embedding path (`qwen_x_vector_only`). `tts.reference_max_s` trims it:
+quality climbs to ~15 s and then degrades. The reference is a curated asset;
+per-video references measured worse (FINDINGS §2.2).
 
-For local endpoints (base_url on 127.0.0.1/localhost) the full-transcript
-context in the system prompt is automatically capped at
-`translation.max_context_chars` (default 12000) so long lessons don't
-silently overflow a small model's context window. Remote providers always
-get the full transcript — on DeepSeek its context caching makes that
-effectively free after the first batch.
+## Cost
 
-## Run
+Measured on RunPod, from `runs.jsonl`: about **$1.10–1.22 per hour of video for
+all 5 languages** (~$0.22 per language), plus a fixed bootstrap of a few
+minutes per pod. RAM and vCPU are bundled with the GPU and not billed
+separately. Translation with DeepSeek costs well under $1 per video. Re-derive
+the number from your own runs instead of quoting it:
+`python -c "from pipeline.runlog import cost_per_video_hour as c; print(c())"`.
+Always cap a run with `--budget` and check `remote status` afterwards.
 
-```bash
-dubadabidu run input/lesson01.mp4                 # all stages, all languages
-dubadabidu run input/*.mp4 --langs en,de          # subset
-dubadabidu run input/a.mp4 --to s7_subtitles      # stop before mux (audio+subs only)
-dubadabidu stage s3_translate input/lesson01.mp4  # single stage re-run
-dubadabidu qc input/lesson01.mp4                  # back-transcription WER + similarity report
-dubadabidu bakeoff input/a.mp4 --langs en         # TTS engine head-to-head (Phase C)
-dubadabidu autopilot input/a.mp4                  # spec-driven accept/fix loop
-dubadabidu verdicts input/a.mp4 ratings_a_en_x.json  # ingest review-page verdicts
-```
-
-**GPU on RunPod (M2 — automated lifecycle):** `dubadabidu remote <task> <video>`
-provisions an on-demand pod (RunPod REST v2), runs the task, syncs results back,
-and ALWAYS terminates (hard budget cap + independent pod-side self-destruct
-watchdog). The source video never uploads — s1/s2 run locally, the pod works from
-`work/` audio stems, and the mux runs locally after sync-back. Requires
-`RUNPOD_API_KEY` in `.env` and an SSH key at `runpod.ssh_key` (its `.pub` is sent
-to the pod as `PUBLIC_KEY`). A prebuilt image (`docker/Dockerfile`, built by
-`.github/workflows/image.yml`) cuts the ~11-min bootstrap; see `runpod.image`.
+## Development
 
 ```bash
-dubadabidu remote smoke                            # ~$0.02 lifecycle check
-dubadabidu remote setup-check                      # ~$0.02-0.05: dry-run the
-                                                   #   installs, report which
-                                                   #   engines import (do this
-                                                   #   BEFORE a real bakeoff)
-dubadabidu remote run  input/a.mp4 --langs fr --budget 10   # translate+synth on GPU
-dubadabidu remote bakeoff input/a.mp4 --langs en   # engine bake-off on GPU
-dubadabidu remote autopilot input/a.mp4            # accept/fix loop on GPU
-dubadabidu remote status                           # list account pods (leak check)
-dubadabidu remote kill                             # terminate any tracked pod
+uv run pytest -q
 ```
 
-Recommended workflow per video:
-1. `dubadabidu preamble input/lesson01.mp4` — runs s1+s2+prep (extracts 2–3 ref
-   candidates from the video's own vocals), then pauses. **Hand-review the
-   Ukrainian text in the manifest** (art terminology — one fix here propagates
-   to all languages).
-2. `dubadabidu preamble input/lesson01.mp4` again — translates the tune language
-   and runs tune-lite R1. The curated `tts.reference_wav` stays in force unless
-   `tune.per_video_ref_override` is on (FINDINGS §2.2: per-video references lost).
-3. `run --from s3_translate` the rest. 4. `qc`. 5. Fix flagged segments in the
-   manifest, re-`run` from s4.
+```bash
+uvx ruff check .
+```
+
+After changing a dependency in `pyproject.toml`, run `uv lock` and
+`scripts/export_requirements.sh` (`requirements.txt` is the pod's generated
+Linux export, `+cu128` torch; CI checks it is current).
+
+Pinned versions that matter, and why, are commented in `pyproject.toml`
+(`transformers==4.57.3`, `av<19`, torch/torchaudio 2.11.0 from the cu128 index
+on Linux). Measured results and closed questions are in `FINDINGS.md`; read
+its CLOSED table before spending a pod.
+
+## Roadmap
+
+Open work, in order. Everything else from the earlier planning docs is done
+or closed by evidence (FINDINGS.md, CLOSED table).
+
+**Next**
+- One full ~1 h lesson end-to-end on the pod, all 5 languages
+  (`python -m pipeline.course`, `--reuse --keep-alive`), wall clock and $
+  recorded in `runs.jsonl`. Re-test `tts.best_of: 2` on it: how often is the
+  shipped take marked unusable?
+- The 20-video batch (~15 min/video of review on worst-first pages), then
+  publish per-language audio (YouTube multi-language audio; `per_language`
+  MP4s as the fallback).
+- Point `runpod.image` at the GHCR tag once `.github/workflows/image.yml` has
+  pushed one, then `remote setup-check` (never trust an image tag).
+- Widen `specs/batch.yaml` `policy.langs` from `[en]` to all five (a human edit).
+
+**Planned**
+- Vast.ai as the second provider — MIGRATION_VAST.md.
+
+**Deferred, each with its trigger**
+- Enhancement / bandwidth pass — 24 kHz dullness audible through real speakers.
+- RVC timbre training — voice-fidelity complaints return at scale.
+- WhisperX re-cut of subtitles to dubbed timing — subtitle-timing complaints.
+- Gradio UI / multi-GPU s4 — a productization decision.
+- Cross-model ASR consensus (catches silent omissions) and f0/wer scoring on
+  GPU — FINDINGS §5.
+- `pyright --basic` in CI on `pipeline/`.
+
+Comments tagged `PLAN_v0.5 Pn` or `IMPROVEMENT_PLAN Phase X` refer to planning
+docs retired in 1.0.0: `git show d7ffdc6:PLAN_v0.5.md` /
+`git show d7ffdc6:IMPROVEMENT_PLAN.md`.
 
 ## License
 
@@ -250,69 +282,13 @@ later** (AGPL-3.0-or-later); see [`LICENSE`](LICENSE). If you run a modified
 version as a network service, you must offer its source to that service's users.
 
 The licence covers this code only. Model weights and third-party engines keep
-their own licences (notes below), and the audio this pipeline produces is not
-covered by the AGPL.
+their own licences, and the audio this pipeline produces is not covered by the
+AGPL. See `THIRD_PARTY.md` for the engine stack and its obligations.
 
-## Licensing notes
+- Qwen3-TTS (the cloning engine): Apache-2.0, no watermark.
+- `pedalboard` (s6 mastering) is GPLv3 and kept opt-in (`.[master]`); it only
+  processes audio, so its output is not a derivative.
+- XTTS-v2 (Coqui CPML, non-commercial) and Fish-Speech weights (CC-BY-NC) are
+  deliberately not wired in.
 
-- Qwen3-TTS (the only cloning engine since 2026-08-02): Apache-2.0 — OK for your
-  commercial courses, and no watermark. (Chatterbox, which used to sit here, was
-  MIT but stamped every take with an inaudible PerTh watermark.)
-- `pedalboard` (s6 mastering) is GPLv3, kept OPT-IN as the `.[master]` extra: it
-  only processes audio, so the WAV it emits is not a derivative. GPLv3 is
-  compatible with this project's AGPL-3.0, so installing it changes nothing.
-- Do NOT ship XTTS-v2 output commercially (Coqui CPML is non-commercial), and keep
-  Fish-Speech weights (CC-BY-NC) out; neither is wired in here, on purpose.
-
-## New in v0.5 (review release, PLAN_v0.5.md)
-
-- RunPod client moved to **REST v2** (v1 was retired 2026-11-15): one GPU type per
-  create with an in-order fallback, `minCudaVersion` driver floor, `startSsh`.
-- **uv.lock** pins the whole stack (torch cu128 on Linux); the pod runs
-  `uv sync --frozen`; `requirements.txt` is generated; ruff + `uv lock --check` in CI.
-- Prebuilt pod image (`docker/Dockerfile`) reused only when its lock stamp matches.
-- Translation model `deepseek-flash` (v4-flash retired); `doctor` checks the
-  endpoint serves it; the answering checkpoint is recorded per language.
-- ru-stress fine-tune A/B wired (`experiments.yaml` `ru-ft-*`, human-gated);
-  per-language qwen checkpoint (`tts.qwen_model_dir_by_lang`); marks on a
-  checkpoint not trained on them are refused.
-- `qc/judge.py`: Audiobox Aesthetics validated against the 72 rated groups —
-  refuted (FINDINGS §2.1s).
-
-## New in v0.4 (quality + flywheel release)
-
-- **Soft-anchor timeline (s5/s6/s7)**: dubs may drift up to `fit.drift_max_s`
-  after their source start, eating pause time instead of being stretched or
-  shortened; drift resets at real source pauses. Mix overlap is impossible by
-  construction (`drift_exceeded` replaces the old `overrun_s` flag); subtitles
-  follow the placed dub timing. Replaces `fit.borrow_gap_s`.
-- **Composite take ranking (s4/s5)**: with `tts.rank_takes` (default on), all
-  `best_of` takes are scored on windowed MOS + f0 liveliness + ECAPA speaker
-  similarity and the composite-best wins — take selection now sees monotony
-  and clone drift, not just naturalness. Per-take metrics land in the
-  manifest (`tr.takes`).
-- **Verdict flywheel (AUTOPILOT M3)**: review pages grew accept/reject
-  buttons; `dubadabidu verdicts <video> <exported.json>` writes
-  `human_rating`/`human_verdict` into the manifest and accumulates rows in
-  `ratings_<lang>.json` for the periodic qc-weight re-fit. The autopilot
-  never re-rolls an accepted segment and always re-rolls a rejected one;
-  autopilot re-rolls of WER-flagged segments back-transcribe every fresh
-  take and veto hallucinations.
-- **Number-safe backcheck WER**: digits are expanded to words (num2words) on
-  both sides before WER, so "25" vs "twenty-five" no longer false-flags
-  measurement-heavy segments. Whisper is a singleton across QC rounds.
-- s3: TTS pace measurement is filtered by engine; transcript context is
-  capped for local (LM Studio/Ollama) endpoints. Polish dropped from config.
-
-## New in v0.2.0 (real-tool release)
-
-- console command `dubadabidu` (pyproject packaging, `pip install -e .`)
-- `doctor` — environment validation with actionable hints
-- `report` — per-language fit/QC table; `qc` now prints it too
-- device auto-detection (cuda -> mps -> cpu) + faster-whisper CPU/int8 fallback
-- unified TTS engine module with retries; `--engine edge` flag for free CPU runs
-- LLM translation: retry with exponential backoff, env-key validation,
-  drop-detection, per-batch checkpointing, stage progress in manifest
-- s6 frame-rate normalization bugfix (24k segments onto 44.1k timeline)
-- unit tests (10) for segment merging, fit ladder, cache hashing: `pytest`
-- IMPROVEMENT_PLAN.md — prioritized roadmap
+Release history: `CHANGELOG.md`.

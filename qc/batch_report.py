@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Batch report (IMPROVEMENT_PLAN Phase D): one matrix over every processed
 video — per video x language means (score/sim/mos), flagged-segment counts,
 and links to review pages. The worst-first table the human review loop starts

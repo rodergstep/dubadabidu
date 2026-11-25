@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Offline validation of learned audio judges against the listener's picks
 (PLAN_v0.5 P5).
 

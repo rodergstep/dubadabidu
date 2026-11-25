@@ -19,7 +19,7 @@ jobs:
           # Match the POD, not the Mac. The pod image moved to python3.12 on
           # 2026-08-02 (runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404); CI on
           # 3.11 would stop testing the version production actually runs.
-          # pyproject allows >=3.10,<3.13, so 3.12 is the top of the range.
+          # pyproject allows >=3.11,<3.13, so 3.12 is the top of the range.
           python-version: "3.12"
 
       # The heavy ML stack (torch, speechbrain, distillmos, audio-separator) is

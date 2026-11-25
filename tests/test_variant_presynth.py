@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """s4's fit-variant pre-synthesis (s4_synthesize.VARIANT_MARGIN).
 
 s4 pre-makes the shorter variants s5 would otherwise synthesize itself, because

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Dependency contract: pyproject.toml declares, uv.lock pins, requirements.txt
 is EXPORTED from the lock (`uv export`), never hand-written.
 
@@ -459,3 +460,41 @@ def test_doctor_still_fails_on_a_cuda_box(monkeypatch):
     """On a GPU machine the engine really is required."""
     rc, out = _doctor_lines(monkeypatch, device="cuda", runpod_key=True)
     assert "[!!] python: qwen_tts" in out and rc != 0
+
+
+def test_doctor_warns_without_failing_when_pedalboard_is_missing(monkeypatch):
+    """mix.master.enabled is on by default but pedalboard is the opt-in
+    `.[master]` extra: doctor must say so (s6 would stop) without failing a
+    setup that is otherwise fine."""
+    import builtins
+    real_import = builtins.__import__
+
+    def fake_import(name, *a, **k):
+        if name == "pedalboard":
+            raise ImportError("no pedalboard")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    rc_missing, out = _doctor_lines(monkeypatch, device="mps", runpod_key=True)
+    assert "[w ] python: pedalboard missing" in out
+    assert "uv sync --extra master" in out
+    monkeypatch.setattr(builtins, "__import__", real_import)
+    rc_present, _ = _doctor_lines(monkeypatch, device="mps", runpod_key=True)
+    assert rc_missing == rc_present
+
+
+def test_doctor_warns_when_ffmpeg_lacks_rubberband(monkeypatch):
+    import subprocess
+    import shutil
+    import dub
+
+    class _P:
+        stdout = " ... atempo  A->A  Adjust audio tempo.\n"
+
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+    real_run = subprocess.run
+    monkeypatch.setattr(dub.subprocess, "run", lambda cmd, **k: _P()
+                        if cmd[:2] == ["ffmpeg", "-hide_banner"] else real_run(cmd, **k))
+    _, out = _doctor_lines(monkeypatch, device="mps", runpod_key=True)
+    assert "[w ] ffmpeg: no rubberband filter" in out
+    assert "falls back to atempo" in out

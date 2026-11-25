@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Pre-TTS text normalization, applied ONLY at the synthesis boundary.
 
 Two layers:
@@ -202,27 +203,6 @@ def accent_ru(text: str) -> str:
     except Exception as e:
         log.warning("RUAccent unavailable (%s); synthesizing unaccented", e)
         return text
-
-
-def marked_words(lang: str) -> set[str]:
-    """Surface forms a native listener flagged as mis-stressed, read from
-    stress_lexicon_<lang>.json.
-
-    Kept after reduction respelling was refused (FINDINGS 2.1o) because the
-    LEXICON is not what was wrong — the respelling was. This is still the list
-    translation.avoid_mis_stressed routes around, and the only durable output
-    of the word-marking loop.
-    """
-    import json
-    from pathlib import Path
-    p = Path(f"stress_lexicon_{lang}.json")
-    if not p.exists():
-        return set()
-    try:
-        lex = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return set()
-    return {f for e in lex.values() for f in (e.get("forms") or [])}
 
 
 def normalize_for_tts(text: str, lang: str, tts_cfg: dict | None = None) -> str:

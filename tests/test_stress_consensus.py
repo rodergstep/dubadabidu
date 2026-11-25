@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Consensus selection: the rule, not the audio."""
 from qc.stress_consensus import consensus, rank_takes, pick, MIN_VOTES
 

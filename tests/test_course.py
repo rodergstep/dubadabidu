@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Course runner: many videos, ONE pod."""
 import json
 import sys

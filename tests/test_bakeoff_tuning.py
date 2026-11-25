@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Bake-off tuning parity (IMPROVEMENT_PLAN Phase C: tune-lite on BOTH engines).
 
 Regression guard: the bake-off used to hand every challenger its library

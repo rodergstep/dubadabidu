@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """The digits corpus — written BEFORE the locale logic, deliberately.
 
 `localize_numbers` has never processed a number in production: 0 of 238

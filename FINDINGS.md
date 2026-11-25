@@ -418,7 +418,7 @@ independence at p=0.29: `best_of=2` → **8.2%** of segments still wrong,
 known quality defect from "no solution exists" (§2.1c) into "build the
 detector", with the payoff measured rather than hoped for.
 
-**BUT NO EXISTING METRIC DETECTS IT** — `qc/stress_wer.py`, the 28 rated takes:
+**BUT NO EXISTING METRIC DETECTS IT** — `qc/stress_wer.py` (removed in 1.0; `git show d7ffdc6:qc/stress_wer.py`), the 28 rated takes:
 
 | feature | error-take mean | clean mean | AUC | p |
 |---|---|---|---|---|
@@ -1380,7 +1380,11 @@ endpoint, and s3 records the checkpoint that ANSWERED in the manifest
 (`translation_models`). The batch videos are the first translated by V4.1 —
 compare one video's adequacy scores against sketch60 before trusting it.
 
-1. **RU wrong stress — SOLVABLE, and the path is now known (§2.1f).** Errors are
+1. **STATUS 2026-11-25: CLOSED — this item is superseded by the CLOSED table
+   at the top** (selection cannot reach the systematic errors, §2.1j; every
+   detector failed its gate; the fine-tune lost by ear, §2.1r). ru ships with
+   the defect. The text below is the 2026-08 reasoning, kept as the record.
+   **RU wrong stress — SOLVABLE, and the path is now known (§2.1f).** Errors are
    stochastic per take: 8 of 14 sentences had exactly one bad take and NONE had
    two, so correct audio already exists in every lesson and is being discarded at
    random. A stress-aware selector takes the error rate from ~29% to 8.2% at
@@ -1411,7 +1415,3 @@ adopted, free, §3. Reference selection — REFUTED as a lever, §2.2. ICL vs
 x_vector left on 2026-08-04, REFUTED by ear, §2. It had sat here reading as
 "in flight" for five days after it was settled, which is the same stale-status
 failure §4 warns about.)*
-
-*(ICL vs x_vector left this list on 2026-08-04 — REFUTED by ear, §2. It sat here
-reading as "in flight" for five days after it was settled, which is the same
-stale-status failure the file warns about in §4.)*

@@ -1,12 +1,17 @@
 [project]
 name = "dubadabidu"
-version = "0.4.0"
+version = "1.0.0"
 description = "Ukrainian -> multilingual AI video dubbing with voice cloning (Qwen3-TTS)"
 license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
 requires-python = ">=3.11,<3.13"   # 3.11 = Mac venv, 3.12 = pod + CI; numpy 2.4 dropped 3.10
 dependencies = [
   "faster-whisper==1.2.1",
+  # faster-whisper's own av dependency, capped: PyAV 19 removed the
+  # metadata_errors argument it passes (see constraint-dependencies below).
+  # Declared here as well because [tool.uv] constraints do not travel in the
+  # wheel — a plain pip install resolved av 19.0.2 on Linux/py3.12.
+  "av<19",
   # torch/torchaudio: DECLARED and LOCKED since v0.5 (uv.lock). On Linux they
   # resolve from the cu128 index ([tool.uv.sources] below) — the wheel must
   # match the OLDEST driver runpod.allowed_cuda_versions admits (plain PyPI
@@ -15,7 +20,7 @@ dependencies = [
   # audio-separator's unbounded torch>=2.3 from pulling 2.13.
   "torch==2.11.0",
   "torchaudio==2.11.0",
-  "edge-tts==7.2.8",
+  "edge-tts==7.3.1",
   "srt==3.5.3",
   "soundfile==0.14.0",
   "librosa==0.11.0",
@@ -78,7 +83,8 @@ mac = ["mlx-whisper==0.4.3; sys_platform == 'darwin' and platform_machine == 'ar
 # the default install stays permissive; it only processes audio, so the mixed
 # WAV output is not a derivative and course output stays unencumbered.
 master = ["pedalboard==0.9.24"]
-# Offline QC judges (PLAN_v0.5 P5) — LOCAL only, never on the pod. Meta's
+# Offline QC judges (FINDINGS §2.1s: refuted as a take judge; kept to
+# reproduce it) — LOCAL only, never on the pod. Meta's
 # Audiobox Aesthetics (CC-BY-4.0): per-clip PQ/CE/CU/PC axes.
 judge = ["audiobox_aesthetics==0.0.4"]
 dev = ["pytest==9.1.1"]   # ruff runs via `uvx ruff@<ver>` (CI), not from the env
@@ -104,6 +110,10 @@ packages = ["pipeline", "qc"]
 # Supply-chain guard: never lock a release younger than this date. Bump it
 # deliberately (then `uv lock --upgrade`), never to chase a same-day release.
 exclude-newer = "2026-11-05T00:00:00Z"
+# Per-package exception, deliberate: av 18.1.0 was yanked (double free when
+# decoding audio with custom channel layouts) and its fix, 18.1.1, was uploaded
+# 2026-11-21. Drop this when the global date passes it.
+exclude-newer-package = { av = "2026-11-22T00:00:00Z" }
 environments = [
   "sys_platform == 'darwin' and platform_machine == 'arm64'",
   "sys_platform == 'linux' and platform_machine == 'x86_64'",

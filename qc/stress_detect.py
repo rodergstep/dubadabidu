@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Detect WRONG lexical stress in synthesized Russian, from the audio.
 
 WHY THIS CAN WORK AT ALL, and why the first attempt could not.
@@ -20,7 +21,8 @@ me looking at the vowels).
 That is also why wrong stress sounds so wrong to a Russian listener rather than
 merely odd, and why back-transcription WER cannot see it: Whisper is robust to
 stress and still emits the right word (measured: error takes 0.090, clean 0.089,
-AUC 0.647 — qc/stress_wer.py).
+AUC 0.647 — qc/stress_wer.py, removed in 1.0;
+`git show d7ffdc6:qc/stress_wer.py`).
 
 THE ORACLE is RUAccent, which was never the broken part. Its marks destroyed
 qwen's audio when fed IN (97% unusable), but as a source of truth for which
@@ -39,6 +41,16 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    import numpy as np
+
+
+class Accentizer(Protocol):
+    """What RUAccent exposes and this module uses: '+' before the stressed vowel."""
+
+    def process_all(self, text: str) -> str: ...
 
 log = logging.getLogger("dubadabidu.qc.stress_detect")
 
@@ -87,7 +99,7 @@ def _load():
     return _model, _proc
 
 
-def phonemes(wave) -> str:
+def phonemes(wave: np.ndarray) -> str:
     """IPA phoneme string for one audio segment (space-separated tokens)."""
     import torch
     m, (fe, id2tok, blank) = _load()
@@ -119,7 +131,8 @@ def _vowel_seq(ipa: str) -> list[str]:
     return out
 
 
-def expected_stress_index(word: str, accentizer=None) -> int | None:
+def expected_stress_index(word: str,
+                          accentizer: Accentizer | None = None) -> int | None:
     """Which vowel of `word` should carry the stress, 0-based. None if unknown
     or the word is monosyllabic (nothing to get wrong)."""
     vowels = [c for c in word.lower() if c in VOWELS_CYR]
@@ -143,7 +156,7 @@ def expected_stress_index(word: str, accentizer=None) -> int | None:
     return None
 
 
-def observed_stress_on_o(wave) -> bool:
+def observed_stress_on_o(wave: np.ndarray) -> bool:
     """Does this audio realise a FULL [o]?
 
     THE PREMISE THAT FAILED, kept because the failure is the finding. The plan
@@ -173,7 +186,7 @@ SLICE_PAD_S = 0.12
 
 
 def word_mismatches(wav: Path, words: list[tuple[str, float, float]],
-                    accentizer) -> list[dict]:
+                    accentizer: Accentizer) -> list[dict]:
     """Per-word stress verdicts for one take. `words` is (text, start_s, end_s).
 
     Only words CONTAINING о are judged: they are the ones akanye makes audible.
@@ -274,7 +287,8 @@ if __name__ == "__main__":
     import glob
     import sys
     logging.basicConfig(level=logging.INFO)
+    if len(sys.argv) != 2:
+        sys.exit("usage: python -m qc.stress_detect <compare export .json>  "
+                 "(the listener's stress-marked compare-page export)")
     wd = glob.glob("work/Organising*")[0]
-    sys.exit(validate(
-        "/Users/diadumenoss/Downloads/compare_ru_stressing.json",
-        f"{wd}/bakeoff/compare_ru_truth.json", wd))
+    sys.exit(validate(sys.argv[1], f"{wd}/bakeoff/compare_ru_truth.json", wd))

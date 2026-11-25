@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """s7: per-language SRT (plus Ukrainian) from the manifest, lines wrapped <=42
 chars, with a reading-speed floor so cues timed to fast dub segments don't flash
 by faster than they can be read."""

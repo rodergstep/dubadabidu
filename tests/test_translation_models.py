@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Model-name drift guards: doctor's endpoint check and the answering-model
 record (PLAN_v0.5 P1)."""
 from types import SimpleNamespace

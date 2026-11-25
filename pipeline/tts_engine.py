@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Unified TTS engines. Both s4 (initial synthesis) and s5 (variant retries)
 go through synthesize() so caching and device handling live in one place.
 
@@ -8,7 +9,7 @@ Engines:
                The reusable clone prompt is built once per ref and cached.
                tts.qwen_fast routes through faster-qwen3-tts (CUDA graphs) —
                measured 14.0 -> 2.36 s/take, the PRODUCTION default.
-  edge       — edge-tts 7.2.8, free MS neural voices, CPU-only, no cloning.
+  edge       — edge-tts 7.3.1, free MS neural voices, CPU-only, no cloning.
 
 REMOVED 2026-07-31 (git history has them all): cosyvoice never produced audio
 in seven attempts; voxcpm and indextts lost to qwen+fast once its kernel-launch

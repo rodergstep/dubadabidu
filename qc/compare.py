@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Within-sentence comparison page — pick the best of N versions of ONE line.
 
 WHY THIS EXISTS, and why it replaces absolute rating for take selection.

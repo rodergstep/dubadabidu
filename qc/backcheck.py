@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """QC 1: back-transcription. Re-transcribe every fitted segment with faster-whisper
 in the TARGET language and compute WER vs. the text we asked TTS to speak.
 Catches hallucinations, repetitions, skipped sentences, garbled numbers — without
@@ -90,8 +91,9 @@ def _norm(s: str, lang: str) -> str:
     so a false flag costs a Whisper pass per take on a good segment until
     `_stuck_after` gives up and ESCALATEs.
 
-    Fixed HERE rather than in backcheck.run because segment_wer has four
-    callers — run(), the per-take veto, qc/bakeoff.py and qc/stress_wer.py —
+    Fixed HERE rather than in backcheck.run because segment_wer had four
+    callers — run(), the per-take veto, qc/bakeoff.py and qc/stress_wer.py
+    (removed in 1.0; `git show d7ffdc6:qc/stress_wer.py`) —
     and a fix at one call site is a fix the next caller forgets. _norm is the
     single point both sides of every comparison pass through.
     """

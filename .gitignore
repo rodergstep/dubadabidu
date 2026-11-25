@@ -33,3 +33,13 @@ work/.runpod_active.json
 # packaging artifacts (`uv build`)
 build/
 dist/
+
+# Claude Code local state (per-machine; never shared)
+.claude/settings.local.json
+.claude/worktrees/
+
+# engine clones (THIRD_PARTY.md installs qwen into third_party/)
+third_party/
+
+# autopilot's runtime playbook (pipeline/autopilot.py _log_fix appends to it)
+FIXES.md

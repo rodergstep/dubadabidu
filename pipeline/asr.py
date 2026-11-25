@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """ASR backend abstraction: faster-whisper (CUDA/CPU) or mlx-whisper (Apple Silicon).
 
 Both backends yield the SAME normalized segment shape so s2 stays

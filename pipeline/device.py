@@ -1,9 +1,11 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Device selection: cuda -> mps (Apple Silicon) -> cpu, with per-component overrides.
 
 Notes:
 - faster-whisper (CTranslate2) supports cuda/cpu only — MPS is NOT supported,
   so on a Mac ASR runs on CPU (int8 keeps it tolerable).
-- Chatterbox (torch) can try MPS on Apple Silicon; falls back to CPU on error.
+- torch_device() reports MPS on Apple Silicon (s1 RoFormer separation uses it);
+  qwen synthesis is CUDA-only (require_gpu) and runs on the pod.
 """
 from __future__ import annotations
 import functools

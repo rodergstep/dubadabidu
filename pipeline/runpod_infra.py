@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """M2 — RunPod lifecycle automation (AUTOPILOT.md infra agent).
 
 Provision a spot GPU pod -> rsync the project up -> run a task remotely ->

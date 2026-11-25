@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """qc-weight re-fit (AUTOPILOT.md M4 — the flywheel's payload).
 
 `dubadabidu refit` reads the accumulated (human rating, qc metrics) pairs that
@@ -91,7 +92,7 @@ def simplex(step: float = 0.05, keys: tuple = KEYS) -> list[dict]:
     n = int(round(1.0 / step))
     out = []
 
-    def walk(i: int, left: int, acc: list[int]):
+    def walk(i: int, left: int, acc: list[int]) -> None:
         if i == len(keys) - 1:
             # rounded: v*step accumulates float noise (0.6000000000000001),
             # which leaks into the proposal printed for a human to paste
@@ -624,9 +625,8 @@ def group_rows(rows: list[dict], warn: bool = False) -> list[list[dict]]:
         if not all(k in r and r[k] is not None for k in NEEDED):
             missing += 1
             continue
-        if True:
-            by.setdefault((r.get("video"), r.get("lang"), r.get("build"),
-                           r.get("group")), []).append(r)
+        by.setdefault((r.get("video"), r.get("lang"), r.get("build"),
+                       r.get("group")), []).append(r)
     if warn and missing:
         print(f"  !! {missing} comparison row(s) dropped for missing "
               f"{'/'.join(NEEDED)} — re-ingest with a current qc/compare.py")

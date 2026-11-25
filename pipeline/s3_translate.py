@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """s3: LLM translation via OpenAI-compatible endpoint (DeepSeek / Ollama / OpenAI)
 with retry+backoff, per-batch checkpointing, isometric constraint, glossary,
 and n-best shorter variants. See prompts/translate_system.md."""
@@ -6,6 +7,10 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 import csv, json, logging, os, re, time
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from openai import OpenAI
 from . import manifest as M
 
 log = logging.getLogger("dubadabidu.s3")
@@ -213,8 +218,8 @@ def _measured_cps(cfg: dict, lang: str, min_samples: int = 10) -> float | None:
     the LLM aim at the actual slot instead of guessing.
 
     Samples are filtered to the engine that will synthesize THIS run (edge
-    voices pace differently from Chatterbox — Mac edge prototyping must not
-    skew GPU chatterbox budgets). Legacy samples with no engine tag are used
+    voices pace differently from qwen — Mac edge prototyping must not skew
+    GPU qwen budgets). Legacy samples with no engine tag are used
     only as a fallback when the engine-matched pool is too small."""
     import statistics
     from .manifest import resolve_engine
@@ -345,7 +350,7 @@ def configured_models(tcfg: dict) -> list[str]:
     return sorted({n for n in names if n})
 
 
-def missing_models(client, tcfg: dict) -> list[str]:
+def missing_models(client: OpenAI, tcfg: dict) -> list[str]:
     """Configured model names the endpoint does not list. Catches a provider
     retiring a name (deepseek-v4-flash, 2026-09-10) before a paid run silently
     gets routed to an unevaluated replacement — or fails mid-batch."""

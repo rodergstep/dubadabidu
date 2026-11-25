@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """PLAN_v0.5 P7: every shipped config combination validates, and a typo fails
 loudly with its dotted path instead of being silently ignored."""
 import copy
@@ -43,3 +44,30 @@ def test_a_wrong_enum_value_fails() -> None:
     cfg["translation"]["response_format"] = "json"
     with pytest.raises(ConfigError, match=r"translation\.response_format"):
         validate(cfg)
+
+
+def test_tune_round_r2_is_still_accepted() -> None:
+    """R2 (the chatterbox cfg_weight x exaggeration grid) was removed as
+    unreachable; an old overlay that still lists it must validate, and tune
+    logs it as skipped rather than failing."""
+    cfg = copy.deepcopy(_load("config.yaml"))
+    cfg["tune"]["rounds"] = ["R1", "R2", "R3"]
+    validate(cfg)
+
+
+@pytest.mark.parametrize("block,key,src", [
+    ("translation", "avoid_mis_stressed", "pipeline/s3_translate.py"),
+])
+def test_schema_default_matches_the_code_default(block: str, key: str,
+                                                 src: str) -> None:
+    """Stages read the raw dict, so the code's .get() default is the one that
+    applies; the schema's declared default must not claim otherwise."""
+    import re
+
+    from pipeline.config_schema import Config
+    model = Config.model_fields[block].annotation
+    declared = model.model_fields[key].default
+    code = open(src, encoding="utf-8").read()
+    found = re.findall(rf'get\("{key}", (True|False)\)', code)
+    assert found, f"{src} no longer reads {key} with a literal default"
+    assert {repr(declared)} == set(found)

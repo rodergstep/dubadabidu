@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Listening page for a tune-lite sweep — one row per grid point, all takes.
 
 The bake-off HTML compares ENGINES; a sweep compares configurations of one

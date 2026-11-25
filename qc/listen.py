@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Side-by-side listening page for engine VARIANTS, with every take.
 
     python -m qc.listen <video> [lang] [variant ...]
@@ -51,8 +52,9 @@ def build(wd: Path, lang: str, variants: list[str]) -> Path:
          "td,th{border-color:#333}.m{color:#aaa}.note{background:#2a2410}}",
          "</style>", f"<h1>listen — {lang}</h1>",
          "<div class='note'><b>Measured run-to-run noise floor</b> (identical "
-         "config run twice): sim &plusmn;0.010 &middot; mos &plusmn;0.007 "
-         "&middot; wer &plusmn;0.005 &middot; <b>f0st &plusmn;0.438</b>. "
+         f"config run twice): sim &plusmn;{NOISE['sim']:.3f} &middot; mos "
+         f"&plusmn;{NOISE['mos']:.3f} &middot; wer &plusmn;{NOISE['wer']:.3f} "
+         f"&middot; <b>f0st &plusmn;{NOISE['f0']:.3f}</b>. "
          "Anything smaller than these is not a difference. f0st cannot rank "
          "anything at this sample size, so it is struck through below.</div>",
          "<table><tr><th>variant</th><th>metrics</th></tr>"]

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Review page: work/<video>/review_<lang>.html — self-contained, offline.
 
 Per segment: dubbed audio + the real UA slice side by side, metric badges,

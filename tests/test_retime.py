@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 from pipeline.logic import retime_step
 from pipeline.tts_engine import _take_rank
 

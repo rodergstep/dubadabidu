@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Dub a whole course: many videos, ONE pod.
 
     python -m pipeline.course input/complex_oil_still_life_on_canvas

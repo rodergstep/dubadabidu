@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Word-level stress marking — the label every remediation route needs.
 
 WHY THIS EXISTS. FINDINGS closes automated Russian stress detection: four

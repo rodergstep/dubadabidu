@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Central per-video manifest (pattern from Softcatala/open-dubbing utterance_metadata).
 
 work/<video>/manifest.json:

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """One take per variant on the comparison page."""
 from pathlib import Path
 import soundfile as sf
