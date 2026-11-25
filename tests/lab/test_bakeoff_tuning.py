@@ -368,4 +368,23 @@ def test_engine_available_is_import_only():
     # qwen_tts would have reported "available" and failed at synthesis.
     import importlib.util
     if importlib.util.find_spec("qwen_tts") is None:
-        assert engine_available("qwen", {"qwen_fast": True}) is False
+        assert engine_available("qwen", toy_tts(qwen_fast=True)) is False
+
+
+def test_qwen_needs_faster_qwen3_tts_only_when_qwen_fast_is_on(monkeypatch):
+    """The loader runs faster_qwen3_tts only with tts.qwen_fast; stock qwen
+    needs qwen_tts alone. The probe demanded the fast package whenever
+    qwen_fast was unset (ARCHITECTURE_PLAN.md §10.2 #1)."""
+    import importlib.util
+    from dubadabidu.engines.tts import engine_available
+    installed = {"qwen_tts"}
+    monkeypatch.setattr(importlib.util, "find_spec",
+                        lambda name: object() if name in installed else None)
+    assert engine_available("qwen", toy_tts(engine="qwen")) is True
+    assert engine_available("qwen", toy_tts(engine="qwen", qwen_fast=False)) is True
+    assert engine_available("qwen", None) is True
+    assert engine_available("qwen", toy_tts(engine="qwen", qwen_fast=True)) is False
+    installed.add("faster_qwen3_tts")
+    assert engine_available("qwen", toy_tts(engine="qwen", qwen_fast=True)) is True
+    installed.clear()
+    assert engine_available("qwen", toy_tts(engine="qwen")) is False

@@ -22,10 +22,11 @@ what the commands printed. tests/neutrality/test_neutrality.py compares the
 snapshot with golden_<mode>.json; scripts/neutrality_diff.py compares two git
 revisions with each other.
 
-translation.lang_workers is pinned to 1 by the harness overlay: with one
-thread per language, the order of keys in tr{} (and so the manifest's bytes)
-depends on which thread saves first. That is a property of production, not
-of this harness — see ARCHITECTURE_PLAN.md §10.2.
+translation.lang_workers is pinned to 1 by the harness overlay. It was needed
+while the order of keys in tr{} depended on which language thread saved
+first (ARCHITECTURE_PLAN.md §10.2); s3 now writes the sequential order either
+way (tests/stages/test_s3_parallel_order.py), and the pin keeps the recorded
+LLM request order, and so the goldens, stable.
 """
 from __future__ import annotations
 

@@ -69,6 +69,15 @@ live in `ledger/runs.jsonl`. This file records what changed in the software.
   purpose (uk) is the real dub. Verdict ingestion still refuses every edge
   language.
 
+### Fixed
+- `s5_fit` no longer reports qwen as "not installed" on a machine that has
+  `qwen_tts` but not `faster_qwen3_tts` when `tts.qwen_fast` is off or unset.
+  The availability check demanded the fast package whenever `qwen_fast` was not
+  explicitly false; the loader only uses it when `qwen_fast` is true.
+- s3 writes the same manifest bytes however its language threads finish: each
+  line's translations, `stages` and `translation_models` are saved in language
+  order. Before, two runs of the same translation could differ in key order.
+
 ## [1.0.0] — 2026-11-25
 
 Release cleanup. No pipeline logic, default config values or model choices

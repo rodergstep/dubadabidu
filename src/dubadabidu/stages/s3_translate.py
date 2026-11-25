@@ -317,6 +317,16 @@ def _adequacy(ask, shared: str, batch: list, src: str, lang: str, flag: int,
                     ", ".join(f"{i}({sc}:{iss[:40]})" for i, sc, iss in flagged))
 
 
+def _ordered(d: dict, before: list[str], new: list[str]) -> dict:
+    """`d` with its keys in the order a sequential run leaves them: the keys it
+    had before this run, then the ones added for each language in `langs`
+    order, then anything else as it stands."""
+    keys = [k for k in before if k in d]
+    keys += [k for k in new if k in d and k not in keys]
+    keys += [k for k in d if k not in keys]
+    return {k: d[k] for k in keys}
+
+
 def run(cfg: Config, video: str, langs: list[str]) -> None:
     from openai import OpenAI
     tcfg = cfg.translation
@@ -338,6 +348,25 @@ def run(cfg: Config, video: str, langs: list[str]) -> None:
     # disjoint; `man["stages"]` and the save itself are NOT, hence _save_lock.
     # API calls stay OUTSIDE the lock or this would be sequential again.
     save_lock = threading.Lock()
+    # Threads add tr[<lang>], stages["s3_<lang>"] and translation_models[<lang>]
+    # in whichever order they finish, so the manifest's bytes depended on
+    # timing. Each save writes a copy in the order one language at a time
+    # produces (ARCHITECTURE_PLAN.md §10.2). A copy, not an in-place reorder:
+    # _adequacy writes into these dicts outside the lock.
+    before_tr = [list(u["tr"]) for u in man["utterances"]]
+    before_stages = list(man["stages"])
+    before_models = list(man.get("translation_models", {}))
+
+    def _save() -> None:
+        out = dict(man)
+        out["utterances"] = [dict(u, tr=_ordered(u["tr"], before_tr[i], langs))
+                             for i, u in enumerate(man["utterances"])]
+        out["stages"] = _ordered(man["stages"], before_stages,
+                                 [f"s3_{lang}" for lang in langs])
+        if "translation_models" in man:
+            out["translation_models"] = _ordered(man["translation_models"],
+                                                 before_models, langs)
+        M.save(cfg, video, out)
 
     def _one_lang(lang: str) -> None:
         todo = [u for u in man["utterances"] if "text" not in u["tr"].get(lang, {})]
@@ -458,14 +487,14 @@ def run(cfg: Config, video: str, langs: list[str]) -> None:
                 _adequacy(_ask, adeq_shared, batch, src, lang, flag, tcfg)
             with save_lock:
                 man["stages"][f"s3_{lang}"] = f"{min(i+bs, len(todo))}/{len(todo)}"
-                M.save(cfg, video, man)
+                _save()
             log.info("%s: %d/%d", lang, min(i + bs, len(todo)), len(todo))
         with save_lock:
             man["stages"][f"s3_{lang}"] = "done"
             # which checkpoint(s) actually answered, merged across resumed runs
             prev = man.setdefault("translation_models", {}).get(lang, [])
             man["translation_models"][lang] = sorted(set(prev) | answered)
-            M.save(cfg, video, man)
+            _save()
 
     # one worker per language unless translation.lang_workers says otherwise
     workers = max(1, int(tcfg.lang_workers if tcfg.lang_workers is not None
