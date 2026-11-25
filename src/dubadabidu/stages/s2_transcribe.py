@@ -14,6 +14,7 @@ from dubadabidu.core import manifest as M
 from dubadabidu.core.languages import glossary_lead
 from dubadabidu.engines.asr import transcribe
 from dubadabidu.core.logic import merge_segments, split_at_pauses
+from dubadabidu.core.config.schema import Asr, Config
 
 log = logging.getLogger("dubadabidu.s2")
 
@@ -22,16 +23,16 @@ log = logging.getLogger("dubadabidu.s2")
 # (core.languages.glossary_lead).
 
 
-def _initial_prompt(a: dict, src: str) -> str | None:
+def _initial_prompt(a: Asr, src: str) -> str | None:
     """Bias the decoder toward the course's domain terms — the exact words
     otherwise fixed by hand in the manifest review. Built from the SOURCE
     side of glossary/<src>/*.csv (deduped across targets) plus any free-text
     asr.initial_prompt. Whisper reads only its last ~224 tokens, so keep it
     short; deterministic, so segmentation stays reproducible."""
     parts = []
-    if a.get("initial_prompt", "").strip():
-        parts.append(a["initial_prompt"].strip())
-    if a.get("glossary_prompt", True):
+    if a.initial_prompt.strip():
+        parts.append(a.initial_prompt.strip())
+    if a.glossary_prompt:
         terms: list[str] = []
         for p in sorted((Path("glossary") / src).glob("*.csv")):
             with p.open(encoding="utf-8") as fh:
@@ -46,7 +47,7 @@ def _initial_prompt(a: dict, src: str) -> str | None:
     return prompt or None
 
 
-def run(cfg: dict, video: str) -> None:
+def run(cfg: Config, video: str) -> None:
     wd = M.video_workdir(cfg, video)
     old = M.manifest_path(cfg, video)
     if old.exists():
@@ -61,20 +62,20 @@ def run(cfg: dict, video: str) -> None:
         if done:
             log.warning("re-transcribing DISCARDS existing translations/synth "
                         "state (%s) — old manifest kept at %s", done, bak.name)
-    a = cfg["asr"]
-    prompt = _initial_prompt(a, cfg["source_language"])
+    a = cfg.asr
+    prompt = _initial_prompt(a, cfg.source_language)
     if prompt:
         log.info("initial_prompt (%d chars): %s", len(prompt), prompt[:80])
-    segments = transcribe(a, wd / "vocals.wav", cfg["source_language"], prompt)
+    segments = transcribe(a, wd / "vocals.wav", cfg.source_language, prompt)
 
     raw = []
     for s in segments:
         words = s.get("words") or []
-        if words and a.get("pause_split_s"):
-            raw += split_at_pauses(words, a["pause_split_s"])
+        if words and a.pause_split_s:
+            raw += split_at_pauses(words, a.pause_split_s)
         else:
             raw.append({"start": s["start"], "end": s["end"], "text": s["text"]})
-    merged = merge_segments(raw, a["max_chars"], a["max_seconds"])
+    merged = merge_segments(raw, a.max_chars, a.max_seconds)
     _warn_on_repetition(merged)
 
     dur = float(subprocess.check_output(

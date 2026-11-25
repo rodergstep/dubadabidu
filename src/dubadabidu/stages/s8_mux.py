@@ -10,21 +10,22 @@ import logging
 import subprocess
 from pathlib import Path
 from dubadabidu.core import manifest as M
+from dubadabidu.core.config.schema import Config
 
 log = logging.getLogger("dubadabidu.s8")
 
 
-def run(cfg: dict, video: str, langs: list[str]) -> None:
+def run(cfg: Config, video: str, langs: list[str]) -> None:
     man = M.load(cfg, video)
     wd = M.video_workdir(cfg, video)
-    tags = cfg["mux"]["lang_tags"]
-    src = cfg["source_language"]
+    tags = cfg.mux.lang_tags
+    src = cfg.source_language
     # edge standing in for the cloning engine validates plumbing only. Name
     # it so it can never be mistaken for a judgeable dub — and so an edge
     # fixture run can never overwrite a real cloned _multi.mp4.
-    edge = M.edge_fallback_langs(man, langs, cfg["tts"])
+    edge = M.edge_fallback_langs(man, langs, cfg.tts)
     suffix = "_multi_EDGE-PLUMBING-ONLY.mp4" if edge else "_multi.mp4"
-    out = Path(cfg["output_dir"]) / f"{Path(video).stem}{suffix}"
+    out = Path(cfg.output_dir) / f"{Path(video).stem}{suffix}"
     out.parent.mkdir(parents=True, exist_ok=True)
     if edge:
         log.warning("%s synthesized with the EDGE fallback (generic voice, no "
@@ -49,7 +50,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         cmd += ["-map", f"{1 + len(langs) + i}:s"]
 
     cmd += ["-c:v", "copy", "-c:a", "copy",
-            "-c:s", cfg["mux"]["subtitle_codec"],
+            "-c:s", cfg.mux.subtitle_codec,
             "-metadata:s:a:0", f"language={tags[src]}",
             "-disposition:a:0", "default"]
     for i, lang in enumerate(langs, start=1):
@@ -72,11 +73,11 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     subprocess.run(cmd, check=True)
     print(f"[s8] {out}")
 
-    if cfg["mux"].get("per_language"):
+    if cfg.mux.per_language:
         _mux_per_language(cfg, video, langs, man, wd, tags, src, edge)
 
 
-def _mux_per_language(cfg: dict, video: str, langs: list[str], man: dict,
+def _mux_per_language(cfg: Config, video: str, langs: list[str], man: dict,
                       wd: Path, tags: dict, src: str, edge: list) -> None:
     """One MP4 per language: video + THAT dub only + its subtitles.
 
@@ -89,7 +90,7 @@ def _mux_per_language(cfg: dict, video: str, langs: list[str], man: dict,
     Deliberately NOT the original UA audio: a viewer picking the Spanish file
     wants Spanish, and a second track invites the same ambiguous-default
     problem the multi file just had."""
-    out_dir = Path(cfg["output_dir"])
+    out_dir = Path(cfg.output_dir)
     stem = Path(video).stem
     for lang in langs:
         suffix = ("_EDGE-PLUMBING-ONLY" if lang in edge else "")
@@ -100,7 +101,7 @@ def _mux_per_language(cfg: dict, video: str, langs: list[str], man: dict,
                # 0:v only — drop the source UA audio, take the dub as track 0
                "-map", "0:v", "-map", "1:a", "-map", "2:s",
                "-c:v", "copy", "-c:a", "copy",
-               "-c:s", cfg["mux"]["subtitle_codec"],
+               "-c:s", cfg.mux.subtitle_codec,
                "-metadata:s:a:0", f"language={tags[lang]}",
                "-disposition:a:0", "default",
                "-metadata:s:s:0", f"language={tags[lang]}",

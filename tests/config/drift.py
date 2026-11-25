@@ -35,9 +35,7 @@ DRIFT: dict[str, str] = {
                                   "config.yaml sets true",
     # --- separation / mix / mux ---
     "separation.enabled get <falsy>": "SCHEMA-WINS: doctor reads absent as off",
-    "separation.device get ''": "EQUIV: s1 compares str(value).lower() == 'cpu'",
     "mix.master.enabled get <falsy>": "SCHEMA-WINS: s6 and doctor read absent as off",
-    "mux.per_language get <falsy>": "SCHEMA-WINS: s8 reads absent as off",
     # --- tts ---
     "tts.qwen_fast get True": "BUG (§10.2 #1): engine_available assumes True, "
                               "the loader and synth_hash False; preserved "

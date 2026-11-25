@@ -17,6 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 from dubadabidu.core.manifest import video_workdir
+from dubadabidu.core.config.schema import Config, Separation
 
 log = logging.getLogger("dubadabidu.s1")
 
@@ -25,7 +26,7 @@ def sh(*args: str) -> None:
     subprocess.run(args, check=True)
 
 
-def _separate_roformer(sep_cfg: dict, work_dir: str, full: Path,
+def _separate_roformer(sep_cfg: Separation, work_dir: str, full: Path,
                        wd: Path) -> tuple[Path, Path]:
     """RoFormer separation via audio-separator; returns raw (vocals, background)
     stem paths. Checkpoints auto-download to work/.models/audio-separator;
@@ -38,8 +39,7 @@ def _separate_roformer(sep_cfg: dict, work_dir: str, full: Path,
             "([gpu] only swaps onnxruntime; RoFormer ckpts run on torch and use "
             "CUDA/MPS either way), or set separation.backend: demucs. "
             f"({e})") from e
-    model = sep_cfg.get("roformer_model",
-                        "model_bs_roformer_ep_317_sdr_12.9755.ckpt")
+    model = sep_cfg.roformer_model
     out_dir = wd / "roformer"
     # separation.device: cpu — force it off the GPU for THIS call only.
     # audio-separator picks its device by probing torch.backends.mps.is_available()
@@ -51,7 +51,7 @@ def _separate_roformer(sep_cfg: dict, work_dir: str, full: Path,
     # "may cause system failure", which is not a trade worth making on someone's
     # working laptop to save a few minutes of CPU time.
     _restore = None
-    if str(sep_cfg.get("device", "")).lower() == "cpu":
+    if (sep_cfg.device or "").lower() == "cpu":
         import torch
         if hasattr(torch.backends, "mps"):
             _restore = torch.backends.mps.is_available
@@ -107,7 +107,7 @@ def _separate_roformer(sep_cfg: dict, work_dir: str, full: Path,
     return pick("(Vocals)"), pick("(Instrumental)")
 
 
-def _separate_demucs(sep_cfg: dict, full: Path, wd: Path) -> tuple[Path, Path]:
+def _separate_demucs(sep_cfg: Separation, full: Path, wd: Path) -> tuple[Path, Path]:
     # demucs moved to the .[sep] extra on 2026-08-03 (it is s1-only, and s1
     # never runs on a pod). Say so, instead of letting the subprocess die with
     # a bare `No module named demucs` from `python -m`.
@@ -116,14 +116,14 @@ def _separate_demucs(sep_cfg: dict, full: Path, wd: Path) -> tuple[Path, Path]:
         raise FileNotFoundError(
             "demucs not importable — separation.backend: demucs needs it: "
             "pip install '.[sep]' (or switch to separation.backend: roformer).")
-    model = sep_cfg["demucs_model"]
+    model = sep_cfg.demucs_model
     sh(sys.executable, "-m", "demucs", "--two-stems=vocals", "-n", model,
        "-o", str(wd / "demucs"), str(full))
     stem_dir = wd / "demucs" / model / full.stem
     return stem_dir / "vocals.wav", stem_dir / "no_vocals.wav"
 
 
-def run(cfg: dict, video: str) -> None:
+def run(cfg: Config, video: str) -> None:
     wd = video_workdir(cfg, video)
     full = wd / "audio_full.wav"
     if not full.exists():
@@ -135,11 +135,11 @@ def run(cfg: dict, video: str) -> None:
         print(f"[s1] cached: {wd}")
         return
 
-    sep = cfg["separation"]
-    if sep["enabled"]:
-        backend = sep.get("backend", "roformer")
+    sep = cfg.separation
+    if sep.enabled:
+        backend = sep.backend
         if backend == "roformer":
-            raw_voc, raw_bg = _separate_roformer(sep, cfg["work_dir"], full, wd)
+            raw_voc, raw_bg = _separate_roformer(sep, cfg.work_dir, full, wd)
         elif backend == "demucs":
             raw_voc, raw_bg = _separate_demucs(sep, full, wd)
         else:

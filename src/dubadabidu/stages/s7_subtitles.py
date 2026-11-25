@@ -7,6 +7,7 @@ import datetime as dt
 import logging
 import srt
 from dubadabidu.core import manifest as M
+from dubadabidu.core.config.schema import Config
 
 log = logging.getLogger("dubadabidu.s7")
 
@@ -47,18 +48,18 @@ def _read_floor(start: float, end: float, text: str,
     return max(end, desired)
 
 
-def run(cfg: dict, video: str, langs: list[str]) -> None:
+def run(cfg: Config, video: str, langs: list[str]) -> None:
     man = M.load(cfg, video)
     wd = M.video_workdir(cfg, video)
     us = man["utterances"]
-    for lang in langs + [cfg["source_language"]]:
+    for lang in langs + [cfg.source_language]:
         subs = []
         for i, u in enumerate(us, 1):
             # fitted_text = what the dub actually says (may be a shorter variant);
             # subtitles must not contradict the audio. Timing follows the
             # PLACED dub (s5 soft-anchor timeline), not the source utterance —
             # otherwise subs vanish while the voice is still speaking.
-            if lang == cfg["source_language"]:
+            if lang == cfg.source_language:
                 text, start, end = u["text_src"], u["start"], u["end"]
                 nxt = us[i]["start"] if i < len(us) else None
             else:
