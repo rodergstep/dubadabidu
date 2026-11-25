@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from dubadabidu.core import manifest as M
-from dubadabidu.engines.tts_engine import synthesize
+from dubadabidu.engines.tts import synthesize
 from dubadabidu.core.config.schema import Config, derive
 from dubadabidu.core.manifest import LEGACY_CFG_WEIGHT, LEGACY_EXAGGERATION
 

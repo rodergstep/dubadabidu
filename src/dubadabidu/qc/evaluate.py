@@ -53,7 +53,7 @@ def _ua_slices(wd: Path, utterances: list[dict], max_slices: int = 6):
 
 def _floor_wav(cfg: Config, lang: str) -> Path | None:
     """Cached different-voice sample (edge-tts). None if synth fails (offline)."""
-    from dubadabidu.engines.tts_engine import synthesize
+    from dubadabidu.engines.tts import synthesize
     out = Path("work/.models") / f"floor_{lang}.wav"
     if out.exists():
         return out

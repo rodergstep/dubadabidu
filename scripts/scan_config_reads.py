@@ -27,7 +27,8 @@ INVENTORY = REPO / "tests" / "config" / "reads_inventory.json"
 ROOTS = frozenset({"cfg", "config", "base_cfg"})
 # parameter / local names that hold a config SUBTREE, per module basename
 PARAMS: dict[str, dict[str, str]] = {
-    "tts_engine.py": {"t": "tts", "tts_cfg": "tts", "tu": "tts"},
+    "qwen.py": {"t": "tts"},
+    "edge.py": {"t": "tts"},
     "selection.py": {"t": "tts", "tts_cfg": "tts"},
     "manifest.py": {"tts_cfg": "tts"},
     "text_norm.py": {"cfg": "tts"},
@@ -42,7 +43,8 @@ PARAMS: dict[str, dict[str, str]] = {
     "prep.py": {"p": "prep"},
     "tune.py": {"tn": "tune"},
     "bakeoff.py": {"t": "tts", "tcfg": "bakeoff.tune", "bcfg": "bakeoff"},
-    "__init__.py": {"tn": "tune", "sep": "separation", "tcfg": "translation"},  # cli
+    "__init__.py": {"tn": "tune", "sep": "separation", "tcfg": "translation",  # cli
+                    "t": "tts", "tts_cfg": "tts", "tu": "tts"},           # engines/tts
     "backcheck.py": {},
     "evaluate.py": {"ecfg": "qc.eval"},
     "refit.py": {"rcfg": "qc.refit"},

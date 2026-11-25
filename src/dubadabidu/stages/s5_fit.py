@@ -93,7 +93,7 @@ def run(cfg: Config, video: str, langs: list[str]) -> None:
                     # as a bare `No module named 'faster_qwen3_tts'` AFTER a
                     # paid pod run had produced every primary take.
                     try:
-                        from dubadabidu.engines.tts_engine import engine_available
+                        from dubadabidu.engines.tts import engine_available
                         ok = engine_available(M.resolve_engine(tu, lang), tu)
                     except Exception:
                         ok = True          # never block on the check itself

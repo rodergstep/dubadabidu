@@ -74,7 +74,7 @@ def stub_synth(monkeypatch, tmp_path):
     """Fake synthesis + metrics; the scores key off the grid point so we can
     assert which point tune-lite picks."""
     import dubadabidu.qc.metrics
-    from dubadabidu.engines import tts_engine
+    from dubadabidu.engines import tts as tts_engine
 
     def fake_synth(text, lang, out, t, retries=2):
         Path(out).write_bytes(b"wav")
@@ -124,7 +124,7 @@ def test_tune_lite_reports_every_trial_for_audit(stub_synth, tmp_path):
 
 
 def test_tune_lite_surfaces_an_uninstalled_engine(monkeypatch, tmp_path):
-    from dubadabidu.engines import tts_engine
+    from dubadabidu.engines import tts as tts_engine
 
     def missing(text, lang, out, t, retries=2):
         raise FileNotFoundError("qwen_tts not importable — git clone ...")
@@ -221,7 +221,7 @@ def test_one_failing_grid_point_is_skipped_not_fatal(monkeypatch, tmp_path):
     engine, the safe move would be never to widen a grid — which defeats the
     point. Only a total failure means the engine is unusable."""
     import dubadabidu.qc.metrics
-    from dubadabidu.engines import tts_engine
+    from dubadabidu.engines import tts as tts_engine
 
     def fake(text, lang, out, t, retries=2):
         if t.qwen_cfg == 9.9:                 # unsupported value
@@ -245,7 +245,7 @@ def test_one_failing_grid_point_is_skipped_not_fatal(monkeypatch, tmp_path):
 
 
 def test_engine_is_unavailable_only_when_every_point_fails(monkeypatch, tmp_path):
-    from dubadabidu.engines import tts_engine
+    from dubadabidu.engines import tts as tts_engine
 
     def always_fail(text, lang, out, t, retries=2):
         raise RuntimeError("worker died: No space left on device")
@@ -273,7 +273,7 @@ def test_removed_engines_stay_removed():
 def test_tune_disqualifies_points_under_the_monotony_floor(monkeypatch, tmp_path):
     """The sim+mos objective picked the most MONOTONE reference we own, because
     a flat clip reads as clean and on-voice. min_f0st must veto that outright."""
-    from dubadabidu.engines import tts_engine
+    from dubadabidu.engines import tts as tts_engine
     from dubadabidu.qc import metrics as X
 
     # point 0: flat but pristine.  point 1: livelier, slightly worse mos/sim.
@@ -303,7 +303,7 @@ def test_tune_disqualifies_points_under_the_monotony_floor(monkeypatch, tmp_path
 def test_tune_relaxes_the_floor_when_nothing_clears_it(monkeypatch, tmp_path):
     """Returning nothing would mark a working engine unavailable; ranking the
     unreachable set is the same `filtered or pool` shape synth_best_of uses."""
-    from dubadabidu.engines import tts_engine
+    from dubadabidu.engines import tts as tts_engine
     from dubadabidu.qc import metrics as X
     monkeypatch.setattr(tts_engine, "synthesize",
                         lambda text, lang, out, t, retries=2:
@@ -361,7 +361,7 @@ def test_s5_names_the_pod_when_it_cannot_synthesize():
 
 def test_engine_available_is_import_only():
     """It must not load weights or touch CUDA — s5 calls it on a laptop."""
-    from dubadabidu.engines.tts_engine import engine_available
+    from dubadabidu.engines.tts import engine_available
     assert engine_available("edge") is True
     assert engine_available("nope") is False
     # qwen_fast lives in a DIFFERENT package than qwen itself; checking only

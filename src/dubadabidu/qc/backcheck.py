@@ -79,7 +79,7 @@ _DEG_C = re.compile(r"°\s*c\b", re.IGNORECASE)
 def _norm(s: str, lang: str) -> str:
     """Put text into the domain the AUDIO is in, so WER compares like with like.
 
-    THE REFERENCE MUST GO THROUGH THE SAME EXPANSION THE VOICE DID. tts_engine
+    THE REFERENCE MUST GO THROUGH THE SAME EXPANSION THE VOICE DID. engines/tts
     .synthesize applies pipeline.text_norm.localize_numbers before handing text
     to the engine, so the voice says "fifty percent" while the manifest says
     "50%" — and this function used to strip "%" as punctuation, leaving "fifty"

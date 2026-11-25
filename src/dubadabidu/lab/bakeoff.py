@@ -195,7 +195,7 @@ def _engine_cfg(base_tts: Tts, engine: str) -> Tts:
 #
 # Everything here is UA-REFERENCE SAFE. Modes needing a target-language ref
 # transcript are excluded on purpose: qwen's full clone mode cannot tokenize a
-# Ukrainian ref (see tts_engine), so sweeping it would only produce failures.
+# Ukrainian ref (see engines/tts), so sweeping it would only produce failures.
 #
 # A single-point grid means "already tuned, nothing to sweep" and costs nothing:
 #   qwen — x_vector_only is forced by the UA ref; nothing left to sweep.
@@ -259,7 +259,7 @@ def _tune_engine(engine: str, base_t: Tts, subset: list[dict], lang: str,
 
     Returns (best_overrides, trial_rows, unavailable_or_None).
     """
-    from dubadabidu.engines.tts_engine import synthesize
+    from dubadabidu.engines.tts import synthesize
     from dubadabidu.qc import metrics as X
 
     points = _grid_points(grid)
@@ -365,7 +365,7 @@ def _bakeoff(cfg: Config) -> Bakeoff:
 def run(cfg: Config, video: str, langs: list[str]) -> None:
     import statistics
     import torch
-    from dubadabidu.engines.tts_engine import release_models, synthesize
+    from dubadabidu.engines.tts import release_models, synthesize
     from dubadabidu.lab.tune import _subset
     from dubadabidu.qc import metrics as X
     from dubadabidu.qc.evaluate import _ua_slices

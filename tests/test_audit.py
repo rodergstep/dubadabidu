@@ -119,9 +119,9 @@ So: check names against their definitions, not against intent.
     # deleted with the venv isolation, 2026-08-02). Only that dict maps names to
     # _synth_* functions; every other literal in the file is something else.
     dispatch = set()
-    for n in ast.walk(ast.parse((source("dubadabidu.engines.tts_engine")).read_text())):
+    for n in ast.walk(ast.parse((source("dubadabidu.engines.tts")).read_text())):
         if isinstance(n, ast.Dict) and n.values and all(
-                isinstance(v, ast.Name) and v.id.startswith("_synth_")
+                isinstance(v, ast.Attribute) and v.attr.startswith("_synth_")
                 for v in n.values):
             dispatch |= {k.value for k in n.keys if isinstance(k, ast.Constant)}
     setup = set((gpu.get("runpod") or {}).get("engine_setup", {}))
@@ -307,7 +307,7 @@ def test_ru_stress_layer_is_wired_and_salted():
     have to hold together or it is worse than absent."""
 
     # 1. it must actually run at the synthesis boundary
-    tts = (source("dubadabidu.engines.tts_engine")).read_text()
+    tts = (source("dubadabidu.engines.tts")).read_text()
     assert "normalize_for_tts(text, lang, tts_cfg)" in tts, (
         "the stress layer is defined but never called — exactly how it became "
         "dead code the first time")

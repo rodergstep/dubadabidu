@@ -72,7 +72,7 @@ class Tts(_Block):
     qwen_model_dir: str | None = None
     qwen_model_dir_by_lang: dict[str, str] = Field(default_factory=dict)
     qwen_x_vector_only: bool = True
-    qwen_fast: bool = False   # the loader's default (tts_engine._load_qwen)
+    qwen_fast: bool = False   # the loader's default (engines/tts/qwen._load_qwen)
     qwen_flash_attn: bool = False
     qwen_warmup_len: int = 100   # CUDA-graph warmup prefill (faster-qwen3-tts)
     qwen_max_audio_s: Number = 60

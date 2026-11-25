@@ -37,7 +37,9 @@ def test_the_text_variant_key_is_scoped_to_its_only_consumer():
     assert "bcfg.text_variant" in src          # read off the bakeoff block only
     for f in ("src/dubadabidu/stages/s4_synthesize.py",
               "src/dubadabidu/stages/s5_fit.py",
-              "src/dubadabidu/engines/tts_engine.py"):
+              "src/dubadabidu/engines/tts/__init__.py",
+              "src/dubadabidu/engines/tts/qwen.py",
+              "src/dubadabidu/engines/tts/edge.py"):
         assert "text_variant" not in (ROOT / f).read_text(encoding="utf-8"), \
             f"{f} reads text_variant — then the key has two consumers again"
 

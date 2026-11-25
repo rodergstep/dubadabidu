@@ -83,5 +83,5 @@ def test_no_isolation_machinery_survives():
     for d in (root / "pipeline", root / "src" / "dubadabidu" / "engines"):
         assert not (d / "engine_client.py").exists()
         assert not (d / "engine_worker.py").exists()
-    src = (source("dubadabidu.engines.tts_engine")).read_text()
+    src = (source("dubadabidu.engines.tts")).read_text()
     assert "isolated_python" not in src and "engine_client" not in src

@@ -4,7 +4,7 @@
 Moved here from pipeline/tts_engine.py, unchanged. An engine turns text into a
 WAV; WHICH take ships is policy driven by the QC metrics, and keeping it in the
 engine module was the only reason an engine imported qc. Takes are synthesized
-through `tts_engine.synthesize` (looked up on the module at call time), and the
+through `tts.synthesize` (looked up on the module at call time), and the
 metrics are imported inside the functions, as before, so a test that patches
 either still reaches this code.
 """
@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from dubadabidu.engines import tts_engine
+from dubadabidu.engines import tts
 from dubadabidu.core.manifest import resolve_engine
 from dubadabidu.core.config.schema import Config, EvalWeights, Tts
 
@@ -242,7 +242,7 @@ def synth_best_of(text: str, lang: str, out: Path, t: Tts,
         # way to notice. Only --force cleared it. `out` is now created by exactly
         # one operation: the atomic rename of the winner, below.
         cand = out.with_name(f"{out.stem}_take{take}.wav")
-        tts_engine.synthesize(text, lang, cand, t)
+        tts.synthesize(text, lang, cand, t)
         m = _measure(cand)
         takes.append((cand, m))
         if not ranked and m["mos_min"] >= threshold \
@@ -270,7 +270,7 @@ def synth_best_of(text: str, lang: str, out: Path, t: Tts,
                 (tk[1].get("f0st", 0.0) for tk in takes), default=0.0) < min_f0st:
             rr += 1
             cand = out.with_name(f"{out.stem}_reroll{rr}.wav")
-            tts_engine.synthesize(text, lang, cand, t)
+            tts.synthesize(text, lang, cand, t)
             takes.append((cand, _measure(cand)))
             best_f0 = max(tk[1].get("f0st", 0.0) for tk in takes)
             log.info("monotony re-roll %d/%d for %r (best f0st %.2f, floor %.2f)",

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from dubadabidu.engines import tts_engine as T
+from dubadabidu.engines import tts as T
 from dubadabidu.qc import selection as SEL
 from tests.cfgs import tts
 

@@ -4,7 +4,7 @@ the guard against stress marks on a checkpoint not trained on them."""
 import pytest
 
 from dubadabidu.core import manifest as M
-from dubadabidu.engines import tts_engine as T
+from dubadabidu.engines import tts as T
 from dubadabidu.core.config.schema import Tts
 from tests.cfgs import toy_tts
 
@@ -44,12 +44,12 @@ def test_loader_reloads_when_the_checkpoint_changes(monkeypatch: pytest.MonkeyPa
     fake_torch = types.SimpleNamespace(bfloat16="bf16", float32="fp32",
                                        cuda=types.SimpleNamespace(is_available=lambda: False))
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
-    monkeypatch.setattr(T, "require_gpu", lambda *_: "cpu")
+    monkeypatch.setattr(T.qwen, "require_gpu", lambda *_: "cpu")
     T.release_models()
     t = _cfg(qwen_model_dir_by_lang={"ru": FT}, qwen_fast=False)
-    T._load_qwen(t, "en")
-    T._load_qwen(t, "en")
-    T._load_qwen(t, "ru")
+    T.qwen._load_qwen(t, "en")
+    T.qwen._load_qwen(t, "en")
+    T.qwen._load_qwen(t, "ru")
     assert loaded == [M.DEFAULT_QWEN_MODEL, FT], "en loads once, ru triggers a reload"
     T.release_models()
 
@@ -70,20 +70,20 @@ def test_sample_rate_guard_rejects_a_mismatch(tmp_path):
     must fail the take, not ship it at the wrong pitch."""
     import json
     import pytest
-    from dubadabidu.engines import tts_engine as T
+    from dubadabidu.engines import tts as T
     ck = tmp_path / "ckpt"
     (ck / "speech_tokenizer").mkdir(parents=True)
     (ck / "speech_tokenizer" / "config.json").write_text(
         json.dumps({"output_sample_rate": 22050}), encoding="utf-8")
-    T._declared_sr.pop(str(ck), None)
-    assert T.declared_output_sr(str(ck)) == 22050
+    T.qwen._declared_sr.pop(str(ck), None)
+    assert T.qwen.declared_output_sr(str(ck)) == 22050
     with pytest.raises(RuntimeError, match="wrong pitch"):
-        T.check_output_sr(str(ck), 24000)
-    T.check_output_sr(str(ck), 22050)
+        T.qwen.check_output_sr(str(ck), 24000)
+    T.qwen.check_output_sr(str(ck), 22050)
     # unreadable -> guard skipped, never a false failure
-    T._declared_sr.pop(str(tmp_path / "nope"), None)
-    T._declared_sr[str(tmp_path / "nope")] = None
-    T.check_output_sr(str(tmp_path / "nope"), 24000)
+    T.qwen._declared_sr.pop(str(tmp_path / "nope"), None)
+    T.qwen._declared_sr[str(tmp_path / "nope")] = None
+    T.qwen.check_output_sr(str(tmp_path / "nope"), 24000)
 
 
 def test_title_case_is_lowercased_before_ruaccent_but_acronyms_are_not():
