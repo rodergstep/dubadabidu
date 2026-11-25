@@ -13,11 +13,14 @@ dependencies = [
   # wheel — a plain pip install resolved av 19.0.2 on Linux/py3.12.
   "av<19",
   # torch/torchaudio: DECLARED and LOCKED since v0.5 (uv.lock). On Linux torch
-  # resolves from the cu126 index ([tool.uv.sources] below) — the wheel must
-  # match the OLDEST driver runpod.allowed_cuda_versions admits (plain PyPI
-  # serves +cu130). On macOS it comes from PyPI. torchaudio is NOT
-  # version-locked to torch any more: 2.11.1 ships py3-none (stable-ABI)
-  # wheels requiring only torch>=2.11, and comes from PyPI on both platforms.
+  # resolves from the cu130 index ([tool.uv.sources] below) — the wheel must
+  # not need a newer driver than runpod.min_cuda_version admits. On macOS it
+  # comes from PyPI. torchaudio is NOT version-locked to torch any more: 2.11.1
+  # ships py3-none (stable-ABI) wheels requiring only torch>=2.11, from PyPI on
+  # both platforms. BUT the PyPI Linux wheel is the CUDA 13 build
+  # (_torchaudio.so links libcudart.so.13), and no cu12x 2.11.1 exists — so on
+  # Linux torch must be a cu13x build too. A cu126 torch installed fine and
+  # then failed to import qwen on a pod (2026-11-25).
   # Declaring them here also stops audio-separator's unbounded torch>=2.3
   # from pulling whatever is newest.
   "torch==2.14.1",
@@ -101,14 +104,14 @@ build-backend = "setuptools.build_meta"
 py-modules = ["dub"]
 packages = ["pipeline", "qc"]
 
-# torch from the CUDA 12.6 index on Linux (the pod), PyPI elsewhere (the Mac).
-# cu126, not the PyPI default cu130: drivers are backward- but not forward-
-# compatible, so the wheel's CUDA must not exceed the oldest driver
-# allowed_cuda_versions admits. Asserted by
-# tests/test_runpod.py::test_torch_wheel_matches_the_oldest_allowed_driver.
-# (cu126 tops out at 2.14.1; 2.15 exists only as cu132, which would need
-# 13.2-driver hosts.) torchaudio needs no source entry: 2.11.1 is py3-none
-# on PyPI and is not published to the cu126 index.
+# torch from the CUDA 13.0 index on Linux (the pod), PyPI elsewhere (the Mac).
+# Drivers are backward- but not forward-compatible, so the wheel's CUDA must
+# not exceed the oldest driver runpod.min_cuda_version admits (13.0). Asserted
+# by tests/test_runpod.py::test_torch_wheel_matches_the_oldest_allowed_driver.
+# cu130, not cu12x: torchaudio 2.11.1's Linux wheel needs the CUDA 13 runtime
+# (see the dependencies comment). 2.15 exists only as cu132 (13.2 drivers).
+# The explicit index keeps the build fixed even if PyPI's default moves.
+# torchaudio needs no source entry: 2.11.1 comes from PyPI.
 [tool.uv]
 # The two machines this runs on: the Apple-Silicon Mac and the Linux pod.
 # (Intel macOS cannot satisfy torch 2.11+ + demucs and is not a target.)
@@ -129,12 +132,12 @@ environments = [
 constraint-dependencies = ["av<19"]
 
 [[tool.uv.index]]
-name = "pytorch-cu126"
-url = "https://download.pytorch.org/whl/cu126"
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [tool.uv.sources]
-torch = [{ index = "pytorch-cu126", marker = "sys_platform == 'linux'" }]
+torch = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]
 
 [tool.ruff]
 target-version = "py311"

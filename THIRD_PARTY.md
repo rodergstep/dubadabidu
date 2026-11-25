@@ -9,25 +9,28 @@ constraint sets agree:
 
 | package | qwen needs | locked in uv.lock |
 |---|---|---|
-| torch | `>=2.5.1` (faster-qwen3-tts) | `2.14.1` (`+cu126` on Linux) |
+| torch | `>=2.5.1` (faster-qwen3-tts) | `2.14.1` (`+cu130` on Linux) |
 | transformers | `==4.57.3` (qwen-tts) | `4.57.3` (declared in pyproject) |
 | huggingface-hub | `>=0.36,<1.0` | `>=0.36,<1.0` (declared in pyproject) |
 
 ### The stack (current as of v0.5, 2026-11-19)
 
 - **torch 2.14.1 / torchaudio 2.11.1**, declared in `pyproject.toml` and pinned
-  in `uv.lock`. On Linux torch resolves from the **cu126** index
-  (`[tool.uv.sources]`), because drivers are backward- but not forward-compatible
-  and PyPI's default wheel is cu130. cu126 tops out at 2.14.1; 2.15 exists only
-  as cu132, which would need 13.2-driver hosts. torchaudio is no longer
-  version-locked to torch: 2.11.1 ships py3-none (stable-ABI) wheels requiring
-  only `torch>=2.11`, from PyPI on both platforms. It cannot be dropped
-  (speechbrain, distillmos, audiobox-aesthetics and Qwen3-TTS import it); the
-  repo's own only call is `functional.resample`.
-- **Host driver floor:** `runpod.min_cuda_version: "12.8"` (REST v2
-  `gpu.minCudaVersion`) must be at least torch's cu-build (12.6). History: RunPod's default
-  hosts once had a CUDA 12.4 driver, which is why torch sat at 2.6.0 until
-  2026-08-02; the filter fixed the HOST, not the pin.
+  in `uv.lock`. On Linux torch resolves from the **cu130** index
+  (`[tool.uv.sources]`). torchaudio is no longer version-locked to torch: 2.11.1
+  ships py3-none (stable-ABI) wheels requiring only `torch>=2.11`, from PyPI on
+  both platforms. But "py3-none" is not CUDA-agnostic: the Linux wheel links
+  `libcudart.so.13`, and no cu12x build of 2.11.1 exists (the pytorch indexes
+  carry cu12x torchaudio only up to 2.11.0). So Linux torch must be cu13x; a
+  cu126 torch failed `import torchaudio` on a pod (2026-11-25). 2.15 exists only
+  as cu132 (13.2 drivers). torchaudio cannot be dropped (speechbrain, distillmos,
+  audiobox-aesthetics and Qwen3-TTS import it); the repo's own only call is
+  `functional.resample`.
+- **Host driver floor:** `runpod.min_cuda_version: "13.0"` (REST v2
+  `gpu.minCudaVersion`) must be at least torch's cu-build (13.0). If 13.0 hosts
+  run short, the fallback is torch/torchaudio 2.11.0 `+cu128` with a 12.8 floor.
+  History: RunPod's default hosts once had a CUDA 12.4 driver, which is why
+  torch sat at 2.6.0 until 2026-08-02; the filter fixed the HOST, not the pin.
 - **The pod installs the lock** (`uv sync --frozen` in `REMOTE_SETUP`), then qwen
   from `runpod.engine_setup`. The prebuilt image (`docker/Dockerfile`) bakes the
   same thing and is used only when its lock stamp matches.

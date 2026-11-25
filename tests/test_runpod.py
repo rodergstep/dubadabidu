@@ -445,7 +445,7 @@ def test_torch_wheel_matches_the_oldest_allowed_driver():
     (installs fine, CUDA: False, synthesis crawls on CPU at full GPU price).
     A pod on 2026-08-02 passed only because it drew a 13.0 driver.
 
-    Hence the explicit cuXYZ index (cu126 since torch 2.14.1, under a 12.8
+    Hence the explicit cuXYZ index (cu130 since torch 2.14.1, under a 13.0
     floor). This test is the thing that notices when someone lowers the floor
     below the wheel's CUDA, or moves the wheel above the floor (e.g. to
     torch 2.15, which exists only as cu132)."""
@@ -493,7 +493,7 @@ def test_pod_payload_sends_the_cuda_filter():
         assert "minCudaVersion" not in sent["gpu"], "v2 400s on both together"
         sent.clear()
         R.create_pod({**DEFAULTS, "allowed_cuda_versions": []})
-        assert sent["gpu"].get("minCudaVersion") == "12.8"
+        assert sent["gpu"].get("minCudaVersion") == "13.0"
         assert "allowedCudaVersions" not in sent["gpu"], (
             "an empty list must be omitted, not sent — it would filter to no hosts")
     finally:

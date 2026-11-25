@@ -54,10 +54,12 @@ runpod:                        # `dubadabidu remote <task> <video>` (REST v2)
   # contents — run `remote setup-check` after any change (FINDINGS §4).
   image: runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404
   # registry_auth_id: <RunPod container-registry credential id>
-  # Driver floor >= the cu-build of torch in uv.lock (cu126; drivers are
-  # backward-compatible, so 12.8 hosts run it). A floor, not an exact list:
-  # on 2026-11-19 an exact 12.8 match had no capacity at all.
-  min_cuda_version: "12.8"
+  # Driver floor >= the cu-build of torch in uv.lock (cu130). 13.0, not 12.8:
+  # torchaudio 2.11.1 exists only as a CUDA 13 build on Linux (2026-11-25).
+  # A floor, not an exact list: on 2026-11-19 an exact 12.8 match had no
+  # capacity at all. If provisioning starts failing for lack of 13.0 hosts,
+  # the fallback is torch/torchaudio 2.11.0 +cu128 with a 12.8 floor.
+  min_cuda_version: "13.0"
   # ~26 GB measured peak, so 40 keeps ~14 GB headroom. Never ~30: a full disk
   # kills the container and looks like a network fault (FINDINGS §4).
   container_disk_gb: 40

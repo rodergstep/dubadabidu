@@ -19,7 +19,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 EXPORT_CMD = ["uv", "export", "--frozen", "--no-hashes", "--no-emit-project",
               "--extra", "dev"]
-CU_INDEX_LINE = "--extra-index-url https://download.pytorch.org/whl/cu126"
+CU_INDEX_LINE = "--extra-index-url https://download.pytorch.org/whl/cu130"
 
 
 def _norm(name: str) -> str:
@@ -70,29 +70,33 @@ def test_requirements_txt_is_the_current_lock_export():
                           text=True).stdout
     have = (ROOT / "requirements.txt").read_text()
     assert CU_INDEX_LINE in have, (
-        "requirements.txt lost the cu126 index line — `pip install -r` on Linux "
-        "could not find torch==2.14.1+cu126")
+        "requirements.txt lost the cu130 index line — `pip install -r` on Linux "
+        "could not find torch==2.14.1+cu130")
     body = have.split(CU_INDEX_LINE, 1)[1].lstrip("\n")
     assert body == want, (
         "requirements.txt is not the current export of uv.lock — regenerate:\n"
         "  scripts/export_requirements.sh")
 
 
-def test_torch_is_pinned_and_linux_resolves_the_cu126_build():
+def test_torch_is_pinned_and_linux_resolves_the_cu130_build():
     """The pin moved here from the pod bootstrap in v0.5. On Linux the wheel
     MUST be a cuXYZ build no newer than the oldest driver the host filter
-    admits (cu126 under a 12.8 floor); PyPI's default wheel is cu130 and
-    reports CUDA: False on 12.x hosts.
+    admits (cu130 under a 13.0 floor).
 
     torchaudio is no longer version-locked to torch: 2.11.1 ships py3-none
     (stable-ABI) wheels requiring only torch>=2.11, from PyPI on both
-    platforms, so it carries no +cu suffix in the lock."""
+    platforms, so it carries no +cu suffix in the lock. But its Linux wheel
+    links libcudart.so.13, so Linux torch must be a cu13x build: a cu126
+    torch installed cleanly and then failed `import torchaudio` (via qwen)
+    on a pod, 2026-11-25. Nothing on the Mac can catch that, so this does."""
     core = _pyproject_core()
     assert core.get("torch") == "2.14.1"
     assert core.get("torchaudio") == "2.11.1"
     lock = _lock_versions()
-    assert "2.14.1+cu126" in lock["torch"], (
-        "the lock has no cu126 torch for Linux — check [tool.uv.sources]")
+    linux_torch = {v for v in lock["torch"] if "+cu" in v}
+    assert linux_torch == {"2.14.1+cu130"}, (
+        f"Linux torch is {linux_torch}; torchaudio 2.11.1 needs a cu13x torch "
+        "— check [tool.uv.sources]")
     assert lock["torchaudio"] == {"2.11.1"}, (
         "torchaudio should resolve to the single PyPI py3-none build")
 
