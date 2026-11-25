@@ -21,7 +21,7 @@ cap is `runpod.budget_usd`), and `policy` (`never`: publish, delete work/, edit
 eval weights, edit the spec). The human improves the system by editing the
 spec, not the pipeline.
 
-### 2. Orchestrator — `dubadabidu autopilot` (`pipeline/autopilot.py`)
+### 2. Orchestrator — `dubadabidu autopilot` (`src/dubadabidu/workflows/autopilot.py`)
 Perceive -> diagnose -> act -> re-evaluate, using only existing commands:
 
 - perceive: `dubadabidu batch`, manifests, tune reports
@@ -38,7 +38,7 @@ Perceive -> diagnose -> act -> re-evaluate, using only existing commands:
 - human verdicts win: an accepted segment is never re-rolled, a rejected one
   always is.
 
-### 3. Infra agent — `dubadabidu remote` (`pipeline/runpod_infra.py`)
+### 3. Infra agent — `dubadabidu remote` (`src/dubadabidu/infra/remote/`)
 `RUNPOD_API_KEY` + `TRANSLATE_API_KEY` in `.env` (the human provides them once).
 RunPod REST v2, on-demand SECURE pods (spot is refuted, FINDINGS §3):
 provision -> rsync (never the source video) -> run -> sync back -> ALWAYS

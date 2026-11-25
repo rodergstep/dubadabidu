@@ -158,12 +158,18 @@ dubadabidu verdicts <video> <export.json>  ingest review-page verdicts
 dubadabidu batch [video...]                per-video × per-language matrix
 dubadabidu autopilot <video...>            spec-driven accept/fix loop (docs/AUTOPILOT.md)
 dubadabidu refit                           propose qc weights from your ratings (never applies)
+dubadabidu migrate [video...] [--apply]    rewrite pre-text_src work files (dry run by default)
 dubadabidu bakeoff | tune | prep <video>   engine / reference experiments
 dubadabidu remote status | kill | smoke | setup-check
 dubadabidu remote run | bakeoff | autopilot <video...>
-python -m pipeline.course ...              many videos, one pod
+python -m pipeline.course ...              many videos, one pod (from a clone)
 python -m pipeline.experiments ...         queue experiments (specs/experiments.yaml) on one pod
 ```
+
+Every command works on a project directory (`config.yaml`, `glossary/`, `ref/`,
+`work/`, `.env`): `--project DIR`, else `$DUBADABIDU_HOME`, else the nearest
+directory above the current one that holds `config.yaml`. `doctor` prints which
+one it used. `python -m dubadabidu` is the same CLI.
 
 `remote` flags: `--budget USD`, `--keep-alive` (leave the pod up to debug over
 SSH; the watchdog still fires), `--reuse` (attach to that pod).
@@ -186,7 +192,8 @@ SSH; the watchdog still fires), `--reuse` (attach to that pod).
 uv run dubadabidu run input/lesson01.mp4 --overlay config.gpu.yaml --overlay config.gemini.yaml
 ```
 
-Every key is validated against `pipeline/config_schema.py`, so a typo fails
+Every key is validated against `src/dubadabidu/core/config/schema.py`, the
+only place a default lives, so a typo fails
 with its dotted path instead of being silently ignored.
 
 ### Translation backend
@@ -238,6 +245,22 @@ uv run pytest -q
 uvx ruff check .
 ```
 
+The code is one package, `src/dubadabidu/`, in layers (cli → workflows →
+lab | infra → review → stages → qc → engines → core); `tests/` mirrors them and
+`tests/test_layers.py` rejects an upward import. `docs/ARCHITECTURE.md` has the
+map, the config rules and the checks that prove a refactor changes no output.
+
+To use a built wheel instead of the clone, install it into any environment
+and point it at a project directory:
+
+```bash
+uv build && uv pip install dist/dubadabidu-1.0.0-py3-none-any.whl
+```
+
+```bash
+dubadabidu --project ~/dubbing doctor
+```
+
 After changing a dependency in `pyproject.toml`, run `uv lock` and
 `scripts/export_requirements.sh` (`requirements.txt` is the pod's generated
 Linux export, `+cu130` torch; CI checks it is current).
@@ -274,7 +297,7 @@ or closed by evidence (`ledger/FINDINGS.md`, CLOSED table).
 - Gradio UI / multi-GPU s4 — a productization decision.
 - Cross-model ASR consensus (catches silent omissions) and f0/wer scoring on
   GPU — FINDINGS §5.
-- `pyright --basic` in CI on `pipeline/`.
+- `pyright --basic` in CI on `src/`.
 
 Comments tagged `PLAN_v0.5 Pn` or `IMPROVEMENT_PLAN Phase X` refer to planning
 docs retired in 1.0.0: `git show d7ffdc6:PLAN_v0.5.md` /

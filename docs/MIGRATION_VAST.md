@@ -5,6 +5,12 @@ fallback once the RunPod balance runs out — keep it. Its RunPod side is stale:
 runpod_infra.py now speaks REST v2 (minCudaVersion, startSsh, ssh.direct),
 not the v1 `/pods` calls quoted below. Re-check the Vast API before building.
 
+Since the restructure, runpod_infra.py is `src/dubadabidu/infra/remote/`:
+`provider.py` defines the Provider protocol this plan asks for, and
+`runpod.py` holds RunPodProvider, the only RunPod-specific module. A Vast
+provider is one more class beside it (docs/ARCHITECTURE.md). Paths below are
+the old ones.
+
 Originally written 2026-08-03 against the live Vast
 API reference (docs.vast.ai) and `pipeline/runpod_infra.py` @ b1ed88e.
 
