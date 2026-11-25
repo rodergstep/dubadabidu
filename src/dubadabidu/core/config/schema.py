@@ -81,7 +81,7 @@ class Tts(_Block):
     qwen_x_vector_only: bool = True
     qwen_fast: bool = False   # the loader's default (tts_engine._load_qwen)
     qwen_flash_attn: bool = False
-    qwen_warmup_len: int | None = None
+    qwen_warmup_len: int = 100   # CUDA-graph warmup prefill (faster-qwen3-tts)
     qwen_max_audio_s: Number = 60
     qwen_gen_kwargs: dict[str, Number | bool] = Field(default_factory=dict)
     allow_cpu_fallback: bool = False
@@ -202,25 +202,26 @@ class Tune(_Block):
     subset_size: int
     refs_glob: str
     best_of: int
-    rounds: list[Literal["R1", "R2", "R3"]] | None = None
+    rounds: list[Literal["R1", "R2", "R3"]] = Field(
+        default_factory=lambda: ["R1", "R2", "R3"])
     r1_weights: R1Weights
-    r1_takes: int = 1
+    r1_takes: int = 3
     per_video_ref_override: bool = False
     override_margin: Number = 0.05
 
 
 class BakeoffTune(_Block):
     enabled: bool = True
-    subset_size: int | None = None
-    takes: int | None = None
+    subset_size: int = 3    # tune-lite's own subset (cost = points x segs x takes)
+    takes: int = 2
 
 
 class Bakeoff(_Block):
     engines: list[Literal["qwen", "edge"]]
     incumbent: Literal["qwen", "edge"] = "qwen"
-    subset_size: int | None = None
-    takes: int | None = None
-    scoring_workers: int | None = None
+    subset_size: int = 6      # comparison segments, stratified by length
+    takes: int = 3            # averaged per segment to beat take variance
+    scoring_workers: int = 1
     text_variant: str | None = None
     tune: BakeoffTune | None = None
     grids: dict[str, dict[str, list[str | Number]]] = Field(default_factory=dict)

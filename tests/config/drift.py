@@ -42,27 +42,26 @@ DRIFT: dict[str, str] = {
     "tts.qwen_fast get True": "BUG (§10.2 #1): engine_available assumes True, "
                               "the loader and synth_hash False; preserved "
                               "until a separate fix: commit",
-    "tts.qwen_warmup_len get 100": "SCHEMA: 100 becomes the field default",
     "tts.qwen_x_vector_only get <falsy>": "EQUIV: bakeoff.variant_key tests "
                                           "`is False`, so absent == True",
     "tts.cfg_weight get 0.0": "HASH: chatterbox-era salt kept at its old default "
                               "so existing seg/ caches keep their keys",
     "tts.exaggeration get 0.55": "HASH: chatterbox-era salt, as cfg_weight",
     # --- tune ---
-    "tune.rounds defaults ['R1', 'R2', 'R3']": "SCHEMA: becomes the field default",
-    "tune.r1_takes defaults 3": "SCHEMA: 3 (tune.DEFAULTS, which applies) "
-                                "replaces the schema's 1",
+    "tune.r1_takes get 1": "DEAD: tune.py reads it from {**DEFAULTS, **cfg.tune}, "
+                           "which always carries r1_takes (3 = the schema now); "
+                           "the inline 1 never applies and goes with the migration",
     # --- bakeoff (block present only with the gpu overlay) ---
     "bakeoff get {}": "ABSENT (Q8c): Config.bakeoff stays optional; each site "
                       "keeps its absent-block meaning through one helper",
     "bakeoff.engines get []": "ABSENT (Q8c)",
-    "bakeoff.scoring_workers get 1": "SCHEMA: 1 becomes the field default",
-    "bakeoff.subset_size get 6": "SCHEMA: 6 becomes the field default",
-    "bakeoff.takes get 3": "SCHEMA: 3 becomes the field default",
+    "bakeoff.scoring_workers get 1": "ABSENT: field default 1 is in the schema; differs only without a bakeoff block",
+    "bakeoff.subset_size get 6": "ABSENT: field default in the schema; differs only without a bakeoff block",
+    "bakeoff.takes get 3": "ABSENT: field default in the schema; differs only without a bakeoff block",
     "bakeoff.tune.enabled get True": "ABSENT: bakeoff.tune is optional; "
                                      "BakeoffTune.enabled is already True",
-    "bakeoff.tune.subset_size get 3": "SCHEMA: 3 becomes the field default",
-    "bakeoff.tune.takes get 2": "SCHEMA: 2 becomes the field default",
+    "bakeoff.tune.subset_size get 3": "ABSENT: field default in the schema; differs only without a bakeoff block",
+    "bakeoff.tune.takes get 2": "ABSENT: field default in the schema; differs only without a bakeoff block",
     # --- runpod ---
     "runpod get {}": _RUNPOD_SCHEMA,
     "runpod.allowed_cuda_versions defaults []": _RUNPOD_SCHEMA,
