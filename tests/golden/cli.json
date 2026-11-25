@@ -1,0 +1,553 @@
+{
+ "--help": "usage: dubadabidu [-h] [--langs LANGS]\n                  [--from {s1_extract,s2_transcribe,s3_translate,s4_synthesize,s5_fit,s6_mix,s7_subtitles,s8_mux}]\n                  [--to {s1_extract,s2_transcribe,s3_translate,s4_synthesize,s5_fit,s6_mix,s7_subtitles,s8_mux}]\n                  [--engine {qwen,edge}] [--spec SPEC] [--no-mux] [--force] [--keep-alive]\n                  [--reuse] [--keep-going] [--budget BUDGET] [--config CONFIG] [--overlay OVERLAY]\n                  [-v]\n                  {run,stage,qc,doctor,report,evaluate,review,tune,prep,preamble,batch,autopilot,verdicts,bakeoff,remote,refit}\n                  [rest ...]\n\npositional arguments:\n  {run,stage,qc,doctor,report,evaluate,review,tune,prep,preamble,batch,autopilot,verdicts,bakeoff,remote,refit}\n  rest\n\noptions:\n  -h, --help            show this help message and exit\n  --langs LANGS\n  --from {s1_extract,s2_transcribe,s3_translate,s4_synthesize,s5_fit,s6_mix,s7_subtitles,s8_mux}\n  --to {s1_extract,s2_transcribe,s3_translate,s4_synthesize,s5_fit,s6_mix,s7_subtitles,s8_mux}\n                        stop after this stage (e.g. --to s7_subtitles to produce audio+subs but\n                        skip mux — the remote GPU path muxes locally so the source video never\n                        uploads)\n  --engine {qwen,edge}\n  --spec SPEC           acceptance spec for `autopilot` (default specs/batch.yaml)\n  --no-mux              `autopilot`: stop at s7 (audio+subs), skip the mux — the remote GPU path\n                        muxes locally so the source video never uploads\n  --force               discard a cache so a changed setting re-applies. `stage s3_translate`:\n                        drop translations + terms for --langs (provider switch). `stage\n                        s4_synthesize` or a `run` reaching s4: drop cached takes for --langs so\n                        take-SELECTION params (best_of, min_f0st, ...) re-apply — they're not in\n                        synth_hash, so the cache ignores them otherwise. Keeps translations +\n                        human verdicts.\n  --keep-alive          `remote`: do NOT terminate the pod when the task ends, so a failing engine\n                        install can be debugged IN PLACE over SSH instead of paying a fresh ~4min\n                        bootstrap per attempt. Prints the ssh command. The pod-side watchdog still\n                        self-destructs at the deadline; `remote kill` ends it sooner.\n  --reuse               `remote`: attach to the pod a previous --keep-alive run left running\n                        instead of provisioning a new one. Skips the bootstrap, whose torch\n                        download is 4-6 GB and took anywhere from 4 to 60 min depending on the\n                        pod's route to PyPI. Falls back to provisioning if no live pod is tracked.\n  --keep-going          `run` over several videos: log a failing video and continue with the next\n                        instead of stopping\n  --budget BUDGET       hard USD cap for `remote` (auto-terminates the pod); default\n                        runpod.budget_usd\n  --config CONFIG\n  --overlay OVERLAY     yaml deep-merged over --config; REPEATABLE, applied left-to-right (later\n                        wins). Compose independent axes, e.g. GPU/TTS + translation provider:\n                        --overlay config.gpu.yaml --overlay config.deepseek.yaml\n  -v, --verbose\n",
+ "autopilot input/a.mp4 --no-mux --spec specs/batch.yaml": {
+  "budget": null,
+  "cmd": "autopilot",
+  "config": "config.yaml",
+  "engine": null,
+  "force": false,
+  "from_stage": "s1_extract",
+  "keep_alive": false,
+  "keep_going": false,
+  "langs": null,
+  "mux": false,
+  "overlay": null,
+  "rest": [
+   "input/a.mp4"
+  ],
+  "reuse": false,
+  "spec": "specs/batch.yaml",
+  "to_stage": "s8_mux",
+  "verbose": false
+ },
+ "doctor --config other.yaml": {
+  "budget": null,
+  "cmd": "doctor",
+  "config": "other.yaml",
+  "engine": null,
+  "force": false,
+  "from_stage": "s1_extract",
+  "keep_alive": false,
+  "keep_going": false,
+  "langs": null,
+  "mux": true,
+  "overlay": null,
+  "rest": [],
+  "reuse": false,
+  "spec": null,
+  "to_stage": "s8_mux",
+  "verbose": false
+ },
+ "remote run input/a.mp4 --overlay config.gpu.yaml --overlay config.deepseek.yaml --budget 5 --reuse --keep-alive": {
+  "budget": 5.0,
+  "cmd": "remote",
+  "config": "config.yaml",
+  "engine": null,
+  "force": false,
+  "from_stage": "s1_extract",
+  "keep_alive": true,
+  "keep_going": false,
+  "langs": null,
+  "mux": true,
+  "overlay": [
+   "config.gpu.yaml",
+   "config.deepseek.yaml"
+  ],
+  "rest": [
+   "run",
+   "input/a.mp4"
+  ],
+  "reuse": true,
+  "spec": null,
+  "to_stage": "s8_mux",
+  "verbose": false
+ },
+ "remote_plan|s1_extract|s1_extract": [
+  [],
+  [],
+  [],
+  ""
+ ],
+ "remote_plan|s1_extract|s2_transcribe": [
+  [],
+  [],
+  [],
+  ""
+ ],
+ "remote_plan|s1_extract|s3_translate": [
+  [
+   "s3_translate"
+  ],
+  [],
+  [],
+  ""
+ ],
+ "remote_plan|s1_extract|s4_synthesize": [
+  [
+   "s3_translate"
+  ],
+  [
+   "s4_synthesize"
+  ],
+  [],
+  "--from s4_synthesize --to s4_synthesize"
+ ],
+ "remote_plan|s1_extract|s5_fit": [
+  [
+   "s3_translate"
+  ],
+  [
+   "s4_synthesize",
+   "s5_fit"
+  ],
+  [],
+  "--from s4_synthesize --to s5_fit"
+ ],
+ "remote_plan|s1_extract|s6_mix": [
+  [
+   "s3_translate"
+  ],
+  [
+   "s4_synthesize",
+   "s5_fit"
+  ],
+  [
+   "s6_mix"
+  ],
+  "--from s4_synthesize --to s5_fit"
+ ],
+ "remote_plan|s1_extract|s7_subtitles": [
+  [
+   "s3_translate"
+  ],
+  [
+   "s4_synthesize",
+   "s5_fit"
+  ],
+  [
+   "s6_mix",
+   "s7_subtitles"
+  ],
+  "--from s4_synthesize --to s5_fit"
+ ],
+ "remote_plan|s1_extract|s8_mux": [
+  [
+   "s3_translate"
+  ],
+  [
+   "s4_synthesize",
+   "s5_fit"
+  ],
+  [
+   "s6_mix",
+   "s7_subtitles",
+   "s8_mux"
+  ],
+  "--from s4_synthesize --to s5_fit"
+ ],
+ "remote_plan|s2_transcribe|s2_transcribe": [
+  [
+   "s2_transcribe"
+  ],
+  [],
+  [],
+  ""
+ ],
+ "remote_plan|s2_transcribe|s3_translate": [
+  [
+   "s2_transcribe",
+   "s3_translate"
+  ],
+  [],
+  [],
+  ""
+ ],
+ "remote_plan|s2_transcribe|s4_synthesize": [
+  [
+   "s2_transcribe",
+   "s3_translate"
+  ],
+  [
+   "s4_synthesize"
+  ],
+  [],
+  "--from s4_synthesize --to s4_synthesize"
+ ],
+ "remote_plan|s2_transcribe|s5_fit": [
+  [
+   "s2_transcribe",
+   "s3_translate"
+  ],
+  [
+   "s4_synthesize",
+   "s5_fit"
+  ],
+  [],
+  "--from s4_synthesize --to s5_fit"
+ ],
+ "remote_plan|s2_transcribe|s6_mix": [
+  [
+   "s2_transcribe",
+   "s3_translate"
+  ],
+  [
+   "s4_synthesize",
+   "s5_fit"
+  ],
+  [
+   "s6_mix"
+  ],
+  "--from s4_synthesize --to s5_fit"
+ ],
+ "remote_plan|s2_transcribe|s7_subtitles": [
+  [
+   "s2_transcribe",
+   "s3_translate"
+  ],
+  [
+   "s4_synthesize",
+   "s5_fit"
+  ],
+  [
+   "s6_mix",
+   "s7_subtitles"
+  ],
+  "--from s4_synthesize --to s5_fit"
+ ],
+ "remote_plan|s2_transcribe|s8_mux": [
+  [
+   "s2_transcribe",
+   "s3_translate"
+  ],
+  [
+   "s4_synthesize",
+   "s5_fit"
+  ],
+  [
+   "s6_mix",
+   "s7_subtitles",
+   "s8_mux"
+  ],
+  "--from s4_synthesize --to s5_fit"
+ ],
+ "remote_plan|s3_translate|s3_translate": [
+  [
+   "s3_translate"
+  ],
+  [],
+  [],
+  ""
+ ],
+ "remote_plan|s3_translate|s4_synthesize": [
+  [
+   "s3_translate"
+  ],
+  [
+   "s4_synthesize"
+  ],
+  [],
+  "--from s4_synthesize --to s4_synthesize"
+ ],
+ "remote_plan|s3_translate|s5_fit": [
+  [
+   "s3_translate"
+  ],
+  [
+   "s4_synthesize",
+   "s5_fit"
+  ],
+  [],
+  "--from s4_synthesize --to s5_fit"
+ ],
+ "remote_plan|s3_translate|s6_mix": [
+  [
+   "s3_translate"
+  ],
+  [
+   "s4_synthesize",
+   "s5_fit"
+  ],
+  [
+   "s6_mix"
+  ],
+  "--from s4_synthesize --to s5_fit"
+ ],
+ "remote_plan|s3_translate|s7_subtitles": [
+  [
+   "s3_translate"
+  ],
+  [
+   "s4_synthesize",
+   "s5_fit"
+  ],
+  [
+   "s6_mix",
+   "s7_subtitles"
+  ],
+  "--from s4_synthesize --to s5_fit"
+ ],
+ "remote_plan|s3_translate|s8_mux": [
+  [
+   "s3_translate"
+  ],
+  [
+   "s4_synthesize",
+   "s5_fit"
+  ],
+  [
+   "s6_mix",
+   "s7_subtitles",
+   "s8_mux"
+  ],
+  "--from s4_synthesize --to s5_fit"
+ ],
+ "remote_plan|s4_synthesize|s4_synthesize": [
+  [],
+  [
+   "s4_synthesize"
+  ],
+  [],
+  "--from s4_synthesize --to s4_synthesize"
+ ],
+ "remote_plan|s4_synthesize|s5_fit": [
+  [],
+  [
+   "s4_synthesize",
+   "s5_fit"
+  ],
+  [],
+  "--from s4_synthesize --to s5_fit"
+ ],
+ "remote_plan|s4_synthesize|s6_mix": [
+  [],
+  [
+   "s4_synthesize",
+   "s5_fit"
+  ],
+  [
+   "s6_mix"
+  ],
+  "--from s4_synthesize --to s5_fit"
+ ],
+ "remote_plan|s4_synthesize|s7_subtitles": [
+  [],
+  [
+   "s4_synthesize",
+   "s5_fit"
+  ],
+  [
+   "s6_mix",
+   "s7_subtitles"
+  ],
+  "--from s4_synthesize --to s5_fit"
+ ],
+ "remote_plan|s4_synthesize|s8_mux": [
+  [],
+  [
+   "s4_synthesize",
+   "s5_fit"
+  ],
+  [
+   "s6_mix",
+   "s7_subtitles",
+   "s8_mux"
+  ],
+  "--from s4_synthesize --to s5_fit"
+ ],
+ "remote_plan|s5_fit|s5_fit": [
+  [],
+  [
+   "s5_fit"
+  ],
+  [],
+  "--from s5_fit --to s5_fit"
+ ],
+ "remote_plan|s5_fit|s6_mix": [
+  [],
+  [
+   "s5_fit"
+  ],
+  [
+   "s6_mix"
+  ],
+  "--from s5_fit --to s5_fit"
+ ],
+ "remote_plan|s5_fit|s7_subtitles": [
+  [],
+  [
+   "s5_fit"
+  ],
+  [
+   "s6_mix",
+   "s7_subtitles"
+  ],
+  "--from s5_fit --to s5_fit"
+ ],
+ "remote_plan|s5_fit|s8_mux": [
+  [],
+  [
+   "s5_fit"
+  ],
+  [
+   "s6_mix",
+   "s7_subtitles",
+   "s8_mux"
+  ],
+  "--from s5_fit --to s5_fit"
+ ],
+ "remote_plan|s6_mix|s6_mix": [
+  [],
+  [],
+  [
+   "s6_mix"
+  ],
+  ""
+ ],
+ "remote_plan|s6_mix|s7_subtitles": [
+  [],
+  [],
+  [
+   "s6_mix",
+   "s7_subtitles"
+  ],
+  ""
+ ],
+ "remote_plan|s6_mix|s8_mux": [
+  [],
+  [],
+  [
+   "s6_mix",
+   "s7_subtitles",
+   "s8_mux"
+  ],
+  ""
+ ],
+ "remote_plan|s7_subtitles|s7_subtitles": [
+  [],
+  [],
+  [
+   "s7_subtitles"
+  ],
+  ""
+ ],
+ "remote_plan|s7_subtitles|s8_mux": [
+  [],
+  [],
+  [
+   "s7_subtitles",
+   "s8_mux"
+  ],
+  ""
+ ],
+ "remote_plan|s8_mux|s8_mux": [
+  [],
+  [],
+  [
+   "s8_mux"
+  ],
+  ""
+ ],
+ "run a.mp4 b.mp4 --engine edge --force --keep-going -v": {
+  "budget": null,
+  "cmd": "run",
+  "config": "config.yaml",
+  "engine": "edge",
+  "force": true,
+  "from_stage": "s1_extract",
+  "keep_alive": false,
+  "keep_going": true,
+  "langs": null,
+  "mux": true,
+  "overlay": null,
+  "rest": [
+   "a.mp4",
+   "b.mp4"
+  ],
+  "reuse": false,
+  "spec": null,
+  "to_stage": "s8_mux",
+  "verbose": true
+ },
+ "run input/a.mp4": {
+  "budget": null,
+  "cmd": "run",
+  "config": "config.yaml",
+  "engine": null,
+  "force": false,
+  "from_stage": "s1_extract",
+  "keep_alive": false,
+  "keep_going": false,
+  "langs": null,
+  "mux": true,
+  "overlay": null,
+  "rest": [
+   "input/a.mp4"
+  ],
+  "reuse": false,
+  "spec": null,
+  "to_stage": "s8_mux",
+  "verbose": false
+ },
+ "run input/a.mp4 --langs en,ru --from s4_synthesize --to s5_fit": {
+  "budget": null,
+  "cmd": "run",
+  "config": "config.yaml",
+  "engine": null,
+  "force": false,
+  "from_stage": "s4_synthesize",
+  "keep_alive": false,
+  "keep_going": false,
+  "langs": "en,ru",
+  "mux": true,
+  "overlay": null,
+  "rest": [
+   "input/a.mp4"
+  ],
+  "reuse": false,
+  "spec": null,
+  "to_stage": "s5_fit",
+  "verbose": false
+ },
+ "stage s3_translate input/a.mp4 --force": {
+  "budget": null,
+  "cmd": "stage",
+  "config": "config.yaml",
+  "engine": null,
+  "force": true,
+  "from_stage": "s1_extract",
+  "keep_alive": false,
+  "keep_going": false,
+  "langs": null,
+  "mux": true,
+  "overlay": null,
+  "rest": [
+   "s3_translate",
+   "input/a.mp4"
+  ],
+  "reuse": false,
+  "spec": null,
+  "to_stage": "s8_mux",
+  "verbose": false
+ },
+ "verdicts input/a.mp4 export.json": {
+  "budget": null,
+  "cmd": "verdicts",
+  "config": "config.yaml",
+  "engine": null,
+  "force": false,
+  "from_stage": "s1_extract",
+  "keep_alive": false,
+  "keep_going": false,
+  "langs": null,
+  "mux": true,
+  "overlay": null,
+  "rest": [
+   "input/a.mp4",
+   "export.json"
+  ],
+  "reuse": false,
+  "spec": null,
+  "to_stage": "s8_mux",
+  "verbose": false
+ }
+}

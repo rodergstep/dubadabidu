@@ -1,0 +1,2256 @@
+{
+ "base+gpu+config.deepseek.yaml|-|de|0": "a9cbc650",
+ "base+gpu+config.deepseek.yaml|-|de|1": "3519a08e",
+ "base+gpu+config.deepseek.yaml|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.deepseek.yaml|-|en|0": "d94f055e",
+ "base+gpu+config.deepseek.yaml|-|en|1": "0bd4655a",
+ "base+gpu+config.deepseek.yaml|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.deepseek.yaml|-|es|0": "675e0862",
+ "base+gpu+config.deepseek.yaml|-|es|1": "e05c7014",
+ "base+gpu+config.deepseek.yaml|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.deepseek.yaml|-|fr|0": "d813a0f7",
+ "base+gpu+config.deepseek.yaml|-|fr|1": "c5191cc2",
+ "base+gpu+config.deepseek.yaml|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.deepseek.yaml|-|pl|0": "9d78baeb",
+ "base+gpu+config.deepseek.yaml|-|pl|1": "e291639a",
+ "base+gpu+config.deepseek.yaml|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.deepseek.yaml|-|ru|0": "6744ce16",
+ "base+gpu+config.deepseek.yaml|-|ru|1": "5185fd98",
+ "base+gpu+config.deepseek.yaml|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.deepseek.yaml|-|uk|0": "f4b28bf8",
+ "base+gpu+config.deepseek.yaml|-|uk|1": "7eca395a",
+ "base+gpu+config.deepseek.yaml|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.deepseek.yaml|edge|de|0": "941d9487",
+ "base+gpu+config.deepseek.yaml|edge|de|1": "ae2ba758",
+ "base+gpu+config.deepseek.yaml|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.deepseek.yaml|edge|en|0": "59697d72",
+ "base+gpu+config.deepseek.yaml|edge|en|1": "e5090d0d",
+ "base+gpu+config.deepseek.yaml|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.deepseek.yaml|edge|es|0": "be109af9",
+ "base+gpu+config.deepseek.yaml|edge|es|1": "ac3a0d96",
+ "base+gpu+config.deepseek.yaml|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.deepseek.yaml|edge|fr|0": "2c7c5796",
+ "base+gpu+config.deepseek.yaml|edge|fr|1": "11611bde",
+ "base+gpu+config.deepseek.yaml|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.deepseek.yaml|edge|pl|0": "f919462b",
+ "base+gpu+config.deepseek.yaml|edge|pl|1": "102a81ec",
+ "base+gpu+config.deepseek.yaml|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.deepseek.yaml|edge|ru|0": "819c209b",
+ "base+gpu+config.deepseek.yaml|edge|ru|1": "8f0fa649",
+ "base+gpu+config.deepseek.yaml|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.deepseek.yaml|edge|uk|0": "f4b28bf8",
+ "base+gpu+config.deepseek.yaml|edge|uk|1": "7eca395a",
+ "base+gpu+config.deepseek.yaml|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.bestof.yaml|-|de|0": "a9cbc650",
+ "base+gpu+config.exp.bestof.yaml|-|de|1": "3519a08e",
+ "base+gpu+config.exp.bestof.yaml|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.bestof.yaml|-|en|0": "d94f055e",
+ "base+gpu+config.exp.bestof.yaml|-|en|1": "0bd4655a",
+ "base+gpu+config.exp.bestof.yaml|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.bestof.yaml|-|es|0": "675e0862",
+ "base+gpu+config.exp.bestof.yaml|-|es|1": "e05c7014",
+ "base+gpu+config.exp.bestof.yaml|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.bestof.yaml|-|fr|0": "d813a0f7",
+ "base+gpu+config.exp.bestof.yaml|-|fr|1": "c5191cc2",
+ "base+gpu+config.exp.bestof.yaml|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.bestof.yaml|-|pl|0": "9d78baeb",
+ "base+gpu+config.exp.bestof.yaml|-|pl|1": "e291639a",
+ "base+gpu+config.exp.bestof.yaml|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.bestof.yaml|-|ru|0": "6744ce16",
+ "base+gpu+config.exp.bestof.yaml|-|ru|1": "5185fd98",
+ "base+gpu+config.exp.bestof.yaml|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.bestof.yaml|-|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.bestof.yaml|-|uk|1": "7eca395a",
+ "base+gpu+config.exp.bestof.yaml|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.bestof.yaml|edge|de|0": "941d9487",
+ "base+gpu+config.exp.bestof.yaml|edge|de|1": "ae2ba758",
+ "base+gpu+config.exp.bestof.yaml|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.bestof.yaml|edge|en|0": "59697d72",
+ "base+gpu+config.exp.bestof.yaml|edge|en|1": "e5090d0d",
+ "base+gpu+config.exp.bestof.yaml|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.bestof.yaml|edge|es|0": "be109af9",
+ "base+gpu+config.exp.bestof.yaml|edge|es|1": "ac3a0d96",
+ "base+gpu+config.exp.bestof.yaml|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.bestof.yaml|edge|fr|0": "2c7c5796",
+ "base+gpu+config.exp.bestof.yaml|edge|fr|1": "11611bde",
+ "base+gpu+config.exp.bestof.yaml|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.bestof.yaml|edge|pl|0": "f919462b",
+ "base+gpu+config.exp.bestof.yaml|edge|pl|1": "102a81ec",
+ "base+gpu+config.exp.bestof.yaml|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.bestof.yaml|edge|ru|0": "819c209b",
+ "base+gpu+config.exp.bestof.yaml|edge|ru|1": "8f0fa649",
+ "base+gpu+config.exp.bestof.yaml|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.bestof.yaml|edge|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.bestof.yaml|edge|uk|1": "7eca395a",
+ "base+gpu+config.exp.bestof.yaml|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.en-k3.yaml|-|de|0": "a9cbc650",
+ "base+gpu+config.exp.en-k3.yaml|-|de|1": "3519a08e",
+ "base+gpu+config.exp.en-k3.yaml|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+en-k3"
+ ],
+ "base+gpu+config.exp.en-k3.yaml|-|en|0": "d94f055e",
+ "base+gpu+config.exp.en-k3.yaml|-|en|1": "0bd4655a",
+ "base+gpu+config.exp.en-k3.yaml|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+en-k3"
+ ],
+ "base+gpu+config.exp.en-k3.yaml|-|es|0": "675e0862",
+ "base+gpu+config.exp.en-k3.yaml|-|es|1": "e05c7014",
+ "base+gpu+config.exp.en-k3.yaml|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+en-k3"
+ ],
+ "base+gpu+config.exp.en-k3.yaml|-|fr|0": "d813a0f7",
+ "base+gpu+config.exp.en-k3.yaml|-|fr|1": "c5191cc2",
+ "base+gpu+config.exp.en-k3.yaml|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+en-k3"
+ ],
+ "base+gpu+config.exp.en-k3.yaml|-|pl|0": "9d78baeb",
+ "base+gpu+config.exp.en-k3.yaml|-|pl|1": "e291639a",
+ "base+gpu+config.exp.en-k3.yaml|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+en-k3"
+ ],
+ "base+gpu+config.exp.en-k3.yaml|-|ru|0": "6744ce16",
+ "base+gpu+config.exp.en-k3.yaml|-|ru|1": "5185fd98",
+ "base+gpu+config.exp.en-k3.yaml|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+en-k3"
+ ],
+ "base+gpu+config.exp.en-k3.yaml|-|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.en-k3.yaml|-|uk|1": "7eca395a",
+ "base+gpu+config.exp.en-k3.yaml|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+en-k3"
+ ],
+ "base+gpu+config.exp.en-k3.yaml|edge|de|0": "941d9487",
+ "base+gpu+config.exp.en-k3.yaml|edge|de|1": "ae2ba758",
+ "base+gpu+config.exp.en-k3.yaml|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+en-k3"
+ ],
+ "base+gpu+config.exp.en-k3.yaml|edge|en|0": "59697d72",
+ "base+gpu+config.exp.en-k3.yaml|edge|en|1": "e5090d0d",
+ "base+gpu+config.exp.en-k3.yaml|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+en-k3"
+ ],
+ "base+gpu+config.exp.en-k3.yaml|edge|es|0": "be109af9",
+ "base+gpu+config.exp.en-k3.yaml|edge|es|1": "ac3a0d96",
+ "base+gpu+config.exp.en-k3.yaml|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+en-k3"
+ ],
+ "base+gpu+config.exp.en-k3.yaml|edge|fr|0": "2c7c5796",
+ "base+gpu+config.exp.en-k3.yaml|edge|fr|1": "11611bde",
+ "base+gpu+config.exp.en-k3.yaml|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+en-k3"
+ ],
+ "base+gpu+config.exp.en-k3.yaml|edge|pl|0": "f919462b",
+ "base+gpu+config.exp.en-k3.yaml|edge|pl|1": "102a81ec",
+ "base+gpu+config.exp.en-k3.yaml|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+en-k3"
+ ],
+ "base+gpu+config.exp.en-k3.yaml|edge|ru|0": "819c209b",
+ "base+gpu+config.exp.en-k3.yaml|edge|ru|1": "8f0fa649",
+ "base+gpu+config.exp.en-k3.yaml|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+en-k3"
+ ],
+ "base+gpu+config.exp.en-k3.yaml|edge|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.en-k3.yaml|edge|uk|1": "7eca395a",
+ "base+gpu+config.exp.en-k3.yaml|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+en-k3"
+ ],
+ "base+gpu+config.exp.icl-control.yaml|-|de|0": "0a786ec3",
+ "base+gpu+config.exp.icl-control.yaml|-|de|1": "d3871356",
+ "base+gpu+config.exp.icl-control.yaml|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.icl-control.yaml|-|en|0": "c6e99978",
+ "base+gpu+config.exp.icl-control.yaml|-|en|1": "19638bb6",
+ "base+gpu+config.exp.icl-control.yaml|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.icl-control.yaml|-|es|0": "5f5ff39d",
+ "base+gpu+config.exp.icl-control.yaml|-|es|1": "0d9171f3",
+ "base+gpu+config.exp.icl-control.yaml|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.icl-control.yaml|-|fr|0": "f60ba63f",
+ "base+gpu+config.exp.icl-control.yaml|-|fr|1": "3e4ee343",
+ "base+gpu+config.exp.icl-control.yaml|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.icl-control.yaml|-|pl|0": "0c24f32b",
+ "base+gpu+config.exp.icl-control.yaml|-|pl|1": "fa4f7235",
+ "base+gpu+config.exp.icl-control.yaml|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.icl-control.yaml|-|ru|0": "8b388e4d",
+ "base+gpu+config.exp.icl-control.yaml|-|ru|1": "363bcba2",
+ "base+gpu+config.exp.icl-control.yaml|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.icl-control.yaml|-|uk|0": "e8c92ab6",
+ "base+gpu+config.exp.icl-control.yaml|-|uk|1": "e87edbd4",
+ "base+gpu+config.exp.icl-control.yaml|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.icl-control.yaml|edge|de|0": "83888363",
+ "base+gpu+config.exp.icl-control.yaml|edge|de|1": "87113c8a",
+ "base+gpu+config.exp.icl-control.yaml|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.icl-control.yaml|edge|en|0": "24825b06",
+ "base+gpu+config.exp.icl-control.yaml|edge|en|1": "1255ab73",
+ "base+gpu+config.exp.icl-control.yaml|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.icl-control.yaml|edge|es|0": "6f153098",
+ "base+gpu+config.exp.icl-control.yaml|edge|es|1": "5b12bcc9",
+ "base+gpu+config.exp.icl-control.yaml|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.icl-control.yaml|edge|fr|0": "16bc4762",
+ "base+gpu+config.exp.icl-control.yaml|edge|fr|1": "eb4abba6",
+ "base+gpu+config.exp.icl-control.yaml|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.icl-control.yaml|edge|pl|0": "59338ebf",
+ "base+gpu+config.exp.icl-control.yaml|edge|pl|1": "9206086d",
+ "base+gpu+config.exp.icl-control.yaml|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.icl-control.yaml|edge|ru|0": "15d122bd",
+ "base+gpu+config.exp.icl-control.yaml|edge|ru|1": "5b2e7d19",
+ "base+gpu+config.exp.icl-control.yaml|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.icl-control.yaml|edge|uk|0": "e8c92ab6",
+ "base+gpu+config.exp.icl-control.yaml|edge|uk|1": "e87edbd4",
+ "base+gpu+config.exp.icl-control.yaml|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.icl.yaml|-|de|0": "f1d88512",
+ "base+gpu+config.exp.icl.yaml|-|de|1": "9116ade6",
+ "base+gpu+config.exp.icl.yaml|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+icl"
+ ],
+ "base+gpu+config.exp.icl.yaml|-|en|0": "24486360",
+ "base+gpu+config.exp.icl.yaml|-|en|1": "4e848ee6",
+ "base+gpu+config.exp.icl.yaml|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+icl"
+ ],
+ "base+gpu+config.exp.icl.yaml|-|es|0": "bfe1dbfd",
+ "base+gpu+config.exp.icl.yaml|-|es|1": "4915da9d",
+ "base+gpu+config.exp.icl.yaml|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+icl"
+ ],
+ "base+gpu+config.exp.icl.yaml|-|fr|0": "473d4e3b",
+ "base+gpu+config.exp.icl.yaml|-|fr|1": "a4e54912",
+ "base+gpu+config.exp.icl.yaml|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+icl"
+ ],
+ "base+gpu+config.exp.icl.yaml|-|pl|0": "61a28f4b",
+ "base+gpu+config.exp.icl.yaml|-|pl|1": "4c8597c5",
+ "base+gpu+config.exp.icl.yaml|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+icl"
+ ],
+ "base+gpu+config.exp.icl.yaml|-|ru|0": "1ee85bc0",
+ "base+gpu+config.exp.icl.yaml|-|ru|1": "965b0065",
+ "base+gpu+config.exp.icl.yaml|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+icl"
+ ],
+ "base+gpu+config.exp.icl.yaml|-|uk|0": "e8c92ab6",
+ "base+gpu+config.exp.icl.yaml|-|uk|1": "e87edbd4",
+ "base+gpu+config.exp.icl.yaml|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.icl.yaml|edge|de|0": "83888363",
+ "base+gpu+config.exp.icl.yaml|edge|de|1": "87113c8a",
+ "base+gpu+config.exp.icl.yaml|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.icl.yaml|edge|en|0": "24825b06",
+ "base+gpu+config.exp.icl.yaml|edge|en|1": "1255ab73",
+ "base+gpu+config.exp.icl.yaml|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.icl.yaml|edge|es|0": "6f153098",
+ "base+gpu+config.exp.icl.yaml|edge|es|1": "5b12bcc9",
+ "base+gpu+config.exp.icl.yaml|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.icl.yaml|edge|fr|0": "16bc4762",
+ "base+gpu+config.exp.icl.yaml|edge|fr|1": "eb4abba6",
+ "base+gpu+config.exp.icl.yaml|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.icl.yaml|edge|pl|0": "59338ebf",
+ "base+gpu+config.exp.icl.yaml|edge|pl|1": "9206086d",
+ "base+gpu+config.exp.icl.yaml|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.icl.yaml|edge|ru|0": "15d122bd",
+ "base+gpu+config.exp.icl.yaml|edge|ru|1": "5b2e7d19",
+ "base+gpu+config.exp.icl.yaml|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.icl.yaml|edge|uk|0": "e8c92ab6",
+ "base+gpu+config.exp.icl.yaml|edge|uk|1": "e87edbd4",
+ "base+gpu+config.exp.icl.yaml|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.repeat.yaml|-|de|0": "a9cbc650",
+ "base+gpu+config.exp.repeat.yaml|-|de|1": "3519a08e",
+ "base+gpu+config.exp.repeat.yaml|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+control"
+ ],
+ "base+gpu+config.exp.repeat.yaml|-|en|0": "d94f055e",
+ "base+gpu+config.exp.repeat.yaml|-|en|1": "0bd4655a",
+ "base+gpu+config.exp.repeat.yaml|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+control"
+ ],
+ "base+gpu+config.exp.repeat.yaml|-|es|0": "675e0862",
+ "base+gpu+config.exp.repeat.yaml|-|es|1": "e05c7014",
+ "base+gpu+config.exp.repeat.yaml|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+control"
+ ],
+ "base+gpu+config.exp.repeat.yaml|-|fr|0": "d813a0f7",
+ "base+gpu+config.exp.repeat.yaml|-|fr|1": "c5191cc2",
+ "base+gpu+config.exp.repeat.yaml|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+control"
+ ],
+ "base+gpu+config.exp.repeat.yaml|-|pl|0": "9d78baeb",
+ "base+gpu+config.exp.repeat.yaml|-|pl|1": "e291639a",
+ "base+gpu+config.exp.repeat.yaml|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+control"
+ ],
+ "base+gpu+config.exp.repeat.yaml|-|ru|0": "6744ce16",
+ "base+gpu+config.exp.repeat.yaml|-|ru|1": "5185fd98",
+ "base+gpu+config.exp.repeat.yaml|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+control"
+ ],
+ "base+gpu+config.exp.repeat.yaml|-|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.repeat.yaml|-|uk|1": "7eca395a",
+ "base+gpu+config.exp.repeat.yaml|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+control"
+ ],
+ "base+gpu+config.exp.repeat.yaml|edge|de|0": "941d9487",
+ "base+gpu+config.exp.repeat.yaml|edge|de|1": "ae2ba758",
+ "base+gpu+config.exp.repeat.yaml|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+control"
+ ],
+ "base+gpu+config.exp.repeat.yaml|edge|en|0": "59697d72",
+ "base+gpu+config.exp.repeat.yaml|edge|en|1": "e5090d0d",
+ "base+gpu+config.exp.repeat.yaml|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+control"
+ ],
+ "base+gpu+config.exp.repeat.yaml|edge|es|0": "be109af9",
+ "base+gpu+config.exp.repeat.yaml|edge|es|1": "ac3a0d96",
+ "base+gpu+config.exp.repeat.yaml|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+control"
+ ],
+ "base+gpu+config.exp.repeat.yaml|edge|fr|0": "2c7c5796",
+ "base+gpu+config.exp.repeat.yaml|edge|fr|1": "11611bde",
+ "base+gpu+config.exp.repeat.yaml|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+control"
+ ],
+ "base+gpu+config.exp.repeat.yaml|edge|pl|0": "f919462b",
+ "base+gpu+config.exp.repeat.yaml|edge|pl|1": "102a81ec",
+ "base+gpu+config.exp.repeat.yaml|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+control"
+ ],
+ "base+gpu+config.exp.repeat.yaml|edge|ru|0": "819c209b",
+ "base+gpu+config.exp.repeat.yaml|edge|ru|1": "8f0fa649",
+ "base+gpu+config.exp.repeat.yaml|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+control"
+ ],
+ "base+gpu+config.exp.repeat.yaml|edge|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.repeat.yaml|edge|uk|1": "7eca395a",
+ "base+gpu+config.exp.repeat.yaml|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+control"
+ ],
+ "base+gpu+config.exp.ru-avoided.yaml|-|de|0": "a9cbc650",
+ "base+gpu+config.exp.ru-avoided.yaml|-|de|1": "3519a08e",
+ "base+gpu+config.exp.ru-avoided.yaml|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+avoided"
+ ],
+ "base+gpu+config.exp.ru-avoided.yaml|-|en|0": "d94f055e",
+ "base+gpu+config.exp.ru-avoided.yaml|-|en|1": "0bd4655a",
+ "base+gpu+config.exp.ru-avoided.yaml|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+avoided"
+ ],
+ "base+gpu+config.exp.ru-avoided.yaml|-|es|0": "675e0862",
+ "base+gpu+config.exp.ru-avoided.yaml|-|es|1": "e05c7014",
+ "base+gpu+config.exp.ru-avoided.yaml|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+avoided"
+ ],
+ "base+gpu+config.exp.ru-avoided.yaml|-|fr|0": "d813a0f7",
+ "base+gpu+config.exp.ru-avoided.yaml|-|fr|1": "c5191cc2",
+ "base+gpu+config.exp.ru-avoided.yaml|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+avoided"
+ ],
+ "base+gpu+config.exp.ru-avoided.yaml|-|pl|0": "9d78baeb",
+ "base+gpu+config.exp.ru-avoided.yaml|-|pl|1": "e291639a",
+ "base+gpu+config.exp.ru-avoided.yaml|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+avoided"
+ ],
+ "base+gpu+config.exp.ru-avoided.yaml|-|ru|0": "6744ce16",
+ "base+gpu+config.exp.ru-avoided.yaml|-|ru|1": "5185fd98",
+ "base+gpu+config.exp.ru-avoided.yaml|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+avoided"
+ ],
+ "base+gpu+config.exp.ru-avoided.yaml|-|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-avoided.yaml|-|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-avoided.yaml|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+avoided"
+ ],
+ "base+gpu+config.exp.ru-avoided.yaml|edge|de|0": "941d9487",
+ "base+gpu+config.exp.ru-avoided.yaml|edge|de|1": "ae2ba758",
+ "base+gpu+config.exp.ru-avoided.yaml|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+avoided"
+ ],
+ "base+gpu+config.exp.ru-avoided.yaml|edge|en|0": "59697d72",
+ "base+gpu+config.exp.ru-avoided.yaml|edge|en|1": "e5090d0d",
+ "base+gpu+config.exp.ru-avoided.yaml|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+avoided"
+ ],
+ "base+gpu+config.exp.ru-avoided.yaml|edge|es|0": "be109af9",
+ "base+gpu+config.exp.ru-avoided.yaml|edge|es|1": "ac3a0d96",
+ "base+gpu+config.exp.ru-avoided.yaml|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+avoided"
+ ],
+ "base+gpu+config.exp.ru-avoided.yaml|edge|fr|0": "2c7c5796",
+ "base+gpu+config.exp.ru-avoided.yaml|edge|fr|1": "11611bde",
+ "base+gpu+config.exp.ru-avoided.yaml|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+avoided"
+ ],
+ "base+gpu+config.exp.ru-avoided.yaml|edge|pl|0": "f919462b",
+ "base+gpu+config.exp.ru-avoided.yaml|edge|pl|1": "102a81ec",
+ "base+gpu+config.exp.ru-avoided.yaml|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+avoided"
+ ],
+ "base+gpu+config.exp.ru-avoided.yaml|edge|ru|0": "819c209b",
+ "base+gpu+config.exp.ru-avoided.yaml|edge|ru|1": "8f0fa649",
+ "base+gpu+config.exp.ru-avoided.yaml|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+avoided"
+ ],
+ "base+gpu+config.exp.ru-avoided.yaml|edge|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-avoided.yaml|edge|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-avoided.yaml|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+avoided"
+ ],
+ "base+gpu+config.exp.ru-consensus.yaml|-|de|0": "a9cbc650",
+ "base+gpu+config.exp.ru-consensus.yaml|-|de|1": "3519a08e",
+ "base+gpu+config.exp.ru-consensus.yaml|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+k5"
+ ],
+ "base+gpu+config.exp.ru-consensus.yaml|-|en|0": "d94f055e",
+ "base+gpu+config.exp.ru-consensus.yaml|-|en|1": "0bd4655a",
+ "base+gpu+config.exp.ru-consensus.yaml|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+k5"
+ ],
+ "base+gpu+config.exp.ru-consensus.yaml|-|es|0": "675e0862",
+ "base+gpu+config.exp.ru-consensus.yaml|-|es|1": "e05c7014",
+ "base+gpu+config.exp.ru-consensus.yaml|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+k5"
+ ],
+ "base+gpu+config.exp.ru-consensus.yaml|-|fr|0": "d813a0f7",
+ "base+gpu+config.exp.ru-consensus.yaml|-|fr|1": "c5191cc2",
+ "base+gpu+config.exp.ru-consensus.yaml|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+k5"
+ ],
+ "base+gpu+config.exp.ru-consensus.yaml|-|pl|0": "9d78baeb",
+ "base+gpu+config.exp.ru-consensus.yaml|-|pl|1": "e291639a",
+ "base+gpu+config.exp.ru-consensus.yaml|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+k5"
+ ],
+ "base+gpu+config.exp.ru-consensus.yaml|-|ru|0": "6744ce16",
+ "base+gpu+config.exp.ru-consensus.yaml|-|ru|1": "5185fd98",
+ "base+gpu+config.exp.ru-consensus.yaml|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+k5"
+ ],
+ "base+gpu+config.exp.ru-consensus.yaml|-|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-consensus.yaml|-|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-consensus.yaml|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+k5"
+ ],
+ "base+gpu+config.exp.ru-consensus.yaml|edge|de|0": "941d9487",
+ "base+gpu+config.exp.ru-consensus.yaml|edge|de|1": "ae2ba758",
+ "base+gpu+config.exp.ru-consensus.yaml|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+k5"
+ ],
+ "base+gpu+config.exp.ru-consensus.yaml|edge|en|0": "59697d72",
+ "base+gpu+config.exp.ru-consensus.yaml|edge|en|1": "e5090d0d",
+ "base+gpu+config.exp.ru-consensus.yaml|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+k5"
+ ],
+ "base+gpu+config.exp.ru-consensus.yaml|edge|es|0": "be109af9",
+ "base+gpu+config.exp.ru-consensus.yaml|edge|es|1": "ac3a0d96",
+ "base+gpu+config.exp.ru-consensus.yaml|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+k5"
+ ],
+ "base+gpu+config.exp.ru-consensus.yaml|edge|fr|0": "2c7c5796",
+ "base+gpu+config.exp.ru-consensus.yaml|edge|fr|1": "11611bde",
+ "base+gpu+config.exp.ru-consensus.yaml|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+k5"
+ ],
+ "base+gpu+config.exp.ru-consensus.yaml|edge|pl|0": "f919462b",
+ "base+gpu+config.exp.ru-consensus.yaml|edge|pl|1": "102a81ec",
+ "base+gpu+config.exp.ru-consensus.yaml|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+k5"
+ ],
+ "base+gpu+config.exp.ru-consensus.yaml|edge|ru|0": "819c209b",
+ "base+gpu+config.exp.ru-consensus.yaml|edge|ru|1": "8f0fa649",
+ "base+gpu+config.exp.ru-consensus.yaml|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+k5"
+ ],
+ "base+gpu+config.exp.ru-consensus.yaml|edge|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-consensus.yaml|edge|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-consensus.yaml|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+k5"
+ ],
+ "base+gpu+config.exp.ru-control.yaml|-|de|0": "a9cbc650",
+ "base+gpu+config.exp.ru-control.yaml|-|de|1": "3519a08e",
+ "base+gpu+config.exp.ru-control.yaml|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+control"
+ ],
+ "base+gpu+config.exp.ru-control.yaml|-|en|0": "d94f055e",
+ "base+gpu+config.exp.ru-control.yaml|-|en|1": "0bd4655a",
+ "base+gpu+config.exp.ru-control.yaml|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+control"
+ ],
+ "base+gpu+config.exp.ru-control.yaml|-|es|0": "675e0862",
+ "base+gpu+config.exp.ru-control.yaml|-|es|1": "e05c7014",
+ "base+gpu+config.exp.ru-control.yaml|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+control"
+ ],
+ "base+gpu+config.exp.ru-control.yaml|-|fr|0": "d813a0f7",
+ "base+gpu+config.exp.ru-control.yaml|-|fr|1": "c5191cc2",
+ "base+gpu+config.exp.ru-control.yaml|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+control"
+ ],
+ "base+gpu+config.exp.ru-control.yaml|-|pl|0": "9d78baeb",
+ "base+gpu+config.exp.ru-control.yaml|-|pl|1": "e291639a",
+ "base+gpu+config.exp.ru-control.yaml|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+control"
+ ],
+ "base+gpu+config.exp.ru-control.yaml|-|ru|0": "6744ce16",
+ "base+gpu+config.exp.ru-control.yaml|-|ru|1": "5185fd98",
+ "base+gpu+config.exp.ru-control.yaml|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+control"
+ ],
+ "base+gpu+config.exp.ru-control.yaml|-|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-control.yaml|-|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-control.yaml|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+control"
+ ],
+ "base+gpu+config.exp.ru-control.yaml|edge|de|0": "941d9487",
+ "base+gpu+config.exp.ru-control.yaml|edge|de|1": "ae2ba758",
+ "base+gpu+config.exp.ru-control.yaml|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+control"
+ ],
+ "base+gpu+config.exp.ru-control.yaml|edge|en|0": "59697d72",
+ "base+gpu+config.exp.ru-control.yaml|edge|en|1": "e5090d0d",
+ "base+gpu+config.exp.ru-control.yaml|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+control"
+ ],
+ "base+gpu+config.exp.ru-control.yaml|edge|es|0": "be109af9",
+ "base+gpu+config.exp.ru-control.yaml|edge|es|1": "ac3a0d96",
+ "base+gpu+config.exp.ru-control.yaml|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+control"
+ ],
+ "base+gpu+config.exp.ru-control.yaml|edge|fr|0": "2c7c5796",
+ "base+gpu+config.exp.ru-control.yaml|edge|fr|1": "11611bde",
+ "base+gpu+config.exp.ru-control.yaml|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+control"
+ ],
+ "base+gpu+config.exp.ru-control.yaml|edge|pl|0": "f919462b",
+ "base+gpu+config.exp.ru-control.yaml|edge|pl|1": "102a81ec",
+ "base+gpu+config.exp.ru-control.yaml|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+control"
+ ],
+ "base+gpu+config.exp.ru-control.yaml|edge|ru|0": "819c209b",
+ "base+gpu+config.exp.ru-control.yaml|edge|ru|1": "8f0fa649",
+ "base+gpu+config.exp.ru-control.yaml|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+control"
+ ],
+ "base+gpu+config.exp.ru-control.yaml|edge|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-control.yaml|edge|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-control.yaml|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+control"
+ ],
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|de|0": "4bb9f223",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|de|1": "921cedfb",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|de|route": [
+  "qwen",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "qwen+fast+icl+m:qwen3-tts-12hz-1.7b-ru-stress-cf"
+ ],
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|en|0": "db111771",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|en|1": "db53284e",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|en|route": [
+  "qwen",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "qwen+fast+icl+m:qwen3-tts-12hz-1.7b-ru-stress-cf"
+ ],
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|es|0": "9bf8fc80",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|es|1": "c01b7112",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|es|route": [
+  "qwen",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "qwen+fast+icl+m:qwen3-tts-12hz-1.7b-ru-stress-cf"
+ ],
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|fr|0": "04f822a8",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|fr|1": "e4d1442e",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|fr|route": [
+  "qwen",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "qwen+fast+icl+m:qwen3-tts-12hz-1.7b-ru-stress-cf"
+ ],
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|pl|0": "dca0bbc7",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|pl|1": "ea6cb510",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|pl|route": [
+  "qwen",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "qwen+fast+icl+m:qwen3-tts-12hz-1.7b-ru-stress-cf"
+ ],
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|ru|0": "97dd8d4b",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|ru|1": "3c652f13",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|ru|route": [
+  "qwen",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "qwen+fast+icl+stress+m:qwen3-tts-12hz-1.7b-ru-stress-cf"
+ ],
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|-|uk|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|de|0": "941d9487",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|de|1": "ae2ba758",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|de|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|en|0": "59697d72",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|en|1": "e5090d0d",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|en|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|es|0": "be109af9",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|es|1": "ac3a0d96",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|es|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|fr|0": "2c7c5796",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|fr|1": "11611bde",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|fr|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|pl|0": "f919462b",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|pl|1": "102a81ec",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|pl|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|ru|0": "aa1b298c",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|ru|1": "7aa02f3b",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|ru|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge+stress"
+ ],
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-ft-icl-stress.yaml|edge|uk|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|de|0": "4a2c59b4",
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|de|1": "d509b7fd",
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|de|route": [
+  "qwen",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "qwen+fast+m:qwen3-tts-12hz-1.7b-ru-stress-cf"
+ ],
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|en|0": "897801e8",
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|en|1": "d787b2b6",
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|en|route": [
+  "qwen",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "qwen+fast+m:qwen3-tts-12hz-1.7b-ru-stress-cf"
+ ],
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|es|0": "20c54213",
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|es|1": "17a39a54",
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|es|route": [
+  "qwen",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "qwen+fast+m:qwen3-tts-12hz-1.7b-ru-stress-cf"
+ ],
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|fr|0": "84425283",
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|fr|1": "3d1ab794",
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|fr|route": [
+  "qwen",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "qwen+fast+m:qwen3-tts-12hz-1.7b-ru-stress-cf"
+ ],
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|pl|0": "77819a17",
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|pl|1": "8428fed4",
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|pl|route": [
+  "qwen",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "qwen+fast+m:qwen3-tts-12hz-1.7b-ru-stress-cf"
+ ],
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|ru|0": "cd7f5512",
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|ru|1": "ff17ce0d",
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|ru|route": [
+  "qwen",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "qwen+fast+m:qwen3-tts-12hz-1.7b-ru-stress-cf"
+ ],
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-ft-plain.yaml|-|uk|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|de|0": "941d9487",
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|de|1": "ae2ba758",
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|de|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|en|0": "59697d72",
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|en|1": "e5090d0d",
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|en|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|es|0": "be109af9",
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|es|1": "ac3a0d96",
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|es|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|fr|0": "2c7c5796",
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|fr|1": "11611bde",
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|fr|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|pl|0": "f919462b",
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|pl|1": "102a81ec",
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|pl|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|ru|0": "819c209b",
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|ru|1": "8f0fa649",
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|ru|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-ft-plain.yaml|edge|uk|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|de|0": "4a2c59b4",
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|de|1": "d509b7fd",
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|de|route": [
+  "qwen",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "qwen+fast+m:qwen3-tts-12hz-1.7b-ru-stress-cf"
+ ],
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|en|0": "897801e8",
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|en|1": "d787b2b6",
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|en|route": [
+  "qwen",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "qwen+fast+m:qwen3-tts-12hz-1.7b-ru-stress-cf"
+ ],
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|es|0": "20c54213",
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|es|1": "17a39a54",
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|es|route": [
+  "qwen",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "qwen+fast+m:qwen3-tts-12hz-1.7b-ru-stress-cf"
+ ],
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|fr|0": "84425283",
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|fr|1": "3d1ab794",
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|fr|route": [
+  "qwen",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "qwen+fast+m:qwen3-tts-12hz-1.7b-ru-stress-cf"
+ ],
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|pl|0": "77819a17",
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|pl|1": "8428fed4",
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|pl|route": [
+  "qwen",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "qwen+fast+m:qwen3-tts-12hz-1.7b-ru-stress-cf"
+ ],
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|ru|0": "be804030",
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|ru|1": "868c8844",
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|ru|route": [
+  "qwen",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "qwen+fast+stress+m:qwen3-tts-12hz-1.7b-ru-stress-cf"
+ ],
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-ft-stress.yaml|-|uk|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|de|0": "941d9487",
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|de|1": "ae2ba758",
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|de|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|en|0": "59697d72",
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|en|1": "e5090d0d",
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|en|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|es|0": "be109af9",
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|es|1": "ac3a0d96",
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|es|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|fr|0": "2c7c5796",
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|fr|1": "11611bde",
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|fr|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|pl|0": "f919462b",
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|pl|1": "102a81ec",
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|pl|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|ru|0": "aa1b298c",
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|ru|1": "7aa02f3b",
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|ru|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge+stress"
+ ],
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-ft-stress.yaml|edge|uk|route": [
+  "edge",
+  "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-full.yaml|-|de|0": "a9cbc650",
+ "base+gpu+config.exp.ru-full.yaml|-|de|1": "3519a08e",
+ "base+gpu+config.exp.ru-full.yaml|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.ru-full.yaml|-|en|0": "d94f055e",
+ "base+gpu+config.exp.ru-full.yaml|-|en|1": "0bd4655a",
+ "base+gpu+config.exp.ru-full.yaml|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.ru-full.yaml|-|es|0": "675e0862",
+ "base+gpu+config.exp.ru-full.yaml|-|es|1": "e05c7014",
+ "base+gpu+config.exp.ru-full.yaml|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.ru-full.yaml|-|fr|0": "d813a0f7",
+ "base+gpu+config.exp.ru-full.yaml|-|fr|1": "c5191cc2",
+ "base+gpu+config.exp.ru-full.yaml|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.ru-full.yaml|-|pl|0": "9d78baeb",
+ "base+gpu+config.exp.ru-full.yaml|-|pl|1": "e291639a",
+ "base+gpu+config.exp.ru-full.yaml|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.ru-full.yaml|-|ru|0": "6744ce16",
+ "base+gpu+config.exp.ru-full.yaml|-|ru|1": "5185fd98",
+ "base+gpu+config.exp.ru-full.yaml|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.ru-full.yaml|-|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-full.yaml|-|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-full.yaml|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-full.yaml|edge|de|0": "941d9487",
+ "base+gpu+config.exp.ru-full.yaml|edge|de|1": "ae2ba758",
+ "base+gpu+config.exp.ru-full.yaml|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-full.yaml|edge|en|0": "59697d72",
+ "base+gpu+config.exp.ru-full.yaml|edge|en|1": "e5090d0d",
+ "base+gpu+config.exp.ru-full.yaml|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-full.yaml|edge|es|0": "be109af9",
+ "base+gpu+config.exp.ru-full.yaml|edge|es|1": "ac3a0d96",
+ "base+gpu+config.exp.ru-full.yaml|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-full.yaml|edge|fr|0": "2c7c5796",
+ "base+gpu+config.exp.ru-full.yaml|edge|fr|1": "11611bde",
+ "base+gpu+config.exp.ru-full.yaml|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-full.yaml|edge|pl|0": "f919462b",
+ "base+gpu+config.exp.ru-full.yaml|edge|pl|1": "102a81ec",
+ "base+gpu+config.exp.ru-full.yaml|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-full.yaml|edge|ru|0": "819c209b",
+ "base+gpu+config.exp.ru-full.yaml|edge|ru|1": "8f0fa649",
+ "base+gpu+config.exp.ru-full.yaml|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-full.yaml|edge|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-full.yaml|edge|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-full.yaml|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|de|0": "e5f4fa0b",
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|de|1": "bb3ef821",
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+icl"
+ ],
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|en|0": "d4d0ffc2",
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|en|1": "259a23ac",
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+icl"
+ ],
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|es|0": "e527d555",
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|es|1": "adff73ad",
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+icl"
+ ],
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|fr|0": "c0b1a7e2",
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|fr|1": "e64dba02",
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+icl"
+ ],
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|pl|0": "3ef0465e",
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|pl|1": "36d06efb",
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+icl"
+ ],
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|ru|0": "947466f2",
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|ru|1": "5068ad9d",
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+icl"
+ ],
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-icl-plain.yaml|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|de|0": "941d9487",
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|de|1": "ae2ba758",
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|en|0": "59697d72",
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|en|1": "e5090d0d",
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|es|0": "be109af9",
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|es|1": "ac3a0d96",
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|fr|0": "2c7c5796",
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|fr|1": "11611bde",
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|pl|0": "f919462b",
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|pl|1": "102a81ec",
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|ru|0": "819c209b",
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|ru|1": "8f0fa649",
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-icl-plain.yaml|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|de|0": "4e45cb66",
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|de|1": "b34efe00",
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+icl"
+ ],
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|en|0": "f0434b72",
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|en|1": "c305ccf5",
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+icl"
+ ],
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|es|0": "d20050aa",
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|es|1": "e6009a79",
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+icl"
+ ],
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|fr|0": "d7535ba7",
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|fr|1": "927f25e8",
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+icl"
+ ],
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|pl|0": "cf508c81",
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|pl|1": "119e586a",
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+icl"
+ ],
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|ru|0": "43769fc2",
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|ru|1": "df646324",
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+icl+stress"
+ ],
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-icl-stress.yaml|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|de|0": "941d9487",
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|de|1": "ae2ba758",
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|en|0": "59697d72",
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|en|1": "e5090d0d",
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|es|0": "be109af9",
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|es|1": "ac3a0d96",
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|fr|0": "2c7c5796",
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|fr|1": "11611bde",
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|pl|0": "f919462b",
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|pl|1": "102a81ec",
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|ru|0": "aa1b298c",
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|ru|1": "7aa02f3b",
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+stress"
+ ],
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-icl-stress.yaml|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-stress.yaml|-|de|0": "a9cbc650",
+ "base+gpu+config.exp.ru-stress.yaml|-|de|1": "3519a08e",
+ "base+gpu+config.exp.ru-stress.yaml|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.ru-stress.yaml|-|en|0": "d94f055e",
+ "base+gpu+config.exp.ru-stress.yaml|-|en|1": "0bd4655a",
+ "base+gpu+config.exp.ru-stress.yaml|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.ru-stress.yaml|-|es|0": "675e0862",
+ "base+gpu+config.exp.ru-stress.yaml|-|es|1": "e05c7014",
+ "base+gpu+config.exp.ru-stress.yaml|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.ru-stress.yaml|-|fr|0": "d813a0f7",
+ "base+gpu+config.exp.ru-stress.yaml|-|fr|1": "c5191cc2",
+ "base+gpu+config.exp.ru-stress.yaml|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.ru-stress.yaml|-|pl|0": "9d78baeb",
+ "base+gpu+config.exp.ru-stress.yaml|-|pl|1": "e291639a",
+ "base+gpu+config.exp.ru-stress.yaml|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.exp.ru-stress.yaml|-|ru|0": "f2e8146b",
+ "base+gpu+config.exp.ru-stress.yaml|-|ru|1": "9e256603",
+ "base+gpu+config.exp.ru-stress.yaml|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+stress"
+ ],
+ "base+gpu+config.exp.ru-stress.yaml|-|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-stress.yaml|-|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-stress.yaml|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-stress.yaml|edge|de|0": "941d9487",
+ "base+gpu+config.exp.ru-stress.yaml|edge|de|1": "ae2ba758",
+ "base+gpu+config.exp.ru-stress.yaml|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-stress.yaml|edge|en|0": "59697d72",
+ "base+gpu+config.exp.ru-stress.yaml|edge|en|1": "e5090d0d",
+ "base+gpu+config.exp.ru-stress.yaml|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-stress.yaml|edge|es|0": "be109af9",
+ "base+gpu+config.exp.ru-stress.yaml|edge|es|1": "ac3a0d96",
+ "base+gpu+config.exp.ru-stress.yaml|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-stress.yaml|edge|fr|0": "2c7c5796",
+ "base+gpu+config.exp.ru-stress.yaml|edge|fr|1": "11611bde",
+ "base+gpu+config.exp.ru-stress.yaml|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-stress.yaml|edge|pl|0": "f919462b",
+ "base+gpu+config.exp.ru-stress.yaml|edge|pl|1": "102a81ec",
+ "base+gpu+config.exp.ru-stress.yaml|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.ru-stress.yaml|edge|ru|0": "aa1b298c",
+ "base+gpu+config.exp.ru-stress.yaml|edge|ru|1": "7aa02f3b",
+ "base+gpu+config.exp.ru-stress.yaml|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+stress"
+ ],
+ "base+gpu+config.exp.ru-stress.yaml|edge|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.ru-stress.yaml|edge|uk|1": "7eca395a",
+ "base+gpu+config.exp.ru-stress.yaml|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.exp.temp05.yaml|-|de|0": "703e8607",
+ "base+gpu+config.exp.temp05.yaml|-|de|1": "dd087d96",
+ "base+gpu+config.exp.temp05.yaml|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+temp05"
+ ],
+ "base+gpu+config.exp.temp05.yaml|-|en|0": "95ee5924",
+ "base+gpu+config.exp.temp05.yaml|-|en|1": "417944d1",
+ "base+gpu+config.exp.temp05.yaml|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+temp05"
+ ],
+ "base+gpu+config.exp.temp05.yaml|-|es|0": "0815cfa5",
+ "base+gpu+config.exp.temp05.yaml|-|es|1": "0a4d3930",
+ "base+gpu+config.exp.temp05.yaml|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+temp05"
+ ],
+ "base+gpu+config.exp.temp05.yaml|-|fr|0": "df216747",
+ "base+gpu+config.exp.temp05.yaml|-|fr|1": "763c8d4a",
+ "base+gpu+config.exp.temp05.yaml|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+temp05"
+ ],
+ "base+gpu+config.exp.temp05.yaml|-|pl|0": "61381c9c",
+ "base+gpu+config.exp.temp05.yaml|-|pl|1": "9c76d2ee",
+ "base+gpu+config.exp.temp05.yaml|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+temp05"
+ ],
+ "base+gpu+config.exp.temp05.yaml|-|ru|0": "1c3a8c28",
+ "base+gpu+config.exp.temp05.yaml|-|ru|1": "489e2281",
+ "base+gpu+config.exp.temp05.yaml|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+temp05"
+ ],
+ "base+gpu+config.exp.temp05.yaml|-|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.temp05.yaml|-|uk|1": "7eca395a",
+ "base+gpu+config.exp.temp05.yaml|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+temp05"
+ ],
+ "base+gpu+config.exp.temp05.yaml|edge|de|0": "941d9487",
+ "base+gpu+config.exp.temp05.yaml|edge|de|1": "ae2ba758",
+ "base+gpu+config.exp.temp05.yaml|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+temp05"
+ ],
+ "base+gpu+config.exp.temp05.yaml|edge|en|0": "59697d72",
+ "base+gpu+config.exp.temp05.yaml|edge|en|1": "e5090d0d",
+ "base+gpu+config.exp.temp05.yaml|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+temp05"
+ ],
+ "base+gpu+config.exp.temp05.yaml|edge|es|0": "be109af9",
+ "base+gpu+config.exp.temp05.yaml|edge|es|1": "ac3a0d96",
+ "base+gpu+config.exp.temp05.yaml|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+temp05"
+ ],
+ "base+gpu+config.exp.temp05.yaml|edge|fr|0": "2c7c5796",
+ "base+gpu+config.exp.temp05.yaml|edge|fr|1": "11611bde",
+ "base+gpu+config.exp.temp05.yaml|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+temp05"
+ ],
+ "base+gpu+config.exp.temp05.yaml|edge|pl|0": "f919462b",
+ "base+gpu+config.exp.temp05.yaml|edge|pl|1": "102a81ec",
+ "base+gpu+config.exp.temp05.yaml|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+temp05"
+ ],
+ "base+gpu+config.exp.temp05.yaml|edge|ru|0": "819c209b",
+ "base+gpu+config.exp.temp05.yaml|edge|ru|1": "8f0fa649",
+ "base+gpu+config.exp.temp05.yaml|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+temp05"
+ ],
+ "base+gpu+config.exp.temp05.yaml|edge|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.temp05.yaml|edge|uk|1": "7eca395a",
+ "base+gpu+config.exp.temp05.yaml|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+temp05"
+ ],
+ "base+gpu+config.exp.temp07.yaml|-|de|0": "c2b71396",
+ "base+gpu+config.exp.temp07.yaml|-|de|1": "7763ab4f",
+ "base+gpu+config.exp.temp07.yaml|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+temp07"
+ ],
+ "base+gpu+config.exp.temp07.yaml|-|en|0": "27775c38",
+ "base+gpu+config.exp.temp07.yaml|-|en|1": "dc5ebf90",
+ "base+gpu+config.exp.temp07.yaml|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+temp07"
+ ],
+ "base+gpu+config.exp.temp07.yaml|-|es|0": "d5130ad5",
+ "base+gpu+config.exp.temp07.yaml|-|es|1": "24cc8b92",
+ "base+gpu+config.exp.temp07.yaml|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+temp07"
+ ],
+ "base+gpu+config.exp.temp07.yaml|-|fr|0": "f7d1913e",
+ "base+gpu+config.exp.temp07.yaml|-|fr|1": "a3abac88",
+ "base+gpu+config.exp.temp07.yaml|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+temp07"
+ ],
+ "base+gpu+config.exp.temp07.yaml|-|pl|0": "bb73471e",
+ "base+gpu+config.exp.temp07.yaml|-|pl|1": "d34227ec",
+ "base+gpu+config.exp.temp07.yaml|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+temp07"
+ ],
+ "base+gpu+config.exp.temp07.yaml|-|ru|0": "fdd38b44",
+ "base+gpu+config.exp.temp07.yaml|-|ru|1": "b3eb397c",
+ "base+gpu+config.exp.temp07.yaml|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast+temp07"
+ ],
+ "base+gpu+config.exp.temp07.yaml|-|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.temp07.yaml|-|uk|1": "7eca395a",
+ "base+gpu+config.exp.temp07.yaml|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+temp07"
+ ],
+ "base+gpu+config.exp.temp07.yaml|edge|de|0": "941d9487",
+ "base+gpu+config.exp.temp07.yaml|edge|de|1": "ae2ba758",
+ "base+gpu+config.exp.temp07.yaml|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+temp07"
+ ],
+ "base+gpu+config.exp.temp07.yaml|edge|en|0": "59697d72",
+ "base+gpu+config.exp.temp07.yaml|edge|en|1": "e5090d0d",
+ "base+gpu+config.exp.temp07.yaml|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+temp07"
+ ],
+ "base+gpu+config.exp.temp07.yaml|edge|es|0": "be109af9",
+ "base+gpu+config.exp.temp07.yaml|edge|es|1": "ac3a0d96",
+ "base+gpu+config.exp.temp07.yaml|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+temp07"
+ ],
+ "base+gpu+config.exp.temp07.yaml|edge|fr|0": "2c7c5796",
+ "base+gpu+config.exp.temp07.yaml|edge|fr|1": "11611bde",
+ "base+gpu+config.exp.temp07.yaml|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+temp07"
+ ],
+ "base+gpu+config.exp.temp07.yaml|edge|pl|0": "f919462b",
+ "base+gpu+config.exp.temp07.yaml|edge|pl|1": "102a81ec",
+ "base+gpu+config.exp.temp07.yaml|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+temp07"
+ ],
+ "base+gpu+config.exp.temp07.yaml|edge|ru|0": "819c209b",
+ "base+gpu+config.exp.temp07.yaml|edge|ru|1": "8f0fa649",
+ "base+gpu+config.exp.temp07.yaml|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+temp07"
+ ],
+ "base+gpu+config.exp.temp07.yaml|edge|uk|0": "f4b28bf8",
+ "base+gpu+config.exp.temp07.yaml|edge|uk|1": "7eca395a",
+ "base+gpu+config.exp.temp07.yaml|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge+temp07"
+ ],
+ "base+gpu+config.gemini.yaml|-|de|0": "a9cbc650",
+ "base+gpu+config.gemini.yaml|-|de|1": "3519a08e",
+ "base+gpu+config.gemini.yaml|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.gemini.yaml|-|en|0": "d94f055e",
+ "base+gpu+config.gemini.yaml|-|en|1": "0bd4655a",
+ "base+gpu+config.gemini.yaml|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.gemini.yaml|-|es|0": "675e0862",
+ "base+gpu+config.gemini.yaml|-|es|1": "e05c7014",
+ "base+gpu+config.gemini.yaml|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.gemini.yaml|-|fr|0": "d813a0f7",
+ "base+gpu+config.gemini.yaml|-|fr|1": "c5191cc2",
+ "base+gpu+config.gemini.yaml|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.gemini.yaml|-|pl|0": "9d78baeb",
+ "base+gpu+config.gemini.yaml|-|pl|1": "e291639a",
+ "base+gpu+config.gemini.yaml|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.gemini.yaml|-|ru|0": "6744ce16",
+ "base+gpu+config.gemini.yaml|-|ru|1": "5185fd98",
+ "base+gpu+config.gemini.yaml|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.gemini.yaml|-|uk|0": "f4b28bf8",
+ "base+gpu+config.gemini.yaml|-|uk|1": "7eca395a",
+ "base+gpu+config.gemini.yaml|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.gemini.yaml|edge|de|0": "941d9487",
+ "base+gpu+config.gemini.yaml|edge|de|1": "ae2ba758",
+ "base+gpu+config.gemini.yaml|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.gemini.yaml|edge|en|0": "59697d72",
+ "base+gpu+config.gemini.yaml|edge|en|1": "e5090d0d",
+ "base+gpu+config.gemini.yaml|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.gemini.yaml|edge|es|0": "be109af9",
+ "base+gpu+config.gemini.yaml|edge|es|1": "ac3a0d96",
+ "base+gpu+config.gemini.yaml|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.gemini.yaml|edge|fr|0": "2c7c5796",
+ "base+gpu+config.gemini.yaml|edge|fr|1": "11611bde",
+ "base+gpu+config.gemini.yaml|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.gemini.yaml|edge|pl|0": "f919462b",
+ "base+gpu+config.gemini.yaml|edge|pl|1": "102a81ec",
+ "base+gpu+config.gemini.yaml|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.gemini.yaml|edge|ru|0": "819c209b",
+ "base+gpu+config.gemini.yaml|edge|ru|1": "8f0fa649",
+ "base+gpu+config.gemini.yaml|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.gemini.yaml|edge|uk|0": "f4b28bf8",
+ "base+gpu+config.gemini.yaml|edge|uk|1": "7eca395a",
+ "base+gpu+config.gemini.yaml|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.source-ru.yaml|-|de|0": "a9cbc650",
+ "base+gpu+config.source-ru.yaml|-|de|1": "3519a08e",
+ "base+gpu+config.source-ru.yaml|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.source-ru.yaml|-|en|0": "d94f055e",
+ "base+gpu+config.source-ru.yaml|-|en|1": "0bd4655a",
+ "base+gpu+config.source-ru.yaml|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.source-ru.yaml|-|es|0": "675e0862",
+ "base+gpu+config.source-ru.yaml|-|es|1": "e05c7014",
+ "base+gpu+config.source-ru.yaml|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.source-ru.yaml|-|fr|0": "d813a0f7",
+ "base+gpu+config.source-ru.yaml|-|fr|1": "c5191cc2",
+ "base+gpu+config.source-ru.yaml|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.source-ru.yaml|-|pl|0": "9d78baeb",
+ "base+gpu+config.source-ru.yaml|-|pl|1": "e291639a",
+ "base+gpu+config.source-ru.yaml|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.source-ru.yaml|-|ru|0": "6744ce16",
+ "base+gpu+config.source-ru.yaml|-|ru|1": "5185fd98",
+ "base+gpu+config.source-ru.yaml|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu+config.source-ru.yaml|-|uk|0": "f4b28bf8",
+ "base+gpu+config.source-ru.yaml|-|uk|1": "7eca395a",
+ "base+gpu+config.source-ru.yaml|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.source-ru.yaml|edge|de|0": "941d9487",
+ "base+gpu+config.source-ru.yaml|edge|de|1": "ae2ba758",
+ "base+gpu+config.source-ru.yaml|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.source-ru.yaml|edge|en|0": "59697d72",
+ "base+gpu+config.source-ru.yaml|edge|en|1": "e5090d0d",
+ "base+gpu+config.source-ru.yaml|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.source-ru.yaml|edge|es|0": "be109af9",
+ "base+gpu+config.source-ru.yaml|edge|es|1": "ac3a0d96",
+ "base+gpu+config.source-ru.yaml|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.source-ru.yaml|edge|fr|0": "2c7c5796",
+ "base+gpu+config.source-ru.yaml|edge|fr|1": "11611bde",
+ "base+gpu+config.source-ru.yaml|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.source-ru.yaml|edge|pl|0": "f919462b",
+ "base+gpu+config.source-ru.yaml|edge|pl|1": "102a81ec",
+ "base+gpu+config.source-ru.yaml|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.source-ru.yaml|edge|ru|0": "819c209b",
+ "base+gpu+config.source-ru.yaml|edge|ru|1": "8f0fa649",
+ "base+gpu+config.source-ru.yaml|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu+config.source-ru.yaml|edge|uk|0": "f4b28bf8",
+ "base+gpu+config.source-ru.yaml|edge|uk|1": "7eca395a",
+ "base+gpu+config.source-ru.yaml|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu|-|de|0": "a9cbc650",
+ "base+gpu|-|de|1": "3519a08e",
+ "base+gpu|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu|-|en|0": "d94f055e",
+ "base+gpu|-|en|1": "0bd4655a",
+ "base+gpu|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu|-|es|0": "675e0862",
+ "base+gpu|-|es|1": "e05c7014",
+ "base+gpu|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu|-|fr|0": "d813a0f7",
+ "base+gpu|-|fr|1": "c5191cc2",
+ "base+gpu|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu|-|pl|0": "9d78baeb",
+ "base+gpu|-|pl|1": "e291639a",
+ "base+gpu|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu|-|ru|0": "6744ce16",
+ "base+gpu|-|ru|1": "5185fd98",
+ "base+gpu|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen+fast"
+ ],
+ "base+gpu|-|uk|0": "f4b28bf8",
+ "base+gpu|-|uk|1": "7eca395a",
+ "base+gpu|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu|edge|de|0": "941d9487",
+ "base+gpu|edge|de|1": "ae2ba758",
+ "base+gpu|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu|edge|en|0": "59697d72",
+ "base+gpu|edge|en|1": "e5090d0d",
+ "base+gpu|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu|edge|es|0": "be109af9",
+ "base+gpu|edge|es|1": "ac3a0d96",
+ "base+gpu|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu|edge|fr|0": "2c7c5796",
+ "base+gpu|edge|fr|1": "11611bde",
+ "base+gpu|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu|edge|pl|0": "f919462b",
+ "base+gpu|edge|pl|1": "102a81ec",
+ "base+gpu|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu|edge|ru|0": "819c209b",
+ "base+gpu|edge|ru|1": "8f0fa649",
+ "base+gpu|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+gpu|edge|uk|0": "f4b28bf8",
+ "base+gpu|edge|uk|1": "7eca395a",
+ "base+gpu|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+source-ru|-|de|0": "2c5a2b49",
+ "base+source-ru|-|de|1": "b726cc21",
+ "base+source-ru|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen"
+ ],
+ "base+source-ru|-|en|0": "ffd1e098",
+ "base+source-ru|-|en|1": "09faa1fb",
+ "base+source-ru|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen"
+ ],
+ "base+source-ru|-|es|0": "e869c40e",
+ "base+source-ru|-|es|1": "3c88fc1e",
+ "base+source-ru|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen"
+ ],
+ "base+source-ru|-|fr|0": "d03b126d",
+ "base+source-ru|-|fr|1": "f2efab45",
+ "base+source-ru|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen"
+ ],
+ "base+source-ru|-|pl|0": "2042d50e",
+ "base+source-ru|-|pl|1": "37e545c2",
+ "base+source-ru|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen"
+ ],
+ "base+source-ru|-|ru|0": "a56456fa",
+ "base+source-ru|-|ru|1": "80793539",
+ "base+source-ru|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen"
+ ],
+ "base+source-ru|-|uk|0": "de482c43",
+ "base+source-ru|-|uk|1": "71c39712",
+ "base+source-ru|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+source-ru|edge|de|0": "54717f39",
+ "base+source-ru|edge|de|1": "ece350c1",
+ "base+source-ru|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+source-ru|edge|en|0": "373ca766",
+ "base+source-ru|edge|en|1": "92de644c",
+ "base+source-ru|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+source-ru|edge|es|0": "ec90adc8",
+ "base+source-ru|edge|es|1": "7bf5c805",
+ "base+source-ru|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+source-ru|edge|fr|0": "7ad117db",
+ "base+source-ru|edge|fr|1": "10931e85",
+ "base+source-ru|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+source-ru|edge|pl|0": "d06fbbab",
+ "base+source-ru|edge|pl|1": "190b8ed8",
+ "base+source-ru|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+source-ru|edge|ru|0": "79242b77",
+ "base+source-ru|edge|ru|1": "9825a10f",
+ "base+source-ru|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base+source-ru|edge|uk|0": "de482c43",
+ "base+source-ru|edge|uk|1": "71c39712",
+ "base+source-ru|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base|-|de|0": "2c5a2b49",
+ "base|-|de|1": "b726cc21",
+ "base|-|de|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen"
+ ],
+ "base|-|en|0": "ffd1e098",
+ "base|-|en|1": "09faa1fb",
+ "base|-|en|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen"
+ ],
+ "base|-|es|0": "e869c40e",
+ "base|-|es|1": "3c88fc1e",
+ "base|-|es|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen"
+ ],
+ "base|-|fr|0": "d03b126d",
+ "base|-|fr|1": "f2efab45",
+ "base|-|fr|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen"
+ ],
+ "base|-|pl|0": "2042d50e",
+ "base|-|pl|1": "37e545c2",
+ "base|-|pl|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen"
+ ],
+ "base|-|ru|0": "a56456fa",
+ "base|-|ru|1": "80793539",
+ "base|-|ru|route": [
+  "qwen",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "qwen"
+ ],
+ "base|-|uk|0": "de482c43",
+ "base|-|uk|1": "71c39712",
+ "base|-|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base|edge|de|0": "54717f39",
+ "base|edge|de|1": "ece350c1",
+ "base|edge|de|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base|edge|en|0": "373ca766",
+ "base|edge|en|1": "92de644c",
+ "base|edge|en|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base|edge|es|0": "ec90adc8",
+ "base|edge|es|1": "7bf5c805",
+ "base|edge|es|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base|edge|fr|0": "7ad117db",
+ "base|edge|fr|1": "10931e85",
+ "base|edge|fr|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base|edge|pl|0": "d06fbbab",
+ "base|edge|pl|1": "190b8ed8",
+ "base|edge|pl|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base|edge|ru|0": "79242b77",
+ "base|edge|ru|1": "9825a10f",
+ "base|edge|ru|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ],
+ "base|edge|uk|0": "de482c43",
+ "base|edge|uk|1": "71c39712",
+ "base|edge|uk|route": [
+  "edge",
+  "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+  "edge"
+ ]
+}

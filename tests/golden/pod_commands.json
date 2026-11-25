@@ -1,0 +1,29 @@
+{
+ "REMOTE_SETUP": "set -e; cd ~/dubadabidu; export PIP_RETRIES=10 PIP_TIMEOUT=60; if [ ! -e .venv ] && [ -f /opt/venv/.uv-lock-sha256 ] && [ \"$(cat /opt/venv/.uv-lock-sha256)\" = \"$(sha256sum uv.lock | cut -c1-64)\" ]; then ln -s /opt/venv .venv; echo '[setup] prebuilt image venv matches uv.lock — linked'; fi; [ -x .venv/bin/python ] || python3 -m venv .venv || { echo '[setup] no venv module — installing'; apt-get install -y -q python3-venv && python3 -m venv .venv; }; . .venv/bin/activate; pip install -q --upgrade pip; pip install -q 'uv==0.8.15'; UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_HTTP_TIMEOUT=120 uv sync --frozen --inexact --extra dev --python .venv/bin/python; python -c 'import torch,sys; ok=torch.cuda.is_available(); print(\"CUDA:\",ok); sys.exit(0 if ok else 1)'",
+ "REMOTE_TASK[autopilot]": "dubadabidu autopilot 'input/a b.mp4' --langs en,ru --no-mux --overlay config.gpu.yaml --overlay config.deepseek.yaml",
+ "REMOTE_TASK[bakeoff]": "dubadabidu bakeoff 'input/a b.mp4' --langs en,ru --overlay config.gpu.yaml",
+ "REMOTE_TASK[preamble]": "dubadabidu preamble 'input/a b.mp4' --langs en,ru --overlay config.gpu.yaml --overlay config.deepseek.yaml",
+ "REMOTE_TASK[run]": "dubadabidu run 'input/a b.mp4' --langs en,ru --from s4_synthesize --to s5_fit --keep-going --overlay config.gpu.yaml --overlay config.deepseek.yaml",
+ "apt_setup(False)": "export DEBIAN_FRONTEND=noninteractive; for i in 1 2 3 4 5 6; do apt-get update && { apt-get install -y --no-install-recommends -s rsync | grep -E '^[0-9]+ upgraded' | sed 's/^/[apt] plan: /' || true; } && apt-get install -y --no-install-recommends rsync && break; echo \"[apt] attempt $i failed (lock?), retrying in 10s\"; sleep 10; done; which rsync",
+ "apt_setup(True)": "export DEBIAN_FRONTEND=noninteractive; for i in 1 2 3 4 5 6; do apt-get update && { apt-get install -y --no-install-recommends -s rsync ffmpeg sox | grep -E '^[0-9]+ upgraded' | sed 's/^/[apt] plan: /' || true; } && apt-get install -y --no-install-recommends rsync ffmpeg sox && break; echo \"[apt] attempt $i failed (lock?), retrying in 10s\"; sleep 10; done; which rsync && which ffmpeg && { ffmpeg -hide_banner -filters 2>/dev/null | grep -q rubberband && echo '[ffmpeg] rubberband filter present — s5 clean stretch' || echo '[ffmpeg] WARNING: no rubberband filter, s5 uses atempo'; }",
+ "engine_install_cmd": "set -e; cd ~/dubadabidu; . .venv/bin/activate; printf 'setuptools<80\\n' > .venv/pip-constraint.txt; export PIP_CONSTRAINT=$PWD/.venv/pip-constraint.txt; export PIP_RETRIES=10 PIP_TIMEOUT=60; pip install -q --upgrade pip; pip install -q 'setuptools<80' wheel; pip install -q -U 'huggingface-hub<1.0' && { [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && git -C third_party/Qwen3-TTS checkout 022e286b98fbec7e1e916cb940cdf532cd9f488e && pip install -q -e third_party/Qwen3-TTS && pip install -q faster-qwen3-tts==0.3.2 && python -c 'import qwen_tts, faster_qwen3_tts, torch; assert torch.cuda.is_available(), \"CPU-only torch: \"+torch.__version__; print(\"qwen ok, torch\", torch.__version__, \"transformers\", __import__(\"transformers\").__version__)' && { python -c 'from huggingface_hub import snapshot_download as d; print(\"weights ok:\", d(\"Qwen/Qwen3-TTS-12Hz-1.7B-Base\"))' || { echo '[weights] Hub fetch failed - retrying with Xet disabled'; HF_HUB_DISABLE_XET=1 python -c 'from huggingface_hub import snapshot_download as d; print(\"weights ok (no xet):\", d(\"Qwen/Qwen3-TTS-12Hz-1.7B-Base\"))'; }; }",
+ "pod_payload": {
+  "cloud": "SECURE",
+  "disk": 40,
+  "env": {
+   "PUBLIC_KEY": "ssh-ed25519 AAAAtest golden"
+  },
+  "gpu": {
+   "count": 1,
+   "id": "NVIDIA RTX A4000",
+   "minCudaVersion": "13.0"
+  },
+  "image": "runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404",
+  "name": "dubadabidu",
+  "ports": [
+   "22/tcp"
+  ],
+  "startSsh": true
+ },
+ "watchdog": "[ -f /tmp/dubadabidu_watchdog.pid ] && kill \"$(cat /tmp/dubadabidu_watchdog.pid)\" 2>/dev/null; nohup sh -c 'sleep 3600; runpodctl remove pod $RUNPOD_POD_ID || shutdown -h now || kill -9 -1' </dev/null >/tmp/watchdog.log 2>&1 & echo $! > /tmp/dubadabidu_watchdog.pid"
+}

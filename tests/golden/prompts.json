@@ -1,0 +1,206 @@
+{
+ "glossary|ru|de": [
+  "e3b0c44298fc1c14",
+  0
+ ],
+ "glossary|ru|en": [
+  "e3b0c44298fc1c14",
+  0
+ ],
+ "glossary|ru|es": [
+  "e3b0c44298fc1c14",
+  0
+ ],
+ "glossary|ru|fr": [
+  "e3b0c44298fc1c14",
+  0
+ ],
+ "glossary|ru|pl": [
+  "e3b0c44298fc1c14",
+  0
+ ],
+ "glossary|ru|uk": [
+  "e3b0c44298fc1c14",
+  0
+ ],
+ "glossary|uk|de": [
+  "de47d1bf5d7e15eb",
+  115
+ ],
+ "glossary|uk|en": [
+  "b1ebb5029bbb2bea",
+  117
+ ],
+ "glossary|uk|es": [
+  "e3b0c44298fc1c14",
+  0
+ ],
+ "glossary|uk|fr": [
+  "e3b0c44298fc1c14",
+  0
+ ],
+ "glossary|uk|pl": [
+  "e3b0c44298fc1c14",
+  0
+ ],
+ "glossary|uk|ru": [
+  "e3b0c44298fc1c14",
+  0
+ ],
+ "terms|ru|de": "Video-specific terminology (Russian -> target, mandatory):\n  ультрамарин -> ultramarine",
+ "terms|ru|en": "Video-specific terminology (Russian -> target, mandatory):\n  ультрамарин -> ultramarine",
+ "terms|ru|es": "Video-specific terminology (Russian -> target, mandatory):\n  ультрамарин -> ultramarine",
+ "terms|ru|fr": "Video-specific terminology (Russian -> target, mandatory):\n  ультрамарин -> ultramarine",
+ "terms|ru|pl": "Video-specific terminology (Russian -> target, mandatory):\n  ультрамарин -> ultramarine",
+ "terms|ru|uk": "Video-specific terminology (Russian -> target, mandatory):\n  ультрамарин -> ultramarine",
+ "terms|uk|de": "Video-specific terminology (Ukrainian -> target, mandatory):\n  ультрамарин -> ultramarine",
+ "terms|uk|en": "Video-specific terminology (Ukrainian -> target, mandatory):\n  ультрамарин -> ultramarine",
+ "terms|uk|es": "Video-specific terminology (Ukrainian -> target, mandatory):\n  ультрамарин -> ultramarine",
+ "terms|uk|fr": "Video-specific terminology (Ukrainian -> target, mandatory):\n  ультрамарин -> ultramarine",
+ "terms|uk|pl": "Video-specific terminology (Ukrainian -> target, mandatory):\n  ультрамарин -> ultramarine",
+ "terms|uk|ru": "Video-specific terminology (Ukrainian -> target, mandatory):\n  ультрамарин -> ultramarine",
+ "translate_adapt|ru|de": [
+  "8dfa5d9ec313624d",
+  912
+ ],
+ "translate_adapt|ru|en": [
+  "3254b1ec32b0bb4d",
+  914
+ ],
+ "translate_adapt|ru|es": [
+  "74a89338c2aca3c8",
+  914
+ ],
+ "translate_adapt|ru|fr": [
+  "f7ed192b82d0c350",
+  912
+ ],
+ "translate_adapt|ru|pl": [
+  "87f5e9ea712e45fe",
+  912
+ ],
+ "translate_adapt|ru|uk": [
+  "c00ba66bf0ca7b02",
+  918
+ ],
+ "translate_adapt|uk|de": [
+  "bb8585ff84c77515",
+  914
+ ],
+ "translate_adapt|uk|en": [
+  "a2457f13e5a61434",
+  916
+ ],
+ "translate_adapt|uk|es": [
+  "283b3f17797d7d72",
+  916
+ ],
+ "translate_adapt|uk|fr": [
+  "ed4e6469a90f1eb0",
+  914
+ ],
+ "translate_adapt|uk|pl": [
+  "d5f5f97cbee0d972",
+  914
+ ],
+ "translate_adapt|uk|ru": [
+  "e4741ba0a88140f5",
+  916
+ ],
+ "translate_reflect|ru|de": [
+  "d1abb924cb3988c1",
+  1019
+ ],
+ "translate_reflect|ru|en": [
+  "1cd53d2045b72ab1",
+  1021
+ ],
+ "translate_reflect|ru|es": [
+  "44188b4c5dbddd13",
+  1021
+ ],
+ "translate_reflect|ru|fr": [
+  "25b90dd49787eed0",
+  1019
+ ],
+ "translate_reflect|ru|pl": [
+  "b382708f7139ae68",
+  1019
+ ],
+ "translate_reflect|ru|uk": [
+  "4ebaf40017eebb54",
+  1025
+ ],
+ "translate_reflect|uk|de": [
+  "1fc9c7a41ce1d335",
+  1021
+ ],
+ "translate_reflect|uk|en": [
+  "36b5c36b651784e1",
+  1023
+ ],
+ "translate_reflect|uk|es": [
+  "97907c6a52942c96",
+  1023
+ ],
+ "translate_reflect|uk|fr": [
+  "4547596ceaa98017",
+  1021
+ ],
+ "translate_reflect|uk|pl": [
+  "2262730a1b72ff5b",
+  1021
+ ],
+ "translate_reflect|uk|ru": [
+  "a1d936d14bb31bba",
+  1023
+ ],
+ "translate_system|ru|de": [
+  "01dc163e2b6f662d",
+  1780
+ ],
+ "translate_system|ru|en": [
+  "4668561fc1ec89b5",
+  1783
+ ],
+ "translate_system|ru|es": [
+  "e46626d5dfcf7cf2",
+  1783
+ ],
+ "translate_system|ru|fr": [
+  "631ce905094fac16",
+  1780
+ ],
+ "translate_system|ru|pl": [
+  "3d36fd4b773ef4e1",
+  1780
+ ],
+ "translate_system|ru|uk": [
+  "6b539160bd40719e",
+  1789
+ ],
+ "translate_system|uk|de": [
+  "d8b3ba8c813770b1",
+  1782
+ ],
+ "translate_system|uk|en": [
+  "7342b7919605086e",
+  1785
+ ],
+ "translate_system|uk|es": [
+  "df8e29e3b7fd8e0a",
+  1785
+ ],
+ "translate_system|uk|fr": [
+  "36d9e1f0241c1009",
+  1782
+ ],
+ "translate_system|uk|pl": [
+  "91e8378571d2c8b8",
+  1782
+ ],
+ "translate_system|uk|ru": [
+  "3db5aeb6e66f0936",
+  1785
+ ]
+}
