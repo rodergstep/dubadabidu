@@ -55,6 +55,10 @@ live in `ledger/runs.jsonl`. This file records what changed in the software.
 - The remote code is split by concern under `infra/remote/`, with RunPod behind
   a `Provider` protocol; the lifecycle is pinned by eight recorded scenarios.
 - One language table (`core/languages.py`) replaces four per-language tables.
+- uk → edge is a property of the language table, no longer a line in
+  `config.yaml`, so an overlay cannot drop it by replacing
+  `tts.engine_by_lang`. An explicit `engine_by_lang` entry still wins, and a
+  bake-off still measures the engine it names on every language.
 - The manifest transcript field is `text_src` (was `text_uk`). Manifests,
   `refs.json` and cached `terms_<lang>.json` written before are renamed on
   read, so existing work and ratings still load.

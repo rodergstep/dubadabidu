@@ -76,6 +76,18 @@ def glossary_lead(code: str) -> str:
     return (lang.glossary_lead if lang else None) or ""
 
 
+def forced_engine(code: str) -> str | None:
+    """The engine this language must use whatever tts.engine says (uk ->
+    edge), or None. tts.engine_by_lang can still override it."""
+    lang = LANGUAGES.get(code)
+    return lang.forced_engine if lang else None
+
+
+def forced_engines() -> dict[str, str]:
+    """Every language the table routes to a fixed engine."""
+    return {c: l.forced_engine for c, l in LANGUAGES.items() if l.forced_engine}
+
+
 def sources() -> tuple[str, ...]:
     return tuple(c for c, l in LANGUAGES.items() if "source" in l.roles)
 

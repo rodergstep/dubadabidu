@@ -1,11 +1,9 @@
 # ARCHITECTURE_PLAN: restructuring dubadabidu without changing what it produces
 
 > **Status (2026-11-25):** executed, with the answers to Q1–Q17 as
-> recommended. Not done, and why: F2 (uk→edge routing, edge voices and
-> subtitle tags from the language table): the bake-off clears
-> `engine_by_lang` on purpose to test any engine on any language, and a
-> registry-forced engine would silently override that, so it needs its own
-> decision. G3–G5's renames (SshEndpoint, RunRecord) and the terminate
+> recommended. F2 is done for the uk→edge routing (the bake-off pins its
+> candidate engine on every language, so it still measures what it names);
+> edge voices and subtitle tags still ship in `config.yaml`. G3–G5's renames (SshEndpoint, RunRecord) and the terminate
 > retry-and-verify change: the split landed without them, and the last one
 > changes behaviour. H3 (bakeoff split, optional) and H4 (refit split, deferred
 > by recommendation). The current layout is described in `ARCHITECTURE.md`;

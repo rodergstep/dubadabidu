@@ -218,5 +218,5 @@ def engines_for_task(cfg: Config, task: str, langs: list[str]) -> list[str]:
     per-video cost its phase B exists to pay only once."""
     if task == "bakeoff":
         return bakeoff_engines(cfg)
-    ebl = cfg.tts.engine_by_lang or {}
-    return list(dict.fromkeys(ebl.get(lg, cfg.tts.engine) for lg in langs))
+    from dubadabidu.core.manifest import resolve_engine
+    return list(dict.fromkeys(resolve_engine(cfg.tts, lg) for lg in langs))
