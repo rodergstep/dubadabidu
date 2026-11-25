@@ -132,7 +132,7 @@ pythonpath = ["src", "."]
 # torch from the CUDA 13.0 index on Linux (the pod), PyPI elsewhere (the Mac).
 # Drivers are backward- but not forward-compatible, so the wheel's CUDA must
 # not exceed the oldest driver runpod.min_cuda_version admits (13.0). Asserted
-# by tests/test_runpod.py::test_torch_wheel_matches_the_oldest_allowed_driver.
+# by tests/infra/test_cuda_pins.py::test_torch_wheel_matches_the_oldest_allowed_driver.
 # cu130, not cu12x: torchaudio 2.11.1's Linux wheel needs the CUDA 13 runtime
 # (see the dependencies comment). 2.15 exists only as cu132 (13.2 drivers).
 # The explicit index keeps the build fixed even if PyPI's default moves.

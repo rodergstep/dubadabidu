@@ -62,7 +62,7 @@ REMOTE_SETUP = (  # rsync/ffmpeg already installed in step 0
     # imports" guard is gone. --inexact keeps what engine_setup added later
     # (qwen_tts, faster-qwen3-tts) on --reuse; --frozen refuses a stale lock.
     # torch pin + cu130 index are asserted from pyproject/uv.lock by
-    # tests/test_runpod.py (the wheel must match the OLDEST allowed driver).
+    # tests/infra/test_cuda_pins.py (the wheel must match the OLDEST allowed driver).
     "pip install -q 'uv==" + UV_VERSION + "'; "
     "UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_HTTP_TIMEOUT=120 "
     "uv sync --frozen --inexact --extra dev --python .venv/bin/python; "

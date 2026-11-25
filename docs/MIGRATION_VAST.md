@@ -296,7 +296,7 @@ old filename during the transition so an orphaned RunPod pod is not stranded.
 
 ---
 
-## 7. Tests (`tests/test_runpod.py`, 448 lines)
+## 7. Tests (`tests/test_runpod.py` when this was written, 448 lines; now `tests/infra/`)
 
 **Keep, repointed at `remote_infra`:** `_deadline` ×3, `engine_install_cmd`,
 `_verify_ready` ×2, overlay forwarding, `_remote_stages`, torch-pin coupling,
