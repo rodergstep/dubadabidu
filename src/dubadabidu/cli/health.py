@@ -117,6 +117,13 @@ def doctor(cfg: Config, project: str = "") -> int:
           "export it, or point translation.base_url at a local Ollama")
     if os.environ.get(cfg.translation.api_key_env):
         _check_translation_models(cfg.translation, check)
+    # informational: the readers still rename these on load
+    from dubadabidu.workflows import migrate
+    old = migrate.pending(cfg)
+    if old:
+        print(f"  [i ] {len(old)} file(s) under {cfg.work_dir} still use the "
+              f"pre-text_src keys: `dubadabidu migrate` lists them, --apply "
+              f"rewrites them")
     # remote (M2) readiness — informational; only needed for `dubadabidu remote`
     if os.environ.get("RUNPOD_API_KEY"):
         rp = cfg.runpod

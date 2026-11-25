@@ -12,7 +12,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("cmd", choices=["run", "stage", "qc", "doctor", "report",
                                     "evaluate", "review", "tune", "prep",
                                     "preamble", "batch", "autopilot",
-                                    "verdicts", "bakeoff", "remote", "refit"])
+                                    "verdicts", "bakeoff", "remote", "refit",
+                                    "migrate"])
     ap.add_argument("rest", nargs="*")
     ap.add_argument("--langs", default=None)
     ap.add_argument("--from", dest="from_stage", default="s1_extract",
@@ -54,6 +55,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--keep-going", dest="keep_going", action="store_true",
                     help="`run` over several videos: log a failing video and "
                          "continue with the next instead of stopping")
+    ap.add_argument("--apply", action="store_true",
+                    help="`migrate`: write the changes (default: a dry run "
+                         "that only lists them)")
     ap.add_argument("--budget", type=float, default=None,
                     help="hard USD cap for `remote` (auto-terminates the pod); "
                          "default runpod.budget_usd")

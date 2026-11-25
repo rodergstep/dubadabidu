@@ -75,6 +75,10 @@ def main() -> None:
         from dubadabidu.review import batch_report
         batch_report.run(cfg, a.rest or None)
         return
+    if a.cmd == "migrate":  # text_uk -> text_src on disk; dry run unless --apply
+        from dubadabidu.workflows import migrate
+        migrate.run(cfg, a.rest or None, a.apply)
+        return
     if a.cmd == "refit":  # M4: propose qc.eval.weights from accumulated ratings
         from dubadabidu.review import refit
         sys.exit(refit.run(cfg, langs))
