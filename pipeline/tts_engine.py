@@ -335,10 +335,10 @@ def _f0_delivered(cand: Path) -> float:
     calibrated against raw takes and s5 places on raw-take durations.
     """
     from qc.metrics import f0_semitone_std
-    from .s6_mix import _clean               # the exact trim s6 applies
+    from .audio import trim_and_fade         # the exact trim s6 applies
     from pydub import AudioSegment
     try:
-        trimmed = _clean(AudioSegment.from_wav(cand).set_channels(1))
+        trimmed = trim_and_fade(AudioSegment.from_wav(cand).set_channels(1))
     except Exception as e:      # never let a measurement failure kill a synth
         log.warning("post-trim f0 measurement failed for %s (%s); "
                     "falling back to the raw take", cand.name, e)

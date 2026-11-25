@@ -16,14 +16,11 @@ where the residual would be exposed) and returns in the real gaps."""
 from __future__ import annotations
 import json, logging, math, subprocess
 from pathlib import Path
-from pydub import AudioSegment, silence
+from pydub import AudioSegment
 from . import manifest as M
+from .audio import trim_and_fade
 
 log = logging.getLogger("dubadabidu.s6")
-TRIM_DB = -45          # edge-trim threshold
-TRIM_CUSHION_MS = 30   # keep this much of the quiet edge
-FADE_IN_MS, FADE_OUT_MS = 10, 60  # long fade-out: end-of-generation garble hides
-                                  # above the trim threshold right at sentence joins
 
 
 def _mix_filter(mix: dict) -> str:
@@ -44,14 +41,6 @@ def _mix_filter(mix: dict) -> str:
             f"[bgpad][key]sidechaincompress=threshold={thr}:ratio={ratio}:"
             f"attack={attack}:release={release}:makeup=1[bg];"
             f"[v][bg]amix=inputs=2:duration=first:normalize=0[out]")
-
-
-def _clean(seg: AudioSegment) -> AudioSegment:
-    lead = silence.detect_leading_silence(seg, silence_threshold=TRIM_DB)
-    tail = silence.detect_leading_silence(seg.reverse(), silence_threshold=TRIM_DB)
-    seg = seg[max(0, lead - TRIM_CUSHION_MS):
-              len(seg) - max(0, tail - TRIM_CUSHION_MS)]
-    return seg.fade_in(FADE_IN_MS).fade_out(FADE_OUT_MS)
 
 
 def _normalize_segment(seg: AudioSegment, target_dbfs: float) -> tuple[AudioSegment, float]:
@@ -224,7 +213,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         placements = []   # (position_ms, seg)
         for u in man["utterances"]:
             tr = u["tr"][lang]
-            seg = _clean(AudioSegment.from_wav(wd / tr["fitted"])
+            seg = trim_and_fade(AudioSegment.from_wav(wd / tr["fitted"])
                          .set_channels(1))
             # per-segment loudness normalization: kill take-to-take level drift
             # (the 'pasted-in' tell) with a pure gain shift, dynamics-preserving

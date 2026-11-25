@@ -26,6 +26,7 @@ LAYER_OF = {
     "pipeline.manifest": "core", "pipeline.text_norm": "core",
     "pipeline.logic": "core", "pipeline.device": "core",
     "pipeline.runlog": "core", "pipeline.config_schema": "core",
+    "pipeline.audio": "core",
     "pipeline.tts_engine": "engines", "pipeline.asr": "engines",
     "qc.metrics": "qc", "qc.backcheck": "qc", "qc.evaluate": "qc",
     "qc.stress_words": "qc",
@@ -46,7 +47,6 @@ RESEARCH = {f"qc.{m}" for m in ("stress_mfa", "stress_detect", "stress_var",
 ALLOWED = {
     ("pipeline.tts_engine", "qc.metrics"),      # take selection lives in the engine
     ("pipeline.tts_engine", "qc.backcheck"),    # (B2 moves it to qc)
-    ("pipeline.tts_engine", "pipeline.s6_mix"),  # the trim s6 applies (B1)
 }
 
 
