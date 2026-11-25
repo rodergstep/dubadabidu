@@ -37,7 +37,7 @@ from dubadabidu.review import refit
 from dubadabidu.review import review_page
 from dubadabidu.review import verdicts
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent   # the checkout; the PROJECT is resolved in main()
 
 STAGES = {
     "s1_extract":    lambda c, v, l: s1_extract.run(c, v),
@@ -52,7 +52,7 @@ STAGES = {
 ORDER = list(STAGES)
 
 
-def doctor(cfg: dict) -> int:
+def doctor(cfg: dict, project: str = "") -> int:
     import os
     ok = True
 
@@ -66,6 +66,8 @@ def doctor(cfg: dict) -> int:
         print(f"  [w ] {name} — {hint}")
 
     print("dubadabidu doctor")
+    if project:
+        print(f"  [i ] project: {project}")
     check("ffmpeg", shutil.which("ffmpeg"), "install ffmpeg and add to PATH")
     check("ffprobe", shutil.which("ffprobe"), "comes with ffmpeg")
     dev = torch_device()
@@ -504,6 +506,10 @@ def main() -> None:
     ap.add_argument("--budget", type=float, default=None,
                     help="hard USD cap for `remote` (auto-terminates the pod); "
                          "default runpod.budget_usd")
+    ap.add_argument("--project", default=None,
+                    help="project directory (config.yaml, glossary/, ref/, work/, "
+                         ".env); default $DUBADABIDU_HOME, else the nearest "
+                         "directory above the cwd that holds config.yaml")
     ap.add_argument("--config", default="config.yaml")
     ap.add_argument("--overlay", action="append", default=None,
                     help="yaml deep-merged over --config; REPEATABLE, applied "
@@ -520,17 +526,19 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
     # resolve user-supplied paths against the caller's cwd, then anchor to the
-    # repo root so relative resources (config, glossary/, prompts/, ref/, work/)
-    # work no matter where the CLI is invoked from
+    # PROJECT root (core/project.py) so relative resources (config, glossary/,
+    # ref/, work/) work no matter where the CLI is invoked from
     import os
+    from dubadabidu.core.project import resolve as resolve_project
+    project = resolve_project(a.project, os.environ, Path.cwd(), checkout=ROOT)
     config_path = Path(a.config).resolve() if Path(a.config).exists() \
-        else ROOT / a.config
+        else project.root / a.config
     a.rest = [str(Path(v).resolve()) if Path(v).exists() else v for v in a.rest]
-    os.chdir(ROOT)
+    os.chdir(project.root)
 
     # .env contract (AUTOPILOT.md): the human's only config touchpoint for
     # credentials. KEY=VALUE lines; the environment always wins over the file.
-    env_file = ROOT / ".env"
+    env_file = project.env_file
     if env_file.exists():
         for line in env_file.read_text(encoding="utf-8").splitlines():
             line = line.strip()
@@ -540,7 +548,7 @@ def main() -> None:
 
     cfg = yaml.safe_load(open(config_path, encoding="utf-8"))
     for ov in (a.overlay or []):  # stacked left-to-right; later overlays win
-        overlay_path = Path(ov) if Path(ov).is_absolute() else ROOT / ov
+        overlay_path = Path(ov) if Path(ov).is_absolute() else project.root / ov
         cfg = deep_merge(cfg, yaml.safe_load(open(overlay_path, encoding="utf-8")))
     if a.engine:
         cfg["tts"]["engine"] = a.engine
@@ -561,7 +569,7 @@ def main() -> None:
     _metrics.set_device(cfg.get("qc", {}).get("metrics_device", "cpu"))
 
     if a.cmd == "doctor":
-        sys.exit(doctor(cfg))
+        sys.exit(doctor(cfg, f"{project.root} (found by {project.found_by})"))
     if a.cmd == "batch":  # no args = all of work/; else the given videos
         batch_report.run(cfg, a.rest or None)
         return

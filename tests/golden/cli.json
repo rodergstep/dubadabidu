@@ -1,5 +1,5 @@
 {
- "--help": "usage: dubadabidu [-h] [--langs LANGS]\n                  [--from {s1_extract,s2_transcribe,s3_translate,s4_synthesize,s5_fit,s6_mix,s7_subtitles,s8_mux}]\n                  [--to {s1_extract,s2_transcribe,s3_translate,s4_synthesize,s5_fit,s6_mix,s7_subtitles,s8_mux}]\n                  [--engine {qwen,edge}] [--spec SPEC] [--no-mux] [--force] [--keep-alive]\n                  [--reuse] [--keep-going] [--budget BUDGET] [--config CONFIG] [--overlay OVERLAY]\n                  [-v]\n                  {run,stage,qc,doctor,report,evaluate,review,tune,prep,preamble,batch,autopilot,verdicts,bakeoff,remote,refit}\n                  [rest ...]\n\npositional arguments:\n  {run,stage,qc,doctor,report,evaluate,review,tune,prep,preamble,batch,autopilot,verdicts,bakeoff,remote,refit}\n  rest\n\noptions:\n  -h, --help            show this help message and exit\n  --langs LANGS\n  --from {s1_extract,s2_transcribe,s3_translate,s4_synthesize,s5_fit,s6_mix,s7_subtitles,s8_mux}\n  --to {s1_extract,s2_transcribe,s3_translate,s4_synthesize,s5_fit,s6_mix,s7_subtitles,s8_mux}\n                        stop after this stage (e.g. --to s7_subtitles to produce audio+subs but\n                        skip mux — the remote GPU path muxes locally so the source video never\n                        uploads)\n  --engine {qwen,edge}\n  --spec SPEC           acceptance spec for `autopilot` (default specs/batch.yaml)\n  --no-mux              `autopilot`: stop at s7 (audio+subs), skip the mux — the remote GPU path\n                        muxes locally so the source video never uploads\n  --force               discard a cache so a changed setting re-applies. `stage s3_translate`:\n                        drop translations + terms for --langs (provider switch). `stage\n                        s4_synthesize` or a `run` reaching s4: drop cached takes for --langs so\n                        take-SELECTION params (best_of, min_f0st, ...) re-apply — they're not in\n                        synth_hash, so the cache ignores them otherwise. Keeps translations +\n                        human verdicts.\n  --keep-alive          `remote`: do NOT terminate the pod when the task ends, so a failing engine\n                        install can be debugged IN PLACE over SSH instead of paying a fresh ~4min\n                        bootstrap per attempt. Prints the ssh command. The pod-side watchdog still\n                        self-destructs at the deadline; `remote kill` ends it sooner.\n  --reuse               `remote`: attach to the pod a previous --keep-alive run left running\n                        instead of provisioning a new one. Skips the bootstrap, whose torch\n                        download is 4-6 GB and took anywhere from 4 to 60 min depending on the\n                        pod's route to PyPI. Falls back to provisioning if no live pod is tracked.\n  --keep-going          `run` over several videos: log a failing video and continue with the next\n                        instead of stopping\n  --budget BUDGET       hard USD cap for `remote` (auto-terminates the pod); default\n                        runpod.budget_usd\n  --config CONFIG\n  --overlay OVERLAY     yaml deep-merged over --config; REPEATABLE, applied left-to-right (later\n                        wins). Compose independent axes, e.g. GPU/TTS + translation provider:\n                        --overlay config.gpu.yaml --overlay config.deepseek.yaml\n  -v, --verbose\n",
+ "--help": "usage: dubadabidu [-h] [--langs LANGS]\n                  [--from {s1_extract,s2_transcribe,s3_translate,s4_synthesize,s5_fit,s6_mix,s7_subtitles,s8_mux}]\n                  [--to {s1_extract,s2_transcribe,s3_translate,s4_synthesize,s5_fit,s6_mix,s7_subtitles,s8_mux}]\n                  [--engine {qwen,edge}] [--spec SPEC] [--no-mux] [--force] [--keep-alive]\n                  [--reuse] [--keep-going] [--budget BUDGET] [--project PROJECT] [--config CONFIG]\n                  [--overlay OVERLAY] [-v]\n                  {run,stage,qc,doctor,report,evaluate,review,tune,prep,preamble,batch,autopilot,verdicts,bakeoff,remote,refit}\n                  [rest ...]\n\npositional arguments:\n  {run,stage,qc,doctor,report,evaluate,review,tune,prep,preamble,batch,autopilot,verdicts,bakeoff,remote,refit}\n  rest\n\noptions:\n  -h, --help            show this help message and exit\n  --langs LANGS\n  --from {s1_extract,s2_transcribe,s3_translate,s4_synthesize,s5_fit,s6_mix,s7_subtitles,s8_mux}\n  --to {s1_extract,s2_transcribe,s3_translate,s4_synthesize,s5_fit,s6_mix,s7_subtitles,s8_mux}\n                        stop after this stage (e.g. --to s7_subtitles to produce audio+subs but\n                        skip mux — the remote GPU path muxes locally so the source video never\n                        uploads)\n  --engine {qwen,edge}\n  --spec SPEC           acceptance spec for `autopilot` (default specs/batch.yaml)\n  --no-mux              `autopilot`: stop at s7 (audio+subs), skip the mux — the remote GPU path\n                        muxes locally so the source video never uploads\n  --force               discard a cache so a changed setting re-applies. `stage s3_translate`:\n                        drop translations + terms for --langs (provider switch). `stage\n                        s4_synthesize` or a `run` reaching s4: drop cached takes for --langs so\n                        take-SELECTION params (best_of, min_f0st, ...) re-apply — they're not in\n                        synth_hash, so the cache ignores them otherwise. Keeps translations +\n                        human verdicts.\n  --keep-alive          `remote`: do NOT terminate the pod when the task ends, so a failing engine\n                        install can be debugged IN PLACE over SSH instead of paying a fresh ~4min\n                        bootstrap per attempt. Prints the ssh command. The pod-side watchdog still\n                        self-destructs at the deadline; `remote kill` ends it sooner.\n  --reuse               `remote`: attach to the pod a previous --keep-alive run left running\n                        instead of provisioning a new one. Skips the bootstrap, whose torch\n                        download is 4-6 GB and took anywhere from 4 to 60 min depending on the\n                        pod's route to PyPI. Falls back to provisioning if no live pod is tracked.\n  --keep-going          `run` over several videos: log a failing video and continue with the next\n                        instead of stopping\n  --budget BUDGET       hard USD cap for `remote` (auto-terminates the pod); default\n                        runpod.budget_usd\n  --project PROJECT     project directory (config.yaml, glossary/, ref/, work/, .env); default\n                        $DUBADABIDU_HOME, else the nearest directory above the cwd that holds\n                        config.yaml\n  --config CONFIG\n  --overlay OVERLAY     yaml deep-merged over --config; REPEATABLE, applied left-to-right (later\n                        wins). Compose independent axes, e.g. GPU/TTS + translation provider:\n                        --overlay config.gpu.yaml --overlay config.deepseek.yaml\n  -v, --verbose\n",
  "autopilot input/a.mp4 --no-mux --spec specs/batch.yaml": {
   "budget": null,
   "cmd": "autopilot",
@@ -12,6 +12,7 @@
   "langs": null,
   "mux": false,
   "overlay": null,
+  "project": null,
   "rest": [
    "input/a.mp4"
   ],
@@ -32,6 +33,7 @@
   "langs": null,
   "mux": true,
   "overlay": null,
+  "project": null,
   "rest": [],
   "reuse": false,
   "spec": null,
@@ -53,6 +55,7 @@
    "config.gpu.yaml",
    "config.deepseek.yaml"
   ],
+  "project": null,
   "rest": [
    "run",
    "input/a.mp4"
@@ -459,6 +462,7 @@
   "langs": null,
   "mux": true,
   "overlay": null,
+  "project": null,
   "rest": [
    "a.mp4",
    "b.mp4"
@@ -480,6 +484,7 @@
   "langs": null,
   "mux": true,
   "overlay": null,
+  "project": null,
   "rest": [
    "input/a.mp4"
   ],
@@ -500,6 +505,7 @@
   "langs": "en,ru",
   "mux": true,
   "overlay": null,
+  "project": null,
   "rest": [
    "input/a.mp4"
   ],
@@ -520,6 +526,7 @@
   "langs": null,
   "mux": true,
   "overlay": null,
+  "project": null,
   "rest": [
    "s3_translate",
    "input/a.mp4"
@@ -541,6 +548,7 @@
   "langs": null,
   "mux": true,
   "overlay": null,
+  "project": null,
   "rest": [
    "input/a.mp4",
    "export.json"

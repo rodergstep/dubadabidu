@@ -115,10 +115,10 @@ def _cli(project: Path) -> Callable[[list[str]], None]:
     """The CLI entry of THIS tree, pointed at the throwaway project."""
     sys.path.insert(0, str(REPO))
     import dub
-    dub.ROOT = project            # pre-refactor: dub.py anchors on ROOT
+    args_project = ["--project", str(project)]
 
     def call(args: list[str]) -> None:
-        sys.argv = ["dubadabidu", *args]
+        sys.argv = ["dubadabidu", *args, *args_project]
         buf = io.StringIO()
         try:
             with contextlib.redirect_stdout(buf):
