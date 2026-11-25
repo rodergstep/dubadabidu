@@ -163,7 +163,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 k = min(range(len(durs)), key=lambda j: durs[j])
                 budget = int(len(candidates[k]) * slot * f["max_tempo"]
                              / durs[k] * 0.95)
-                extra = [v for v in llm_shorten(cfg, lang, u["text_uk"],
+                extra = [v for v in llm_shorten(cfg, lang, u["text_src"],
                                                 candidates[0], budget)
                          if v not in candidates]
                 if extra:

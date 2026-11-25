@@ -76,6 +76,8 @@ def check_output_sr(model_id: str, sr: int) -> None:
         raise RuntimeError(
             f"qwen returned audio at {sr} Hz but {model_id} declares "
             f"{want} Hz — the take would play at the wrong pitch and speed")
+# Qwen3-TTS language names. uk is absent because the model does not list
+# Ukrainian; it synthesizes uk with language "Auto".
 QWEN_LANGS = {"en": "English", "fr": "French", "de": "German",
               "es": "Spanish", "ru": "Russian"}
 
@@ -182,8 +184,8 @@ def trimmed_ref(ref: str, max_s: float | None) -> str:
 def _qwen_clone_prompt(m, t: dict):
     """Reusable clone prompt for the current reference, built once and cached
     (a full video is hundreds of segments off ONE ref). x_vector_only_mode:
-    speaker embedding only, no ref transcript — the path for a Ukrainian ref
-    (its transcript can't be tokenized). Full mode needs a target-lang ref +
+    speaker embedding only, no ref transcript — the path for a ref in the
+    source language (a Ukrainian transcript can't be tokenized). Full mode needs a target-lang ref +
     reference_text and is opt-in via qwen_x_vector_only: false."""
     global _qwen_prompt
     ref = trimmed_ref(t["reference_wav"], t.get("reference_max_s"))

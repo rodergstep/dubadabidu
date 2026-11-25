@@ -88,21 +88,17 @@ def run(cfg: dict, video: str, lang: str, apply: bool = False) -> int:
     # The SAME prompt s3 builds, so the alternative is what production would
     # actually have produced — not a differently-worded request that happens to
     # avoid the word. Glossary and terms included; the avoid block is the axis.
-    gloss = S3._glossary(lang)
-    terms_p = M.video_workdir(cfg, video) / f"terms_{lang}.json"
-    terms_s = ""
-    if terms_p.exists():
-        terms = json.loads(terms_p.read_text(encoding="utf-8"))["terms"]
-        terms_s = ("Video-specific terminology (Ukrainian -> target, mandatory):\n"
-                   + "\n".join(f"  {t['uk']} -> {t['tr']}" for t in terms))
+    src = cfg["source_language"]
+    gloss = S3._glossary(src, lang)
+    terms_s = S3.terms_block(cfg, S3.load_terms(cfg, video, lang) or [])
     avoid = S3._avoid_block(cfg, lang, gloss + terms_s)
     if not avoid:
         raise SystemExit("translation.avoid_mis_stressed is off — turn it on, "
                          "or there is no alternative to generate.")
     shared = "\n\n".join(x for x in [gloss, terms_s, avoid] if x)
-    sysmsg = (S3._prompt(lang, tcfg["isometric_tolerance"],
+    sysmsg = (S3._prompt(src, lang, tcfg["isometric_tolerance"],
                          tcfg["n_short_variants"]) + "\n\n" + shared)
-    payload = [{"id": u["id"], "uk": u["text_uk"], "chars": len(u["text_uk"]),
+    payload = [{"id": u["id"], "src": u["text_src"], "chars": len(u["text_src"]),
                 "seconds": round(u["end"] - u["start"], 1)} for u in segs]
     data = S3._chat(client, tcfg, sysmsg,
                     json.dumps({"segments": payload}, ensure_ascii=False))

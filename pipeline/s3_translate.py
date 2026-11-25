@@ -15,7 +15,8 @@ from . import manifest as M
 
 log = logging.getLogger("dubadabidu.s3")
 LANG_NAMES = {"en": "English", "fr": "French", "de": "German",
-              "es": "Spanish", "ru": "Russian", "pl": "Polish"}
+              "es": "Spanish", "ru": "Russian", "pl": "Polish",
+              "uk": "Ukrainian"}
 
 # Some local servers (e.g. LM Studio) may wrap JSON in ```json fences in `text`
 # mode; strip them before parsing.
@@ -44,8 +45,8 @@ _TERMS_SCHEMA = {
     "type": "object",
     "properties": {"terms": {"type": "array", "items": {
         "type": "object",
-        "properties": {"uk": {"type": "string"}, "tr": {"type": "string"}},
-        "required": ["uk", "tr"]}}},
+        "properties": {"src": {"type": "string"}, "tr": {"type": "string"}},
+        "required": ["src", "tr"]}}},
     "required": ["terms"],
 }
 _SHORTEN_SCHEMA = {
@@ -77,48 +78,70 @@ def _loads(content: str) -> dict:
     return json.loads(_FENCE.sub("", content.strip()))
 
 
-def _glossary(lang: str) -> str:
-    p = Path("glossary") / f"{lang}.csv"
+def _glossary(src: str, lang: str) -> str:
+    """glossary/<source>/<target>.csv: `source term,target term` rows."""
+    p = Path("glossary") / src / f"{lang}.csv"
     if not p.exists():
         return ""
     with p.open(encoding="utf-8") as fh:
         rows = [f"  {r[0]} -> {r[1]}" for r in csv.reader(fh)
                 if len(r) >= 2 and not r[0].startswith("#")]
-    return ("Mandatory terminology (Ukrainian -> target):\n" + "\n".join(rows)) if rows else ""
+    return (f"Mandatory terminology ({LANG_NAMES[src]} -> target):\n"
+            + "\n".join(rows)) if rows else ""
 
 
-def _prompt(lang: str, tol: float, n_var: int,
+def _prompt(src: str, lang: str, tol: float, n_var: int,
             name: str = "translate_system") -> str:
     tpl = Path(f"prompts/{name}.md").read_text(encoding="utf-8")
-    return (tpl.replace("{LANG}", LANG_NAMES[lang])
+    return (tpl.replace("{SRC}", LANG_NAMES[src])
+               .replace("{LANG}", LANG_NAMES[lang])
                .replace("{TOL}", str(int(tol * 100)))
                .replace("{NVAR}", str(n_var)))
+
+
+def load_terms(cfg: dict, video: str, lang: str) -> list[dict] | None:
+    """The cached terms_<lang>.json, or None before extraction. Caches written
+    before the source language became configurable key the source term "uk";
+    it is "src" now."""
+    cache = M.video_workdir(cfg, video) / f"terms_{lang}.json"
+    if not cache.exists():
+        return None
+    terms = json.loads(cache.read_text(encoding="utf-8"))["terms"]
+    for t in terms:
+        if "uk" in t and "src" not in t:
+            t["src"] = t.pop("uk")
+    return terms
+
+
+def terms_block(cfg: dict, terms: list[dict]) -> str:
+    if not terms:
+        return ""
+    return (f"Video-specific terminology ({LANG_NAMES[cfg['source_language']]}"
+            f" -> target, mandatory):\n"
+            + "\n".join(f"  {t['src']} -> {t['tr']}" for t in terms))
 
 
 def _terms(client, tcfg, cfg: dict, video: str, man: dict, lang: str) -> str:
     """Video-specific terminology base, extracted once per video+lang (cached).
     Injected next to the static glossary so every batch translates domain terms
     and proper nouns identically — the document-level consistency lever."""
-    cache = M.video_workdir(cfg, video) / f"terms_{lang}.json"
-    if cache.exists():
-        terms = json.loads(cache.read_text(encoding="utf-8"))["terms"]
-    else:
-        transcript = "\n".join(u["text_uk"] for u in man["utterances"])
+    terms = load_terms(cfg, video, lang)
+    if terms is None:
+        cache = M.video_workdir(cfg, video) / f"terms_{lang}.json"
+        transcript = "\n".join(u["text_src"] for u in man["utterances"])
+        src = LANG_NAMES[cfg["source_language"]]
         data = _chat(client, tcfg,
-                     f"From this Ukrainian art-course transcript, extract up to "
+                     f"From this {src} art-course transcript, extract up to "
                      f"30 domain terms and proper nouns whose {LANG_NAMES[lang]} "
                      f"translation must stay consistent throughout the course. "
                      f"Give your best dubbing-appropriate translation for each. "
-                     f'Output STRICT JSON: {{"terms":[{{"uk":"...","tr":"..."}}]}}',
+                     f'Output STRICT JSON: {{"terms":[{{"src":"...","tr":"..."}}]}}',
                      transcript, schema=_TERMS_SCHEMA)
         terms = data.get("terms", [])
         cache.write_text(json.dumps({"terms": terms}, ensure_ascii=False,
                                     indent=2), encoding="utf-8")
         log.info("%s: %d terms extracted -> %s", lang, len(terms), cache.name)
-    if not terms:
-        return ""
-    return ("Video-specific terminology (Ukrainian -> target, mandatory):\n"
-            + "\n".join(f"  {t['uk']} -> {t['tr']}" for t in terms))
+    return terms_block(cfg, terms)
 
 
 def _avoid_block(cfg: dict, lang: str, mandatory: str) -> str:
@@ -244,7 +267,7 @@ def _measured_cps(cfg: dict, lang: str, min_samples: int = 10) -> float | None:
     return statistics.median(rates)
 
 
-def shorten(cfg: dict, lang: str, text_uk: str, text: str, max_chars: int,
+def shorten(cfg: dict, lang: str, text_src: str, text: str, max_chars: int,
             n: int = 2) -> list[str]:
     """Emergency rewrite for s5 overflow: the pre-generated variants were all
     too long, so ask the LLM for n candidates under a HARD char budget derived
@@ -261,12 +284,13 @@ def shorten(cfg: dict, lang: str, text_uk: str, text: str, max_chars: int,
     sysmsg = (
         f"You shorten dubbing lines for a painting course voice-over.\n"
         f"Rewrite the given {LANG_NAMES[lang]} line so it keeps the exact "
-        f"instructional meaning of the Ukrainian source but fits a tighter "
+        f"instructional meaning of the {LANG_NAMES[cfg['source_language']]} "
+        f"source but fits a tighter "
         f"time slot. Produce {n} candidates, EACH AT MOST {max_chars} "
         f"characters, progressively shorter. Drop filler and pleasantries "
         f"before dropping instruction. Natural spoken {LANG_NAMES[lang]}.\n"
         f'Output STRICT JSON: {{"variants":["...","..."]}}')
-    user = json.dumps({"source_uk": text_uk, "current": text,
+    user = json.dumps({"source": text_src, "current": text,
                        "max_chars": max_chars}, ensure_ascii=False)
     try:
         data = _chat(client, tcfg, sysmsg, user, retries=1,
@@ -304,23 +328,23 @@ def _chat(client, tcfg, sysmsg: str, user: str, retries: int = 4,
             delay *= 2
 
 
-def _adequacy(ask, shared: str, batch: list, lang: str, flag: int,
+def _adequacy(ask, shared: str, batch: list, src: str, lang: str, flag: int,
               tcfg: dict) -> None:
-    """LLM-judge each FINAL translation against its Ukrainian source; store
+    """LLM-judge each FINAL translation against its source; store
     {score 1-5, issue} in tr[lang]['adequacy'] and log sub-threshold segments.
     Never fatal — a judge failure must not abort a translated batch."""
     sysmsg = (
-        f"You are a bilingual QA judge for Ukrainian -> {LANG_NAMES[lang]} "
+        f"You are a bilingual QA judge for {LANG_NAMES[src]} -> {LANG_NAMES[lang]} "
         f"dubbing of a painting course. For each segment, compare the "
-        f"{LANG_NAMES[lang]} translation ('tr') against the Ukrainian source "
-        f"('uk') and rate FAITHFULNESS 1-5 (5 = complete, accurate, natural "
+        f"{LANG_NAMES[lang]} translation ('tr') against the {LANG_NAMES[src]} "
+        f"source ('src') and rate FAITHFULNESS 1-5 (5 = complete, accurate, natural "
         f"dubbing; 3 = minor drift; 1 = wrong meaning or a dropped "
         f"instruction). Weigh mistranslation, omitted instructions, wrong "
         f"terminology, invented content — NOT length or word choice for timing. "
         f"'issue' = a short reason, or 'ok' when the score is 5.\n"
         f'Output STRICT JSON: {{"segments":[{{"id":"..","score":5,"issue":"ok"}}]}}'
         + (("\n\n" + shared) if shared else ""))
-    payload = [{"id": u["id"], "uk": u["text_uk"], "tr": u["tr"][lang]["text"]}
+    payload = [{"id": u["id"], "src": u["text_src"], "tr": u["tr"][lang]["text"]}
                for u in batch]
     try:
         scored = ask(sysmsg, payload, schema=_ADEQUACY_SCHEMA,
@@ -386,8 +410,9 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             log.info("%s: cached", lang)
             return
         tol, nvar = tcfg["isometric_tolerance"], tcfg["n_short_variants"]
+        src = cfg["source_language"]
         terms = _terms(client, tcfg, cfg, video, man, lang)
-        transcript = "\n".join(u["text_uk"] for u in man["utterances"])
+        transcript = "\n".join(u["text_src"] for u in man["utterances"])
         # local servers (LM Studio / Ollama) have small context windows; a 1h
         # transcript in the system prompt of every batch overflows them
         # silently. Remote providers (DeepSeek 1M + context caching) keep the
@@ -412,17 +437,19 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                      "in prompt", lang, cps)
         # adequacy judge sees terminology only (built here so the avoid block
         # can check it for collisions before the prompts are assembled)
-        adeq_shared = "\n\n".join(x for x in [_glossary(lang), terms] if x)
+        adeq_shared = "\n\n".join(x for x in [_glossary(src, lang), terms] if x)
         # words the TTS mis-stresses — ru/uk only, and deliberately NOT part of
         # adeq_shared: the judge grades faithfulness, and knowing which words we
         # would rather avoid could bias it toward approving a paraphrase.
         avoid = _avoid_block(cfg, lang, adeq_shared)
         # pace goes BEFORE the long transcript context so it isn't buried
-        shared = "\n\n".join(x for x in [_glossary(lang), terms, avoid, pace,
+        shared = "\n\n".join(x for x in [_glossary(src, lang), terms, avoid, pace,
                                          context] if x)
-        sys_draft = _prompt(lang, tol, nvar) + "\n\n" + shared
-        sys_reflect = _prompt(lang, tol, nvar, "translate_reflect") + "\n\n" + shared
-        sys_adapt = _prompt(lang, tol, nvar, "translate_adapt") + "\n\n" + shared
+        sys_draft = _prompt(src, lang, tol, nvar) + "\n\n" + shared
+        sys_reflect = (_prompt(src, lang, tol, nvar, "translate_reflect")
+                       + "\n\n" + shared)
+        sys_adapt = (_prompt(src, lang, tol, nvar, "translate_adapt")
+                     + "\n\n" + shared)
         # (adeq_shared is built above, before the avoid block, because that
         # block needs it to detect terminology collisions. The judge still sees
         # terminology only — not the transcript, the pace budget or the avoid
@@ -454,7 +481,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         bs = tcfg["batch_size"]
         for i in range(0, len(todo), bs):
             batch = todo[i:i + bs]
-            payload = [{"id": u["id"], "uk": u["text_uk"], "chars": len(u["text_uk"]),
+            payload = [{"id": u["id"], "src": u["text_src"], "chars": len(u["text_src"]),
                         "seconds": round(u["end"] - u["start"], 1)} for u in batch]
             final = _ask(sys_draft, payload)
             if passes >= 3:  # translate -> reflect -> adapt
@@ -493,7 +520,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             # overlap. It writes tr[lang]["adequacy"] into a key this thread
             # already created above, so no new insert races a concurrent save.
             if tcfg.get("adequacy_check", True):
-                _adequacy(_ask, adeq_shared, batch, lang, flag, tcfg)
+                _adequacy(_ask, adeq_shared, batch, src, lang, flag, tcfg)
             with save_lock:
                 man["stages"][f"s3_{lang}"] = f"{min(i+bs, len(todo))}/{len(todo)}"
                 M.save(cfg, video, man)

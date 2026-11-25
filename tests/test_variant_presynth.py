@@ -42,7 +42,7 @@ def bed(tmp_path):
     video = "lesson.mp4"
     man = {"video": video, "duration": 10.0, "stages": {},
            "utterances": [{"id": "u0001", "start": 0.0, "end": 10.0,
-                           "text_uk": "джерело",
+                           "text_src": "джерело",
                            "tr": {"en": {"text": "the long primary line",
                                          "variants": ["shorter one",
                                                       "shortest"]}}}]}

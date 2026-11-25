@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""s7: per-language SRT (plus Ukrainian) from the manifest, lines wrapped <=42
+"""s7: per-language SRT (plus the source language) from the manifest, lines wrapped <=42
 chars, with a reading-speed floor so cues timed to fast dub segments don't flash
 by faster than they can be read."""
 from __future__ import annotations
@@ -59,7 +59,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             # PLACED dub (s5 soft-anchor timeline), not the source utterance —
             # otherwise subs vanish while the voice is still speaking.
             if lang == cfg["source_language"]:
-                text, start, end = u["text_uk"], u["start"], u["end"]
+                text, start, end = u["text_src"], u["start"], u["end"]
                 nxt = us[i]["start"] if i < len(us) else None
             else:
                 tr = u["tr"][lang]

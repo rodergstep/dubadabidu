@@ -75,7 +75,7 @@ def test_missing_voice_anchor_fails_with_an_actionable_message(tmp_path,
     (wd / "manifest.json").write_text(json.dumps({
         "video": "vid.mp4", "duration": 60.0, "stages": {},
         "utterances": [{"id": f"u{i:04d}", "start": i, "end": i + 0.5,
-                        "text_uk": "коротко", "tr": {"en": {"text": "short"}}}
+                        "text_src": "коротко", "tr": {"en": {"text": "short"}}}
                        for i in range(3)]}))
     # every sampled utterance is under 1s -> _ua_slices yields nothing
     monkeypatch.setattr(qc.evaluate, "_ua_slices", lambda *a, **k: iter(()))

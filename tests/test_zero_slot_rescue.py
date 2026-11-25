@@ -61,7 +61,7 @@ def zero_slot(tmp_path):
     video = "lesson.mp4"
     man = {"video": video, "duration": 10.0, "stages": {},
            "utterances": [{"id": "u0001", "start": 10.0, "end": 10.0,
-                           "text_uk": "джерело",
+                           "text_src": "джерело",
                            "tr": {"en": {"text": "a line with nowhere to go",
                                          "variants": ["shorter", "shortest"]}}}]}
     wd = M.video_workdir(cfg, video)
@@ -74,7 +74,7 @@ def stubs(monkeypatch):
     """Record every LLM call and every synthesis; make audio deterministically."""
     calls = {"shorten": [], "synth": []}
 
-    def fake_shorten(cfg, lang, text_uk, text, max_chars, n=2):
+    def fake_shorten(cfg, lang, text_src, text, max_chars, n=2):
         calls["shorten"].append(max_chars)
         return ["rescued variant"]
 

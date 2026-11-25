@@ -18,7 +18,7 @@ keep obviously-bad spans out and hand tune a wide, clean pool; survivors are
 ordered by length (a neutral tie-break), and tune overrides that order anyway.
 
 After prep: `dubadabidu tune <video> --langs en` picks the winning ref (R1),
-then skim text_uk / terms_*.json and run the pipeline.
+then skim text_src / terms_*.json and run the pipeline.
 """
 from __future__ import annotations
 import json
@@ -193,10 +193,10 @@ def run(cfg: dict, video: str) -> None:
     for i, (u, cut, q, dur) in enumerate(keep, 1):
         out = Path("ref") / f"{stem}_ref_{i:02d}.wav"
         cut.replace(out)
-        refs[out.name] = {"text_uk": u["text_uk"], "start": u["start"],
+        refs[out.name] = {"text_src": u["text_src"], "start": u["start"],
                           "end": round(u["start"] + dur, 2), "quality": q}
         print(f"[prep] {out}  ({dur:.1f}s)  mos={q['mos']} voiced={q['voiced']}  "
-              f"{u['text_uk'][:48]}")
+              f"{u['text_src'][:48]}")
     # every cut that was not moved into ref/ — PASSED-but-unkept ones too.
     # Only `rejected` was swept before, so each prep run left the survivors
     # _spread() did not pick lying in refcand/ forever.

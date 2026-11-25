@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""s2: Whisper large-v3 (uk) -> manifest utterances.
+"""s2: Whisper large-v3 (cfg source_language) -> manifest utterances.
 
 Transcription backend (faster-whisper on CUDA/CPU, mlx-whisper on Apple
 Silicon) is chosen in pipeline/asr.py; this stage only shapes the normalized
 segments into the manifest. Merging logic lives in pipeline/logic.py
-(unit-tested). AFTER THIS STAGE: hand-review text_uk in the manifest — one
+(unit-tested). AFTER THIS STAGE: hand-review text_src in the manifest — one
 terminology fix here propagates to all target languages.
 """
 from __future__ import annotations
@@ -17,10 +17,14 @@ from .logic import merge_segments, split_at_pauses
 log = logging.getLogger("dubadabidu.s2")
 
 
-def _initial_prompt(a: dict) -> str | None:
+# "Lesson vocabulary:" in the source language, leading the glossary terms.
+_GLOSSARY_LEAD = {"uk": "Словник уроку: ", "ru": "Словарь урока: "}
+
+
+def _initial_prompt(a: dict, src: str) -> str | None:
     """Bias the decoder toward the course's domain terms — the exact words
-    otherwise fixed by hand in the manifest review. Built from the UKRAINIAN
-    side of glossary/*.csv (deduped across languages) plus any free-text
+    otherwise fixed by hand in the manifest review. Built from the SOURCE
+    side of glossary/<src>/*.csv (deduped across targets) plus any free-text
     asr.initial_prompt. Whisper reads only its last ~224 tokens, so keep it
     short; deterministic, so segmentation stays reproducible."""
     parts = []
@@ -28,7 +32,7 @@ def _initial_prompt(a: dict) -> str | None:
         parts.append(a["initial_prompt"].strip())
     if a.get("glossary_prompt", True):
         terms: list[str] = []
-        for p in sorted(Path("glossary").glob("*.csv")):
+        for p in sorted((Path("glossary") / src).glob("*.csv")):
             with p.open(encoding="utf-8") as fh:
                 for r in csv.reader(fh):
                     if r and len(r) >= 2 and not r[0].startswith("#"):
@@ -36,7 +40,7 @@ def _initial_prompt(a: dict) -> str | None:
                         if t and t not in terms:
                             terms.append(t)
         if terms:
-            parts.append("Словник уроку: " + ", ".join(terms) + ".")
+            parts.append(_GLOSSARY_LEAD.get(src, "") + ", ".join(terms) + ".")
     prompt = " ".join(parts)[:600]
     return prompt or None
 
@@ -57,7 +61,7 @@ def run(cfg: dict, video: str) -> None:
             log.warning("re-transcribing DISCARDS existing translations/synth "
                         "state (%s) — old manifest kept at %s", done, bak.name)
     a = cfg["asr"]
-    prompt = _initial_prompt(a)
+    prompt = _initial_prompt(a, cfg["source_language"])
     if prompt:
         log.info("initial_prompt (%d chars): %s", len(prompt), prompt[:80])
     segments = transcribe(a, wd / "vocals.wav", cfg["source_language"], prompt)
@@ -78,11 +82,11 @@ def run(cfg: dict, video: str) -> None:
 
     man = {"video": video, "duration": dur, "stages": {"s2": "done"}, "utterances": [
         {"id": f"u{i:04d}", "start": round(u["start"], 3), "end": round(u["end"], 3),
-         "text_uk": u["text"], "tr": {}}
+         "text_src": u["text"], "tr": {}}
         for i, u in enumerate(merged, 1)]}
     M.save(cfg, video, man)
     log.info("%d utterances -> %s", len(merged), M.manifest_path(cfg, video))
-    log.info(">>> Review text_uk in the manifest before translating. <<<")
+    log.info(">>> Review text_src in the manifest before translating. <<<")
 
 
 def _warn_on_repetition(segs: list[dict]) -> None:

@@ -5,8 +5,8 @@
 work_dir: work
 output_dir: output
 
-languages: [en, fr, de, es, ru]   # pl dropped (IMPROVEMENT_PLAN v0.3)
-source_language: uk
+languages: [en, fr, de, es, ru]   # pl dropped (IMPROVEMENT_PLAN v0.3); the source is skipped
+source_language: uk               # uk | ru: the spoken language of the input video
 
 asr:
   model: large-v3            # SETTLED: turbo / v2 / Parakeet measured worse (FINDINGS §1)
@@ -18,7 +18,7 @@ asr:
   max_chars: 300
   max_seconds: 20.0
   pause_split_s: 0.6         # split at word gaps > this; the dub keeps source rhythm
-  glossary_prompt: true      # inject glossary/*.csv Ukrainian terms as initial_prompt
+  glossary_prompt: true      # inject glossary/<source_language>/*.csv terms as initial_prompt
   initial_prompt: ""         # optional extra hint, prepended
 
 separation:
@@ -82,6 +82,7 @@ tts:
     es: es-ES-AlvaroNeural
     ru: ru-RU-DmitryNeural
     pl: pl-PL-MarekNeural
+    uk: uk-UA-OstapNeural
 
 fit:
   max_tempo: 1.12              # max speed-up (keep mild)
@@ -95,7 +96,7 @@ fit:
 mix:
   bg_gain_db: -6
   lufs: -16
-  # duck the background under the dub (kills the residual Ukrainian voice)
+  # duck the background under the dub (kills the residual source voice)
   duck: true
   duck_threshold: 0.03         # key level (~ -30 dB) that opens the duck
   duck_ratio: 8

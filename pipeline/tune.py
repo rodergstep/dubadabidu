@@ -73,7 +73,7 @@ DEFAULTS = {
 def _subset(utterances: list[dict], n: int) -> list[dict]:
     """Stratified by source length: sort, take evenly spaced — short and long
     segments fail differently, so both must be in the objective."""
-    us = sorted(utterances, key=lambda u: len(u["text_uk"]))
+    us = sorted(utterances, key=lambda u: len(u["text_src"]))
     if len(us) <= n:
         return us
     if n <= 1:
@@ -160,9 +160,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> dict:
         raise SystemExit(f"no reference candidates match {tn['refs_glob']}")
     # refs.json (written by `dubadabidu prep`) carries each ref's transcript —
     # used as tts.reference_text (qwen ICL mode, qwen_x_vector_only: false)
-    import json as _json
-    rj = wd / "refs.json"
-    ref_meta = _json.loads(rj.read_text(encoding="utf-8")) if rj.exists() else {}
+    ref_meta = M.load_refs(wd)
     bands = {r: _band(cfg, wd, man, lang, r) for r in refs}
     for r in refs:
         log.info("band %s: floor=%.3f ceiling=%.3f", r, *bands[r])
@@ -181,7 +179,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> dict:
              w, r1_takes, len(subset))
 
     def _tts_for(ref: str, **over) -> dict:
-        rt = ref_meta.get(Path(ref).name, {}).get("text_uk", "")
+        rt = ref_meta.get(Path(ref).name, {}).get("text_src", "")
         return dict(base, reference_wav=ref, reference_text=rt, **over)
 
     # R1: reference selection at current params

@@ -9,7 +9,7 @@ work/<video>/manifest.json:
     {
       "id": "u0001",
       "start": 7.61, "end": 12.03,
-      "text_uk": "Сьогодні ми змішуємо ...",
+      "text_src": "Сьогодні ми змішуємо ...",                # in cfg source_language
       "tr": {
         "en": {
           "text": "Today we are mixing ...",
@@ -23,7 +23,7 @@ work/<video>/manifest.json:
     }, ...
   ]
 }
-Hand-edit text_uk or tr.<lang>.text, delete the segment's "synth" key (or just re-run
+Hand-edit text_src or tr.<lang>.text, delete the segment's "synth" key (or just re-run
 s4 — hash mismatch re-synthesizes automatically), and re-run from s4.
 """
 from __future__ import annotations
@@ -83,7 +83,7 @@ class Utterance(TypedDict, total=False):
     id: str               # u0001 ...
     start: float
     end: float
-    text_uk: str
+    text_src: str         # transcript in cfg source_language (was text_uk)
     tr: dict[str, Translation]
 
 
@@ -111,11 +111,33 @@ def manifest_path(cfg: dict, video: str | Path) -> Path:
     return video_workdir(cfg, video) / "manifest.json"
 
 
+def _rename_source_text(rows: list[dict]) -> None:
+    """Manifests and refs.json written before the source language became
+    configurable call the transcript `text_uk`; it is `text_src` now. Renamed
+    in place on read, so the next save writes the new key."""
+    for r in rows:
+        if "text_uk" in r and "text_src" not in r:
+            r["text_src"] = r.pop("text_uk")
+
+
 def load(cfg: dict, video: str | Path) -> Manifest:
     p = manifest_path(cfg, video)
     if not p.exists():
         raise SystemExit(f"No manifest at {p} — run s2_transcribe first.")
-    return json.loads(p.read_text(encoding="utf-8"))
+    man = json.loads(p.read_text(encoding="utf-8"))
+    _rename_source_text(man.get("utterances", []))
+    return man
+
+
+def load_refs(wd: Path) -> dict[str, dict]:
+    """work/<video>/refs.json (written by `dubadabidu prep`): ref clip name ->
+    {text_src, start, end, quality}. Empty when prep has not run."""
+    p = wd / "refs.json"
+    if not p.exists():
+        return {}
+    refs = json.loads(p.read_text(encoding="utf-8"))
+    _rename_source_text(list(refs.values()))
+    return refs
 
 
 def save(cfg: dict, video: str | Path, man: Manifest) -> None:

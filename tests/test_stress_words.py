@@ -184,11 +184,11 @@ def ingested(tmp_path, monkeypatch):
     cfg = {"work_dir": "work"}
     video = "lesson.mp4"
     man = {"video": video, "duration": 20.0, "stages": {}, "utterances": [
-        {"id": "u0001", "start": 0.0, "end": 5.0, "text_uk": "a",
+        {"id": "u0001", "start": 0.0, "end": 5.0, "text_src": "a",
          "tr": {"ru": {"text": "Это краска хром-кобальт",
                        "fitted_text": "Это краска хром-кобальт",
                        "placed": "seg/ru/u0001_placed.wav", "qc_score": 0.7}}},
-        {"id": "u0002", "start": 6.0, "end": 12.0, "text_uk": "b",
+        {"id": "u0002", "start": 6.0, "end": 12.0, "text_src": "b",
          "tr": {"ru": {"text": "Жёлтые цвета охра",
                        "fitted_text": "Жёлтые цвета охра",
                        "placed": "seg/ru/u0002_placed.wav", "qc_score": 0.6}}}]}
@@ -243,7 +243,7 @@ def test_a_second_video_accumulates_into_the_same_entry(ingested):
     cfg, _, tmp, M = ingested
     from qc import verdicts as V
     man = {"video": "lesson2.mp4", "duration": 9.0, "stages": {}, "utterances": [
-        {"id": "u0001", "start": 0.0, "end": 4.0, "text_uk": "c",
+        {"id": "u0001", "start": 0.0, "end": 4.0, "text_src": "c",
          "tr": {"ru": {"text": "Здесь охра", "fitted_text": "Здесь охра"}}}]}
     wd = M.video_workdir(cfg, "lesson2.mp4")
     (wd / "manifest.json").write_text(json.dumps(man), encoding="utf-8")
@@ -267,7 +267,7 @@ def test_an_export_without_word_marks_still_ingests(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     cfg = {"work_dir": "work"}
     man = {"video": "old.mp4", "duration": 5.0, "stages": {}, "utterances": [
-        {"id": "u0001", "start": 0.0, "end": 4.0, "text_uk": "a",
+        {"id": "u0001", "start": 0.0, "end": 4.0, "text_src": "a",
          "tr": {"ru": {"text": "Это краска", "fitted_text": "Это краска"}}}]}
     wd = M.video_workdir(cfg, "old.mp4")
     (wd / "manifest.json").write_text(json.dumps(man), encoding="utf-8")
@@ -290,7 +290,7 @@ def test_a_stale_mark_is_dropped_not_recorded(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     cfg = {"work_dir": "work"}
     man = {"video": "e.mp4", "duration": 5.0, "stages": {}, "utterances": [
-        {"id": "u0001", "start": 0.0, "end": 4.0, "text_uk": "a",
+        {"id": "u0001", "start": 0.0, "end": 4.0, "text_src": "a",
          "tr": {"ru": {"text": "Совсем другой текст",
                        "fitted_text": "Совсем другой текст"}}}]}
     wd = M.video_workdir(cfg, "e.mp4")
@@ -329,7 +329,7 @@ def test_ingest_does_not_collapse_pre_existing_duplicate_rows(tmp_path,
     monkeypatch.chdir(tmp_path)
     cfg = {"work_dir": "work"}
     man = {"video": "lesson.mp4", "duration": 5.0, "stages": {}, "utterances": [
-        {"id": "u0001", "start": 0.0, "end": 4.0, "text_uk": "a",
+        {"id": "u0001", "start": 0.0, "end": 4.0, "text_src": "a",
          "tr": {"ru": {"text": "Это краска", "fitted_text": "Это краска"}}}]}
     wd = M.video_workdir(cfg, "lesson.mp4")
     (wd / "manifest.json").write_text(json.dumps(man), encoding="utf-8")
@@ -366,7 +366,7 @@ def test_ingest_replaces_the_rows_it_re_rates(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     cfg = {"work_dir": "work"}
     man = {"video": "lesson.mp4", "duration": 5.0, "stages": {}, "utterances": [
-        {"id": "u0001", "start": 0.0, "end": 4.0, "text_uk": "a",
+        {"id": "u0001", "start": 0.0, "end": 4.0, "text_src": "a",
          "tr": {"ru": {"text": "Это краска", "fitted_text": "Это краска"}}}]}
     wd = M.video_workdir(cfg, "lesson.mp4")
     (wd / "manifest.json").write_text(json.dumps(man), encoding="utf-8")

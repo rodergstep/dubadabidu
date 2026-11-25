@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""dubadabidu — Ukrainian -> multilingual video dubbing.
+"""dubadabidu — Ukrainian/Russian -> multilingual video dubbing.
 
   dubadabidu doctor                          # validate environment before anything
   dubadabidu preamble input/a.mp4            # per-video prep: refs + ref pick (2 passes)
@@ -196,11 +196,10 @@ def _check_translation_models(tcfg: dict,
 
 def preamble(cfg: dict, video: str, langs: list[str]) -> None:
     """Per-video preamble (IMPROVEMENT_PLAN Phase D), resumable:
-    pass 1: s1 + s2 + prep, then pause for the text_uk hand-review;
+    pass 1: s1 + s2 + prep, then pause for the text_src hand-review;
     pass 2 (re-run):  s3 on the tune language, tune-lite R1 over this video's
     own refs, winning ref stored in manifest tts_overrides (s4/s5/evaluate
     honor it — no config paste per video)."""
-    import json
     fresh = not M.manifest_path(cfg, video).exists()
     s1_extract.run(cfg, video)
     if fresh:
@@ -209,7 +208,7 @@ def preamble(cfg: dict, video: str, langs: list[str]) -> None:
     if not (wd / "refs.json").exists():
         prep_mod.run(cfg, video)
     if fresh:
-        print(f"\n[preamble] paused — review text_uk in "
+        print(f"\n[preamble] paused — review text_src in "
               f"{M.manifest_path(cfg, video)} (one fix here propagates to all "
               f"languages), then re-run:\n  dubadabidu preamble {video}")
         return
@@ -231,9 +230,8 @@ def preamble(cfg: dict, video: str, langs: list[str]) -> None:
         man.pop("tts_overrides", None)
     else:
         over = {"reference_wav": ref}
-        refs = json.loads((wd / "refs.json").read_text(encoding="utf-8"))
-        rt = refs.get(Path(ref).name, {}).get("text_uk", "")
-        if rt:  # ref transcript (prep fills refs.json; UA-ref paths skip it)
+        rt = M.load_refs(wd).get(Path(ref).name, {}).get("text_src", "")
+        if rt:  # ref transcript (prep fills refs.json)
             over["reference_text"] = rt
         man["tts_overrides"] = over
     M.save(cfg, video, man)
@@ -538,6 +536,9 @@ def main() -> None:
     _validate_config(cfg)
     langs = ([x.strip() for x in a.langs.split(",") if x.strip()]
              if a.langs else cfg["languages"])
+    # a video is never dubbed into its own language (cfg languages lists ru,
+    # which is also a valid source)
+    langs = [x for x in langs if x != cfg["source_language"]]
 
     # where ECAPA / Distill-MOS run. Default 'cpu' keeps every stored score
     # comparable with the ones already in the manifests; 'cuda'/'auto' is the

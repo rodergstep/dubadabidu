@@ -184,7 +184,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
    <span class="stars" data-id="{u['id']}">rate: {stars}</span>
    <span class="verdict" data-id="{u['id']}"><button class="acc">✓ accept</button><button class="rej">✗ reject</button></span></div>
  <div class="txt">dub: {_dub_html(tr.get('fitted_text', tr.get('text', '')), u['id'], mark_words)}</div>
- <div class="txt">uk:&nbsp; {html.escape(u['text_uk'])}</div>
+ <div class="txt">src: {html.escape(u['text_src'])}</div>
  <div class="row">
    <label>dub <audio controls preload="none" src="{tr.get('placed', tr['fitted'])}"></audio></label>
    <label>you <audio controls preload="none" src="{ua}"></audio></label>

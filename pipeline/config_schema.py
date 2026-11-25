@@ -253,7 +253,7 @@ class Config(_Block):
     work_dir: str
     output_dir: str
     languages: list[str]
-    source_language: str
+    source_language: Literal["uk", "ru"]
     asr: Asr
     separation: Separation
     translation: Translation

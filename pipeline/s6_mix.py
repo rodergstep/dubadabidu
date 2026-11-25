@@ -8,7 +8,7 @@ Loudness: two-pass loudnorm with linear=true — the one-pass default is
 dynamic compression, which audibly squashes speech.
 
 Background ducking (mix.duck): the background is the separation INSTRUMENTAL
-stem, which still carries a faint residual of the original Ukrainian voice
+stem, which still carries a faint residual of the original voice
 (no separator is perfect). Mixed back flat, that residual plays under the dub
 — the classic 'two voices' AI-dub tell. We sidechain-compress the background
 against the dub vocals, so it ducks exactly while the dub speaks (which is

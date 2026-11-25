@@ -185,7 +185,7 @@ def test_fmt_point_labels_the_default_case():
 # --- subset sizing (tune-lite runs on small n) ---
 
 def _us(n):
-    return [{"id": f"u{i:04d}", "text_uk": "x" * (i + 1)} for i in range(n)]
+    return [{"id": f"u{i:04d}", "text_src": "x" * (i + 1)} for i in range(n)]
 
 
 def test_subset_of_one_takes_the_median_length_segment():
