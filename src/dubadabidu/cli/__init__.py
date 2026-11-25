@@ -20,6 +20,7 @@ from dubadabidu.cli.remote import _remote_run_batch, _remote_stages
 from dubadabidu.cli.report import report
 from dubadabidu.cli.stages import ORDER, STAGES
 from dubadabidu.core import manifest as M
+from dubadabidu.core.config.loader import overlay_path as find_overlay
 from dubadabidu.core.logic import deep_merge
 
 __all__ = ["ORDER", "STAGES", "doctor", "main", "report"]
@@ -58,7 +59,7 @@ def main() -> None:
 
     cfg = yaml.safe_load(open(config_path, encoding="utf-8"))
     for ov in (a.overlay or []):  # stacked left-to-right; later overlays win
-        overlay_path = Path(ov) if Path(ov).is_absolute() else project.root / ov
+        overlay_path = find_overlay(project.root, ov)   # root, configs/, configs/experiments/
         cfg = deep_merge(cfg, yaml.safe_load(open(overlay_path, encoding="utf-8")))
     if a.engine:
         cfg["tts"]["engine"] = a.engine

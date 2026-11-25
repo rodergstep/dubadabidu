@@ -2,7 +2,6 @@
 """Where the config machinery lives TODAY (moves edit only this file)."""
 from __future__ import annotations
 
-import glob
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -18,11 +17,13 @@ __all__ = ["Config", "deep_merge", "validate"]
 
 
 def overlay_files() -> list[str]:
-    return sorted(glob.glob(str(REPO / "config*.yaml")))
+    from dubadabidu.core.config.loader import overlay_files as found
+    return sorted(str(p) for p in [REPO / "config.yaml", *found(REPO)])
 
 
 def config_path(name: str) -> str:
-    return str(REPO / name)
+    from dubadabidu.core.config.loader import overlay_path
+    return str(overlay_path(REPO, name))
 
 
 def defaults_tables() -> Mapping[str, Mapping[str, object]]:

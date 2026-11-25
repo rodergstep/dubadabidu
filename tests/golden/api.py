@@ -9,7 +9,6 @@ proves it still returns the same thing.
 from __future__ import annotations
 
 import argparse
-import glob
 from collections.abc import Mapping
 from pathlib import Path
 from unittest import mock
@@ -37,11 +36,13 @@ cli_main = dub.main
 
 
 def config_path(name: str) -> str:
-    return str(REPO / name)
+    from dubadabidu.core.config.loader import overlay_path
+    return str(overlay_path(REPO, name))
 
 
 def overlay_files() -> list[str]:
-    return sorted(glob.glob(str(REPO / "config*.yaml")))
+    from dubadabidu.core.config.loader import overlay_files as found
+    return sorted(str(p) for p in [REPO / "config.yaml", *found(REPO)])
 
 
 def render_prompt(src: str, lang: str, tol: float, nvar: int, name: str) -> str:
