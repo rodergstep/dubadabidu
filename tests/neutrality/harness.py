@@ -53,6 +53,7 @@ asr:
 translation:
   lang_workers: 1
 """
+ECAPA = "work/.models/ecapa"          # speechbrain's savedir (qc.metrics)
 CALLS: list[list[str]] = []
 PRINTED: list[str] = []
 
@@ -147,9 +148,9 @@ def _snapshot(project: Path, calls_at: dict[str, int]) -> dict[str, object]:
         if not base.exists():
             continue
         for p in sorted(base.rglob("*")):
-            if not p.is_file():
-                continue
             rel = p.relative_to(project).as_posix()
+            if not p.is_file() or rel.startswith(ECAPA):
+                continue
             data = p.read_bytes()
             if p.name == ".audio_sig.json":
                 # memo keyed on "name:size:mtime_ns"; the mtime is the run's,
@@ -192,6 +193,9 @@ def fingerprint() -> dict[str, str]:
 def run(project: Path, full: bool = False) -> dict[str, object]:
     from tests.neutrality import fakes
     _copy_project(project)
+    if full:   # real ECAPA weights from this checkout's cache (offline)
+        (project / "work" / ".models").mkdir(parents=True)
+        (project / ECAPA).symlink_to(REPO / ECAPA, target_is_directory=True)
     fakes.install(full=full)
     _no_network()
     _record_subprocess()

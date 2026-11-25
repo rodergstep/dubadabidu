@@ -3,7 +3,12 @@
 
 Runs tests/neutrality/harness.py in a fresh interpreter (the fakes replace
 third-party modules in sys.modules, so they must not leak into other tests)
-and compares its snapshot with golden_fast.json, section by section.
+and compares its snapshot with the golden, section by section:
+
+  fast  golden_fast.json  every model faked (deterministic stand-ins)
+  full  golden_full.json  real ECAPA + Distill-MOS from local caches, so the
+                          QC metrics themselves must stay bit-identical
+                          (72 human-rated groups depend on them)
 
 The golden is only meaningful on the toolchain that recorded it: audio bytes
 depend on the ffmpeg build, and the fake model scores on torch/torchaudio. On
@@ -11,7 +16,9 @@ another toolchain the test SKIPS and says so; scripts/neutrality_diff.py is
 the machine-independent check (it runs two git revisions side by side).
 
 Regenerate ONLY when a change is meant to alter output, and say so in the
-commit:  python -m tests.neutrality.harness --dump tests/neutrality/golden_fast.json
+commit:
+    python -m tests.neutrality.harness --dump tests/neutrality/golden_fast.json
+    python -m tests.neutrality.harness --full --dump tests/neutrality/golden_full.json
 """
 from __future__ import annotations
 
@@ -26,7 +33,7 @@ import pytest
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
-GOLDEN = HERE / "golden_fast.json"
+ECAPA_CACHE = REPO / "work" / ".models" / "ecapa"
 
 pytestmark = pytest.mark.skipif(
     shutil.which("ffmpeg") is None
@@ -55,8 +62,11 @@ def _diff(name: str, got: object, want: object) -> list[str]:
     return [f"{name}: {want!r} -> {got!r}"]
 
 
-def test_local_pipeline_output_is_unchanged(tmp_path: Path) -> None:
-    want = json.loads(GOLDEN.read_text(encoding="utf-8"))
+@pytest.mark.parametrize("mode", ["fast", "full"])
+def test_local_pipeline_output_is_unchanged(mode: str, tmp_path: Path) -> None:
+    if mode == "full" and not (ECAPA_CACHE / "embedding_model.ckpt").exists():
+        pytest.skip("full mode needs the ECAPA weights in work/.models/ecapa")
+    want = json.loads((HERE / f"golden_{mode}.json").read_text(encoding="utf-8"))
     sys.path.insert(0, str(REPO))
     from tests.neutrality.harness import fingerprint
     if fingerprint() != want["fingerprint"]:
@@ -64,8 +74,8 @@ def test_local_pipeline_output_is_unchanged(tmp_path: Path) -> None:
                     f"{fingerprint()} — use scripts/neutrality_diff.py")
     dump = tmp_path / "snap.json"
     r = subprocess.run([sys.executable, "-m", "tests.neutrality.harness",
-                        "--dump", str(dump)], cwd=REPO, capture_output=True,
-                       text=True)
+                        "--dump", str(dump), *(["--full"] if mode == "full" else [])],
+                       cwd=REPO, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr[-4000:]
     got = json.loads(dump.read_text(encoding="utf-8"))
     problems = [p for k in sorted(set(got) | set(want))
