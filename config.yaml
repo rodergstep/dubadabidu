@@ -75,7 +75,7 @@ tts:
   # (ref/sketch_ref_08.trim12s.wav); the choice is below the ear's resolution (§2.2).
   reference_wav: ref/sketch_ref_08.wav
   sample_rate: 24000
-  edge_voices:                 # fallback engine voices (edge-tts 7.2.8)
+  edge_voices:                 # fallback engine voices (edge-tts 7.3.1)
     en: en-US-AndrewNeural
     fr: fr-FR-HenriNeural
     de: de-DE-ConradNeural

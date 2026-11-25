@@ -10,7 +10,8 @@ Measured results and refuted ideas live in `FINDINGS.md`; per-run costs live in
 ## [1.0.0] — 2026-11-25
 
 Release cleanup. No pipeline logic, default config values or model choices
-changed; the only locked-version change is PyAV 18.1.0 → 18.1.1 (below).
+changed; the only locked-version changes are PyAV 18.1.0 → 18.1.1 and edge-tts
+7.2.8 → 7.3.1 (below).
 
 ### Added
 - `doctor` warns, without failing, when `pedalboard` is missing while
@@ -51,6 +52,8 @@ changed; the only locked-version change is PyAV 18.1.0 → 18.1.1 (below).
 - PyAV locked at 18.1.1: 18.1.0 was yanked upstream (double free when decoding
   audio with custom channel layouts). 18.1.1 is newer than the global
   `exclude-newer` date, so `[tool.uv] exclude-newer-package` exempts av alone.
+- edge-tts 7.3.1: the service now answers 7.2.8 with HTTP 403 for every voice,
+  which broke `--engine edge` and the s8 EDGE fallback.
 - Stale comments: chatterbox/CosyVoice references in `device.py`, `prep.py`,
   `tune.py`, `s3_translate.py`; the Python range in the CI workflow; FINDINGS §5
   item 1 marked closed, duplicate paragraph removed.
