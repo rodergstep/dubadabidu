@@ -16,15 +16,16 @@ import logging
 import soundfile as sf
 from dubadabidu.core import manifest as M
 from dubadabidu.qc.selection import synth_best_of
+from dubadabidu.core.config.schema import Config, EvalWeights, derive
 
 
-def _rank_w(cfg: dict) -> dict | None:
+def _rank_w(cfg: Config) -> EvalWeights:
     """qc.eval.weights, which is what ranks takes (qc.selection._take_rank).
 
     Threaded explicitly rather than read inside the engine: the engine takes a
     TTS-config dict, and these live under qc — hiding the lookup in there is how
     the two drifted apart in the first place."""
-    return (cfg.get("qc", {}).get("eval", {}) or {}).get("weights")
+    return cfg.qc.eval.weights
 
 log = logging.getLogger("dubadabidu.s4")
 
@@ -36,10 +37,10 @@ log = logging.getLogger("dubadabidu.s4")
 VARIANT_MARGIN = 0.85
 
 
-def run(cfg: dict, video: str, langs: list[str]) -> None:
+def run(cfg: Config, video: str, langs: list[str]) -> None:
     man = M.load(cfg, video)
     # per-video overrides (e.g. this video's own ref picked by `preamble`)
-    t = {**cfg["tts"], **man.get("tts_overrides", {})}
+    t = derive(cfg.tts, **man.get("tts_overrides", {}))
     wd = M.video_workdir(cfg, video)
 
     for lang in langs:
@@ -91,7 +92,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
             # can need a shorter variant. s5 measures against the RETIMED slot,
             # which this cannot know, so allow a margin and pre-make a few
             # extra rather than miss one and strand the run.
-            soft = float(cfg.get("fit", {}).get("soft_tempo", 1.06))
+            soft = float(cfg.fit.soft_tempo)
             slot = u["end"] - u["start"]
             ratio = (tr["synth_dur"] / slot) if slot > 0 else float("inf")
             if ratio > soft * VARIANT_MARGIN:

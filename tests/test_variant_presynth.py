@@ -21,9 +21,10 @@ import pytest
 from dubadabidu.stages import s4_synthesize as S4
 from dubadabidu.core import manifest as M
 from tests.paths import source
+from tests.cfgs import settings
 
-CFG = {"work_dir": None,           # filled per-test
-       "fit": {"soft_tempo": 1.06},
+# a patch over config.yaml (tests.cfgs.settings validates the result)
+CFG = {"fit": {"soft_tempo": 1.06},
        "tts": {"engine": "edge", "reference_wav": "", "sample_rate": 16000}}
 
 
@@ -39,7 +40,7 @@ def _wav(p: Path, seconds: float) -> None:
 @pytest.fixture
 def bed(tmp_path):
     """A one-utterance video whose primary overruns a 10 s slot."""
-    cfg = {**CFG, "work_dir": str(tmp_path / "work")}
+    cfg = settings({**CFG, "work_dir": str(tmp_path / "work")})
     video = "lesson.mp4"
     man = {"video": video, "duration": 10.0, "stages": {},
            "utterances": [{"id": "u0001", "start": 0.0, "end": 10.0,

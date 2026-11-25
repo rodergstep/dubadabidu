@@ -14,6 +14,7 @@ from dubadabidu.core import manifest as M
 from dubadabidu.core.logic import choose_placement, retime_step
 from dubadabidu.stages.s3_translate import shorten as llm_shorten
 from dubadabidu.qc.selection import synth_best_of
+from dubadabidu.core.config.schema import Config, Fit, derive
 
 log = logging.getLogger("dubadabidu.s5")
 
@@ -26,12 +27,12 @@ def _dur(p: Path) -> float:
 _STRETCH_FILTER: str | None = None
 
 
-def _stretch_filter(fit_cfg: dict) -> str:
+def _stretch_filter(fit_cfg: Fit) -> str:
     """rubberband (R3 engine — keeps consonant transients cleaner than atempo's
     WSOLA) when ffmpeg is built with librubberband, else atempo. Probed once.
     fit.stretcher: auto (default) | rubberband | atempo."""
     global _STRETCH_FILTER
-    want = fit_cfg.get("stretcher", "auto")
+    want = fit_cfg.stretcher
     if want == "atempo":
         return "atempo"
     if _STRETCH_FILTER is None:
@@ -45,7 +46,7 @@ def _stretch_filter(fit_cfg: dict) -> str:
     return _STRETCH_FILTER
 
 
-def _atempo(src: Path, dst: Path, tempo: float, fit_cfg: dict) -> None:
+def _atempo(src: Path, dst: Path, tempo: float, fit_cfg: Fit) -> None:
     flt = _stretch_filter(fit_cfg)
     spec = (f"rubberband=tempo={tempo:.4f}" if flt == "rubberband"
             else f"atempo={tempo:.4f}")
@@ -53,14 +54,14 @@ def _atempo(src: Path, dst: Path, tempo: float, fit_cfg: dict) -> None:
                     "-filter:a", spec, str(dst)], check=True)
 
 
-def run(cfg: dict, video: str, langs: list[str]) -> None:
-    f = cfg["fit"]
-    drift_max = f.get("drift_max_s", 1.5)
-    min_gap = f.get("min_gap_s", 0.15)
+def run(cfg: Config, video: str, langs: list[str]) -> None:
+    f = cfg.fit
+    drift_max = f.drift_max_s
+    min_gap = f.min_gap_s
     man = M.load(cfg, video)
     # per-video overrides (e.g. this video's own ref picked by `preamble`);
     # synth_hash sees the merged dict, so caches stay per-ref consistent
-    t = {**cfg["tts"], **man.get("tts_overrides", {})}
+    t = derive(cfg.tts, **man.get("tts_overrides", {}))
     wd = M.video_workdir(cfg, video)
     us = man["utterances"]
 
@@ -113,12 +114,10 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                     # to FIT, so fitting takes are preferred outright.
                     synth_best_of(text, lang, wav, tu,
                                   target_dur=slot or None,
-                                  rank_weights=(cfg.get('qc', {})
-                                                .get('eval', {})
-                                                .get('weights')))
+                                  rank_weights=cfg.qc.eval.weights)
                 return wav
 
-            soft = f.get("soft_tempo", 1.06)
+            soft = f.soft_tempo
             # synth the primary; only synth variants if it needs a hard stretch
             wavs = [seg_wav(candidates[0])]
             if slot <= 0 or _dur(wavs[0]) / slot > soft:
@@ -143,7 +142,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                     if slot > 0 and _dur(wavs[-1]) <= slot:
                         break
             durs = [_dur(w) for w in wavs]
-            ci, verdict, tempo = choose_placement(durs, slot, f["max_tempo"], soft)
+            ci, verdict, tempo = choose_placement(durs, slot, f.max_tempo, soft)
             # `slot > 0` GUARDS THE RESCUE, NOT THE OVERFLOW FLAG. choose_placement
             # returns "no" for slot <= 0 before it looks at a single duration, so
             # on a zero-slot segment (the last utterance running to man["duration"],
@@ -161,7 +160,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 # flag when the endpoint is unavailable. New variants land in
                 # the manifest, so re-runs place them from cache with no call.
                 k = min(range(len(durs)), key=lambda j: durs[j])
-                budget = int(len(candidates[k]) * slot * f["max_tempo"]
+                budget = int(len(candidates[k]) * slot * f.max_tempo
                              / durs[k] * 0.95)
                 extra = [v for v in llm_shorten(cfg, lang, u["text_src"],
                                                 candidates[0], budget)
@@ -172,7 +171,7 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                     wavs += [seg_wav(c) for c in extra]
                     durs = [_dur(w) for w in wavs]
                     ci, verdict, tempo = choose_placement(
-                        durs, slot, f["max_tempo"], soft)
+                        durs, slot, f.max_tempo, soft)
                     if verdict != "no":
                         log.info("%s %s rescued by emergency shorten "
                                  "(%d chars budget)", lang, u["id"], budget)
@@ -185,8 +184,8 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                 placed = (fitted, tempo, "stretched" if ci == 0 else "shortened")
             else:
                 fitted = wav.with_name(wav.stem + "_fit.wav")
-                _atempo(wav, fitted, f["max_tempo"], f)
-                placed = (fitted, f["max_tempo"], "overflow")
+                _atempo(wav, fitted, f.max_tempo, f)
+                placed = (fitted, f.max_tempo, "overflow")
                 log.warning("%s %s overflow (slot %.1fs)", lang, u["id"], slot)
             tr["fitted"] = str(placed[0].relative_to(wd))
             tr["fitted_text"] = chosen          # exact text TTS spoke (may be a variant)

@@ -19,23 +19,24 @@ from pathlib import Path
 from pydub import AudioSegment
 from dubadabidu.core import manifest as M
 from dubadabidu.core.audio import trim_and_fade
+from dubadabidu.core.config.schema import Config, Master, Mix
 
 log = logging.getLogger("dubadabidu.s6")
 
 
-def _mix_filter(mix: dict) -> str:
+def _mix_filter(mix: Mix) -> str:
     """filter_complex mixing dub vocals [0:a] with background [1:a].
     With mix.duck (default on), sidechaincompress ducks the background using
     the vocals as the key; otherwise the background plays at a flat gain."""
-    bg_gain = mix["bg_gain_db"]
-    if not mix.get("duck", True):
+    bg_gain = mix.bg_gain_db
+    if not mix.duck:
         return (f"[0:a]aresample=44100[v];"
                 f"[1:a]volume={bg_gain}dB,apad[bg];"
                 f"[v][bg]amix=inputs=2:duration=first:normalize=0[out]")
-    thr = mix.get("duck_threshold", 0.03)   # ~ -30 dB key level opens the duck
-    ratio = mix.get("duck_ratio", 8)
-    attack = mix.get("duck_attack_ms", 5)
-    release = mix.get("duck_release_ms", 300)
+    thr = mix.duck_threshold   # ~ -30 dB key level opens the duck
+    ratio = mix.duck_ratio
+    attack = mix.duck_attack_ms
+    release = mix.duck_release_ms
     return (f"[0:a]aresample=44100,asplit=2[v][key];"
             f"[1:a]volume={bg_gain}dB,apad[bgpad];"
             f"[bgpad][key]sidechaincompress=threshold={thr}:ratio={ratio}:"
@@ -113,7 +114,7 @@ def _assemble(placements: list[tuple[int, AudioSegment]], total_ms: int,
                         sample_width=2, channels=1)
 
 
-def _master(inp: Path, out: Path, m: dict) -> None:
+def _master(inp: Path, out: Path, m: Master) -> None:
     """Light mastering chain on the dub vocals BEFORE the background mix
     (Spotify pedalboard). best_of takes are picked per segment, so consecutive
     utterances drift in level and brightness — the 'pasted-in segments' tell.
@@ -135,19 +136,19 @@ def _master(inp: Path, out: Path, m: dict) -> None:
             "pedalboard not importable — mix.master.enabled needs it: "
             f"uv sync --extra master (or set mix.master.enabled: false). ({e})") from e
     chain = [
-        HighpassFilter(cutoff_frequency_hz=m.get("hpf_hz", 80)),
-        Compressor(threshold_db=m.get("comp_threshold_db", -18.0),
-                   ratio=m.get("comp_ratio", 2.5),
-                   attack_ms=m.get("comp_attack_ms", 5),
-                   release_ms=m.get("comp_release_ms", 120)),
-        HighShelfFilter(cutoff_frequency_hz=m.get("deess_hz", 7000),
-                        gain_db=m.get("deess_gain_db", -2.0)),
+        HighpassFilter(cutoff_frequency_hz=m.hpf_hz),
+        Compressor(threshold_db=m.comp_threshold_db,
+                   ratio=m.comp_ratio,
+                   attack_ms=m.comp_attack_ms,
+                   release_ms=m.comp_release_ms),
+        HighShelfFilter(cutoff_frequency_hz=m.deess_hz,
+                        gain_db=m.deess_gain_db),
     ]
-    wet = float(m.get("reverb_wet", 0.0))
+    wet = float(m.reverb_wet)
     if wet > 0:   # subtle room; matching the source acoustic is hard, keep it low
-        chain.append(Reverb(room_size=m.get("reverb_room", 0.1),
+        chain.append(Reverb(room_size=m.reverb_room,
                             wet_level=wet, dry_level=1.0 - wet))
-    chain.append(Limiter(threshold_db=m.get("limiter_db", -1.0)))
+    chain.append(Limiter(threshold_db=m.limiter_db))
     board = Pedalboard(chain)
     with AudioFile(str(inp)) as f:
         audio, sr = f.read(f.frames), f.samplerate
@@ -195,7 +196,7 @@ def _loudnorm_two_pass(premix: Path, out: Path, lufs: int) -> None:
     _encode(spec + measured)
 
 
-def run(cfg: dict, video: str, langs: list[str]) -> None:
+def run(cfg: Config, video: str, langs: list[str]) -> None:
     man = M.load(cfg, video)
     wd = M.video_workdir(cfg, video)
     total_ms = int(man["duration"] * 1000)
@@ -203,8 +204,8 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
     for lang in langs:
         # timeline stays at the TTS rate; the single upsample to 44.1k happens
         # in ffmpeg below (swr) — pydub's per-segment ratecv audibly aliases
-        rate = cfg["tts"]["sample_rate"]
-        norm = cfg["mix"].get("segment_norm", {})
+        rate = cfg.tts.sample_rate
+        norm = cfg.mix.segment_norm
         # PASS 1: clean/normalize/persist each segment and record its placement.
         # The timeline is sized AFTER this, to hold every segment in full: pydub's
         # overlay TRUNCATES whatever extends past the base length, so a track cut
@@ -217,8 +218,8 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
                          .set_channels(1))
             # per-segment loudness normalization: kill take-to-take level drift
             # (the 'pasted-in' tell) with a pure gain shift, dynamics-preserving
-            if norm.get("enabled", True):
-                seg, gain = _normalize_segment(seg, norm.get("target_dbfs", -20.0))
+            if norm.enabled:
+                seg, gain = _normalize_segment(seg, norm.target_dbfs)
                 tr["norm_gain_db"] = round(gain, 2)
             # persist the exact audio that lands in the mix — evaluate/review/
             # backcheck grade this, not the pre-trim fitted file
@@ -238,19 +239,19 @@ def run(cfg: dict, video: str, langs: list[str]) -> None:
         track = _assemble(placements, total_ms, rate)
         voc = wd / f"dub_{lang}_vocals.wav"
         track.export(voc, format="wav")
-        if cfg["mix"].get("master", {}).get("enabled"):
+        if cfg.mix.master.enabled:
             mastered = wd / f"dub_{lang}_vocals_master.wav"
-            _master(voc, mastered, cfg["mix"]["master"])
+            _master(voc, mastered, cfg.mix.master)
             voc = mastered
 
         premix = wd / f"dub_{lang}_premix.wav"
         subprocess.run([
             "ffmpeg", "-y", "-loglevel", "error",
             "-i", str(voc), "-i", str(wd / "background.wav"),
-            "-filter_complex", _mix_filter(cfg["mix"]),
+            "-filter_complex", _mix_filter(cfg.mix),
             "-map", "[out]", str(premix)], check=True)
         mixed = wd / f"dub_{lang}.m4a"
-        _loudnorm_two_pass(premix, mixed, cfg["mix"]["lufs"])
+        _loudnorm_two_pass(premix, mixed, cfg.mix.lufs)
         premix.unlink(missing_ok=True)
         man["stages"][f"s6_{lang}"] = "done"
         M.save(cfg, video, man)

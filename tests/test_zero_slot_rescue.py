@@ -32,9 +32,10 @@ import pytest
 
 from dubadabidu.core import manifest as M
 from dubadabidu.stages import s5_fit as S5
+from tests.cfgs import settings
 
-CFG = {"work_dir": None,
-       "fit": {"max_tempo": 1.12, "soft_tempo": 1.06, "drift_max_s": 1.5,
+# a patch over config.yaml (tests.cfgs.settings validates the result)
+CFG = {"fit": {"max_tempo": 1.12, "soft_tempo": 1.06, "drift_max_s": 1.5,
                "min_gap_s": 0.15},
        "tts": {"engine": "edge", "reference_wav": "", "sample_rate": 16000},
        "qc": {"eval": {"weights": {"sim": 0.0, "mos": 0.55, "f0": 0.30,
@@ -57,7 +58,7 @@ def zero_slot(tmp_path):
     retime_step caps the last segment at hard_end, so limit == placed and
     slot == max(0, limit - placed - min_gap) == 0.
     """
-    cfg = {**CFG, "work_dir": str(tmp_path / "work")}
+    cfg = settings({**CFG, "work_dir": str(tmp_path / "work")})
     video = "lesson.mp4"
     man = {"video": video, "duration": 10.0, "stages": {},
            "utterances": [{"id": "u0001", "start": 10.0, "end": 10.0,
