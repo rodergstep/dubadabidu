@@ -12,14 +12,19 @@ dependencies = [
   # Declared here as well because [tool.uv] constraints do not travel in the
   # wheel — a plain pip install resolved av 19.0.2 on Linux/py3.12.
   "av<19",
-  # torch/torchaudio: DECLARED and LOCKED since v0.5 (uv.lock). On Linux they
-  # resolve from the cu128 index ([tool.uv.sources] below) — the wheel must
-  # match the OLDEST driver runpod.allowed_cuda_versions admits (plain PyPI
-  # serves +cu130). On macOS they come from PyPI. 2.11.0 is the torchaudio
-  # ceiling (the two ship version-locked). Declaring them here also stops
-  # audio-separator's unbounded torch>=2.3 from pulling 2.13.
-  "torch==2.11.0",
-  "torchaudio==2.11.0",
+  # torch/torchaudio: DECLARED and LOCKED since v0.5 (uv.lock). On Linux torch
+  # resolves from the cu130 index ([tool.uv.sources] below) — the wheel must
+  # not need a newer driver than runpod.min_cuda_version admits. On macOS it
+  # comes from PyPI. torchaudio is NOT version-locked to torch any more: 2.11.1
+  # ships py3-none (stable-ABI) wheels requiring only torch>=2.11, from PyPI on
+  # both platforms. BUT the PyPI Linux wheel is the CUDA 13 build
+  # (_torchaudio.so links libcudart.so.13), and no cu12x 2.11.1 exists — so on
+  # Linux torch must be a cu13x build too. A cu126 torch installed fine and
+  # then failed to import qwen on a pod (2026-11-25).
+  # Declaring them here also stops audio-separator's unbounded torch>=2.3
+  # from pulling whatever is newest.
+  "torch==2.14.1",
+  "torchaudio==2.11.1",
   "edge-tts==7.3.1",
   "srt==3.5.3",
   "soundfile==0.14.0",
@@ -55,10 +60,9 @@ dependencies = [
 # Mac, so pods install plain .[dev]). [cpu] only picks the onnxruntime flavor —
 # RoFormer ckpts run on torch and auto-use CUDA/MPS either way.
 # CAUTION, still live: audio-separator declares only `torch>=2.3` with NO upper
-# bound, so an unpinned install pulls torch 2.13 and breaks the torchaudio
-# pairing (torchaudio stopped at 2.11). Always install with torch/torchaudio
-# pinned ON THE SAME COMMAND LINE:
-#   uv pip install 'audio-separator[cpu]==0.44.5' torch==2.11.0 torchaudio==2.11.0
+# bound, so an unpinned install pulls the newest torch, away from the locked
+# one. Always install with torch/torchaudio pinned ON THE SAME COMMAND LINE:
+#   uv pip install 'audio-separator[cpu]==0.44.5' torch==2.14.1 torchaudio==2.11.1
 # 0.30.2 was the numpy<2 ceiling forced by chatterbox; chatterbox went on
 # 2026-08-02 and 0.44.5 requires numpy>=2, so the two moved together.
 # Our pinned checkpoint (separation.roformer_model,
@@ -90,23 +94,52 @@ judge = ["audiobox_aesthetics==0.0.4"]
 dev = ["pytest==9.1.1"]   # ruff runs via `uvx ruff@<ver>` (CI), not from the env
 
 [project.scripts]
-dubadabidu = "dub:main"
+dubadabidu = "dubadabidu.cli:main"
 
 [build-system]
 requires = ["setuptools>=77"]   # 77: SPDX `license` string (PEP 639)
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["dub"]
-packages = ["pipeline", "qc"]
+# The product is ONE package, dubadabidu, under src/ (ARCHITECTURE_PLAN.md §2).
+# The packages are LISTED (tests/test_packaging.py keeps the list complete).
+# research/ and the clone-only pipeline/ and qc/ shims are not shipped.
+package-dir = { "dubadabidu" = "src/dubadabidu" }
+packages = [
+  "dubadabidu",
+  "dubadabidu.cli",
+  "dubadabidu.core",
+  "dubadabidu.core.config",
+  "dubadabidu.engines",
+  "dubadabidu.engines.tts",
+  "dubadabidu.infra",
+  "dubadabidu.infra.remote",
+  "dubadabidu.lab",
+  "dubadabidu.qc",
+  "dubadabidu.review",
+  "dubadabidu.stages",
+  "dubadabidu.workflows",
+]
 
-# torch from the CUDA 12.8 index on Linux (the pod), PyPI elsewhere (the Mac).
-# cu128, not the PyPI default cu130: drivers are backward- but not forward-
-# compatible, and allowed_cuda_versions admits 12.8 hosts. Asserted by
-# tests/test_runpod.py::test_torch_wheel_matches_the_oldest_allowed_driver.
+[tool.setuptools.package-data]
+# the s3 prompt templates, read with importlib.resources
+dubadabidu = ["prompts/*.md"]
+
+[tool.pytest.ini_options]
+# CI runs pytest without installing the project
+pythonpath = ["src", "."]
+
+# torch from the CUDA 13.0 index on Linux (the pod), PyPI elsewhere (the Mac).
+# Drivers are backward- but not forward-compatible, so the wheel's CUDA must
+# not exceed the oldest driver runpod.min_cuda_version admits (13.0). Asserted
+# by tests/infra/test_cuda_pins.py::test_torch_wheel_matches_the_oldest_allowed_driver.
+# cu130, not cu12x: torchaudio 2.11.1's Linux wheel needs the CUDA 13 runtime
+# (see the dependencies comment). 2.15 exists only as cu132 (13.2 drivers).
+# The explicit index keeps the build fixed even if PyPI's default moves.
+# torchaudio needs no source entry: 2.11.1 comes from PyPI.
 [tool.uv]
 # The two machines this runs on: the Apple-Silicon Mac and the Linux pod.
-# (Intel macOS cannot satisfy torch 2.11 + demucs and is not a target.)
+# (Intel macOS cannot satisfy torch 2.11+ + demucs and is not a target.)
 # Supply-chain guard: never lock a release younger than this date. Bump it
 # deliberately (then `uv lock --upgrade`), never to chase a same-day release.
 exclude-newer = "2026-11-05T00:00:00Z"
@@ -124,13 +157,12 @@ environments = [
 constraint-dependencies = ["av<19"]
 
 [[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [tool.uv.sources]
-torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux'" }]
-torchaudio = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux'" }]
+torch = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]
 
 [tool.ruff]
 target-version = "py311"

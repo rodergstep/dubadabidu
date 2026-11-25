@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 import ast
 import sys
-from pathlib import Path
 import yaml
+from tests.cfgs import toy_tts
+from tests.paths import REPO, config, source
 
 
 def test_audit():
@@ -21,7 +22,7 @@ So: check names against their definitions, not against intent.
 
 
 
-    ROOT = Path(__file__).resolve().parents[1]
+    ROOT = REPO
     FAIL = []
 
 
@@ -35,7 +36,7 @@ So: check names against their definitions, not against intent.
 
 
     print("\n=== 1. local imports shadowing module-level names ===")
-    for py in sorted(ROOT.glob("pipeline/*.py")) + sorted(ROOT.glob("qc/*.py")) + [Path("dub.py")]:
+    for py in sorted((ROOT / "src" / "dubadabidu").rglob("*.py")):
         tree = ast.parse(py.read_text())
         top = {a.asname or a.name.split(".")[0]
                for n in tree.body if isinstance(n, ast.Import) for a in n.names}
@@ -51,7 +52,9 @@ So: check names against their definitions, not against intent.
         ok("no function-local import shadows a module-level one")
 
     print("\n=== 2. argparse dests vs how they are read ===")
-    src = (ROOT / "dub.py").read_text()
+    # the parser and every module that reads its namespace
+    src = "\n".join(source(m).read_text() for m in (
+        "dubadabidu.cli", "dubadabidu.cli.parser", "dubadabidu.cli.remote"))
     tree = ast.parse(src)
     dests = set()
     for n in ast.walk(tree):
@@ -84,12 +87,13 @@ So: check names against their definitions, not against intent.
 
     print("\n=== 3. tts config keys: set-but-unread and read-but-unset ===")
     cfg = yaml.safe_load((ROOT / "config.yaml").read_text())
-    gpu = yaml.safe_load((ROOT / "config.gpu.yaml").read_text())
+    gpu = yaml.safe_load(config("config.gpu.yaml").read_text())
     merged_tts = {**cfg.get("tts", {}), **(gpu.get("tts") or {})}
     code = "\n".join(p.read_text() for p in
-                     list(ROOT.glob("pipeline/*.py")) + list(ROOT.glob("qc/*.py")))
+                     sorted((ROOT / "src" / "dubadabidu").rglob("*.py")))
     unread = [k for k in merged_tts
-              if f'"{k}"' not in code and f"'{k}'" not in code]
+              if f'"{k}"' not in code and f"'{k}'" not in code
+              and f".{k}" not in code]          # typed reads: t.<key>
     if unread:
         bad(f"tts keys in config that NO code reads: {sorted(unread)}")
     else:
@@ -97,11 +101,13 @@ So: check names against their definitions, not against intent.
 
     print("\n=== 4. engine routing: bakeoff vs production ===")
     sys.path.insert(0, str(ROOT))
-    from pipeline.logic import deep_merge                      # noqa: E402
-    from pipeline.manifest import resolve_engine               # noqa: E402
+    from dubadabidu.core.logic import deep_merge                      # noqa: E402
+    from dubadabidu.core.manifest import resolve_engine               # noqa: E402
     m = deep_merge(cfg, gpu)
     bo_engines = set(m.get("bakeoff", {}).get("engines", []))
-    prod = {lang: resolve_engine(m["tts"], lang) for lang in m["languages"]}
+    from dubadabidu.core.config.schema import validate                # noqa: E402
+    typed_tts = validate(m).tts
+    prod = {lang: resolve_engine(typed_tts, lang) for lang in m["languages"]}
     if set(prod.values()) - bo_engines - {"edge"}:
         bad(f"production resolves to {sorted(set(prod.values()))} but the bake-off "
             f"validated {sorted(bo_engines)} — they must agree")
@@ -113,9 +119,9 @@ So: check names against their definitions, not against intent.
     # deleted with the venv isolation, 2026-08-02). Only that dict maps names to
     # _synth_* functions; every other literal in the file is something else.
     dispatch = set()
-    for n in ast.walk(ast.parse((ROOT / "pipeline/tts_engine.py").read_text())):
+    for n in ast.walk(ast.parse((source("dubadabidu.engines.tts")).read_text())):
         if isinstance(n, ast.Dict) and n.values and all(
-                isinstance(v, ast.Name) and v.id.startswith("_synth_")
+                isinstance(v, ast.Attribute) and v.attr.startswith("_synth_")
                 for v in n.values):
             dispatch |= {k.value for k in n.keys if isinstance(k, ast.Constant)}
     setup = set((gpu.get("runpod") or {}).get("engine_setup", {}))
@@ -134,7 +140,7 @@ So: check names against their definitions, not against intent.
     # if the setting is absent, the comment is a claim, not a description.
     import re as _re
     for f in ("config.yaml", "config.gpu.yaml"):
-        text = (ROOT / f).read_text()
+        text = config(f).read_text()
         live = set(_re.findall(r"^\s{0,6}([a-z_][a-z0-9_]*):", text, _re.M))
         # "# key: value" — a commented-out setting is fine (it is a default),
         # but a comment REFERRING to tts.foo / bakeoff.bar must resolve
@@ -150,7 +156,7 @@ So: check names against their definitions, not against intent.
     # ORDER = list(STAGES), so read the dict literal rather than the alias.
     import importlib
     order = None
-    for n in ast.walk(ast.parse((ROOT / "dub.py").read_text())):
+    for n in ast.walk(ast.parse(source("dubadabidu.cli.stages").read_text())):
         if (isinstance(n, ast.Assign)
                 and getattr(n.targets[0], "id", "") == "STAGES"
                 and isinstance(n.value, ast.Dict)):
@@ -159,23 +165,23 @@ So: check names against their definitions, not against intent.
         bad("dub.py STAGES not found — the stage graph is unverifiable")
     else:
         missing = [st for st in order
-                   if not (ROOT / "pipeline" / f"{st}.py").exists()]
+                   if not (ROOT / "src" / "dubadabidu" / "stages" / f"{st}.py").exists()]
         if missing:
             bad(f"STAGES lists stages with no module: {missing}")
         else:
             ok(f"all {len(order)} stages in STAGES have a pipeline module")
         norun = [st for st in order
-                 if not hasattr(importlib.import_module(f"pipeline.{st}"), "run")]
+                 if not hasattr(importlib.import_module(f"dubadabidu.stages.{st}"), "run")]
         if norun:
             bad(f"stage modules without run(): {norun}")
         else:
             ok("every stage module exposes run()")
 
     print("\n=== 8. synth_hash covers every output-changing tts knob ===")
-    from pipeline.manifest import synth_hash                   # noqa: E402
+    from dubadabidu.core.manifest import synth_hash                   # noqa: E402
     base = {"engine": "qwen", "reference_wav": "r.wav", "cfg_weight": 0.0,
             "exaggeration": 0.5}
-    h0 = synth_hash("hi", "en", base)
+    h0 = synth_hash("hi", "en", toy_tts(base))
     # qwen_x_vector_only is deliberately absent: without a reference_text the
     # adapter forces x_only=True regardless, so the hash correctly does not move.
     OUTPUT_CHANGING = ["qwen_fast", "qwen_model_dir",
@@ -184,7 +190,7 @@ So: check names against their definitions, not against intent.
         v = {"qwen_model_dir": "other",
              "reference_max_s": 12, "qwen_fast": True,
              "qwen_gen_kwargs": {"temperature": 0.5}}[k]
-        if synth_hash("hi", "en", {**base, k: v}) == h0:
+        if synth_hash("hi", "en", toy_tts(base, **{k: v})) == h0:
             bad(f"synth_hash ignores {k} — the cache would serve audio made with a "
                 f"different setting")
     if not any("synth_hash ignores" in f for f in FAIL):
@@ -198,8 +204,8 @@ So: check names against their definitions, not against intent.
     # definition; this one asks whether a definition exists at all.
     import builtins
     import symtable
-    for py in (sorted(ROOT.glob("pipeline/*.py")) + sorted(ROOT.glob("qc/*.py"))
-               + [ROOT / "dub.py"]):
+    for py in (sorted((ROOT / "src" / "dubadabidu").rglob("*.py"))
+               ):
         top = symtable.symtable(py.read_text(), str(py), "exec")
         # module scope + builtins; a name assigned anywhere at module level
         # (including inside `try:`/`if`) counts as defined.
@@ -239,14 +245,15 @@ def test_asr_defends_against_repetition_loops():
       - temperature=0.0 with no ladder disabled Whisper's OWN rescue, which
         detects a bad decode via compression_ratio_threshold and retries hotter
     """
-    from pathlib import Path
-    src = (Path(__file__).resolve().parents[1] / "pipeline" / "asr.py").read_text()
-    assert 'condition_on_previous_text", False' in src, (
-        "condition_on_previous_text must DEFAULT to False — True propagates a "
+    src = (source("dubadabidu.engines.asr")).read_text()
+    from dubadabidu.engines import asr
+    assert asr.CONDITION_ON_PREVIOUS_TEXT is False, (
+        "condition_on_previous_text must be False — True propagates a "
         "hallucination into a repetition loop across a long file")
+    assert len(asr.TEMPERATURE_FALLBACK) > 1 and asr.TEMPERATURE_FALLBACK[0] == 0.0
     assert "compression_ratio_threshold" in src, (
         "without it Whisper cannot detect a repetitive decode")
-    assert "temperature_fallback" in src, (
+    assert "TEMPERATURE_FALLBACK" in src, (
         "a single temperature disables the fallback ladder that rescues a "
         "failed decode; healthy segments still decode greedily at 0.0")
     for backend in ("_transcribe_faster", "_transcribe_mlx"):
@@ -255,7 +262,7 @@ def test_asr_defends_against_repetition_loops():
         # carries a long comment and a 2000-char window cut the call in half
         nxt = src.find("\ndef ", i + 1)
         body = src[i:nxt if nxt != -1 else len(src)]
-        assert "temperature_fallback" in body and "condition_on_previous_text" in body, (
+        assert "TEMPERATURE_FALLBACK" in body and "CONDITION_ON_PREVIOUS_TEXT" in body, (
             f"{backend} must carry the same guards — the bug shipped on the mlx "
             f"path and the faster path had the identical settings")
 
@@ -264,7 +271,7 @@ def test_s2_detects_repetition_in_the_transcript():
     """The fix above prevents THIS loop. The detector catches the next one:
     a silently wrong transcript is the worst failure here, because every later
     stage is faithful to it and reports success."""
-    from pipeline.s2_transcribe import _warn_on_repetition
+    from dubadabidu.stages.s2_transcribe import _warn_on_repetition
     import logging
     recs = []
 
@@ -298,11 +305,9 @@ def test_ru_stress_layer_is_wired_and_salted():
 
     Restored 2026-08-03, engine-agnostic and behind tts.ru_stress. Three things
     have to hold together or it is worse than absent."""
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
 
     # 1. it must actually run at the synthesis boundary
-    tts = (root / "pipeline" / "tts_engine.py").read_text()
+    tts = (source("dubadabidu.engines.tts")).read_text()
     assert "normalize_for_tts(text, lang, tts_cfg)" in tts, (
         "the stress layer is defined but never called — exactly how it became "
         "dead code the first time")
@@ -314,19 +319,19 @@ def test_ru_stress_layer_is_wired_and_salted():
         "unreachable when the engine was removed")
 
     # 2. it must salt the cache, or accented text serves unaccented audio
-    from pipeline.manifest import synth_hash
+    from dubadabidu.core.manifest import synth_hash
     base = {"engine": "qwen", "reference_wav": "r.wav", "cfg_weight": 0.0,
             "exaggeration": 0.5}
-    assert synth_hash("привет", "ru", base) != \
-        synth_hash("привет", "ru", {**base, "ru_stress": True}), \
+    assert synth_hash("привет", "ru", toy_tts(base)) != \
+        synth_hash("привет", "ru", toy_tts(base, ru_stress=True)), \
         "ru_stress does not move synth_hash — cached unaccented takes would be " \
         "served for an accented config"
-    assert synth_hash("hi", "en", base) == \
-        synth_hash("hi", "en", {**base, "ru_stress": True}), \
+    assert synth_hash("hi", "en", toy_tts(base)) == \
+        synth_hash("hi", "en", toy_tts(base, ru_stress=True)), \
         "ru_stress must not invalidate non-Russian caches"
 
     # 3. plus notation must never reach the engine (measured 2026-07-08: it
     #    BREAKS generation; only combining acutes work)
-    from pipeline.text_norm import plus_to_acute
+    from dubadabidu.core.text_norm import plus_to_acute
     out = plus_to_acute("дер+евья")
     assert "+" not in out and "́" in out, f"plus notation survived: {out!r}"

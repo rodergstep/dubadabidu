@@ -12,14 +12,15 @@ import re
 import shutil
 import subprocess
 import tomllib
-from pathlib import Path
 
 import pytest
+from tests.cfgs import settings
+from tests.paths import REPO, config, source, remote_source
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = REPO
 EXPORT_CMD = ["uv", "export", "--frozen", "--no-hashes", "--no-emit-project",
               "--extra", "dev"]
-CU_INDEX_LINE = "--extra-index-url https://download.pytorch.org/whl/cu128"
+CU_INDEX_LINE = "--extra-index-url https://download.pytorch.org/whl/cu130"
 
 
 def _norm(name: str) -> str:
@@ -70,23 +71,35 @@ def test_requirements_txt_is_the_current_lock_export():
                           text=True).stdout
     have = (ROOT / "requirements.txt").read_text()
     assert CU_INDEX_LINE in have, (
-        "requirements.txt lost the cu128 index line — `pip install -r` on Linux "
-        "could not find torch==2.11.0+cu128")
+        "requirements.txt lost the cu130 index line — `pip install -r` on Linux "
+        "could not find torch==2.14.1+cu130")
     body = have.split(CU_INDEX_LINE, 1)[1].lstrip("\n")
     assert body == want, (
         "requirements.txt is not the current export of uv.lock — regenerate:\n"
         "  scripts/export_requirements.sh")
 
 
-def test_torch_is_pinned_and_linux_resolves_the_cu128_build():
+def test_torch_is_pinned_and_linux_resolves_the_cu130_build():
     """The pin moved here from the pod bootstrap in v0.5. On Linux the wheel
-    MUST be cu128 (the oldest driver allowed_cuda_versions admits); PyPI's
-    default 2.11 wheel is cu130 and reports CUDA: False on 12.8/12.9 hosts."""
+    MUST be a cuXYZ build no newer than the oldest driver the host filter
+    admits (cu130 under a 13.0 floor).
+
+    torchaudio is no longer version-locked to torch: 2.11.1 ships py3-none
+    (stable-ABI) wheels requiring only torch>=2.11, from PyPI on both
+    platforms, so it carries no +cu suffix in the lock. But its Linux wheel
+    links libcudart.so.13, so Linux torch must be a cu13x build: a cu126
+    torch installed cleanly and then failed `import torchaudio` (via qwen)
+    on a pod, 2026-11-25. Nothing on the Mac can catch that, so this does."""
     core = _pyproject_core()
-    assert core.get("torch") == core.get("torchaudio") == "2.11.0", (
-        "torch/torchaudio ship version-locked and 2.11.0 is torchaudio's ceiling")
-    assert "2.11.0+cu128" in _lock_versions()["torch"], (
-        "the lock has no cu128 torch for Linux — check [tool.uv.sources]")
+    assert core.get("torch") == "2.14.1"
+    assert core.get("torchaudio") == "2.11.1"
+    lock = _lock_versions()
+    linux_torch = {v for v in lock["torch"] if "+cu" in v}
+    assert linux_torch == {"2.14.1+cu130"}, (
+        f"Linux torch is {linux_torch}; torchaudio 2.11.1 needs a cu13x torch "
+        "— check [tool.uv.sources]")
+    assert lock["torchaudio"] == {"2.11.1"}, (
+        "torchaudio should resolve to the single PyPI py3-none build")
 
 
 def test_removed_engines_stay_removed():
@@ -107,7 +120,7 @@ def test_findings_entries_carry_evidence_and_a_verdict():
     without EVIDENCE is an opinion; one without a VERDICT is an open loop that
     reads as settled. Both failure modes already happened in this repo's
     comments — four claims this week asserted behaviour nobody had checked."""
-    text = (ROOT / "FINDINGS.md").read_text(encoding="utf-8")
+    text = (ROOT / "ledger" / "FINDINGS.md").read_text(encoding="utf-8")
     claims = text.count("**CLAIM**")
     verdicts = text.count("**VERDICT**")
     evidence = text.count("**EVIDENCE**")
@@ -125,7 +138,7 @@ def test_findings_entries_carry_evidence_and_a_verdict():
 def test_findings_leads_with_the_noise_floor():
     """Every measurement in the file is unreadable without it — two prior
     results were retroactively invalidated once the floor was known."""
-    text = (ROOT / "FINDINGS.md").read_text(encoding="utf-8")
+    text = (ROOT / "ledger" / "FINDINGS.md").read_text(encoding="utf-8")
     head = text[:text.index("## 1.")]
     assert "noise floor" in head.lower(), "the noise floor must come first"
     for band in ("sim ±0.010", "mos ±0.007", "f0st ±0.438"):
@@ -136,7 +149,7 @@ def test_run_ledger_is_machine_written_not_hand_maintained():
     """runs.jsonl must be appended by the code that spends the money. A
     hand-kept stats file rots, which is how 'what does an hour cost' got three
     different answers in one day."""
-    src = (ROOT / "pipeline" / "runpod_infra.py").read_text(encoding="utf-8")
+    src = remote_source()
     assert "runlog.append" in src, (
         "remote_run no longer records the run — the ledger will silently stop "
         "reflecting reality")
@@ -149,7 +162,7 @@ def test_run_ledger_is_machine_written_not_hand_maintained():
 def test_ledger_cost_helper_ignores_runs_with_no_audio():
     """A setup-check has no video to divide by; including it would silently
     inflate $/video-hour."""
-    from pipeline.runlog import cost_per_video_hour
+    from dubadabidu.core.runlog import cost_per_video_hour
     rows = [{"task": "setup-check", "wall_s": 200, "price_per_hr": 0.28,
              "langs": []},
             {"task": "run", "wall_s": 2466, "price_per_hr": 0.28,
@@ -192,13 +205,13 @@ def test_reused_pods_reach_the_ledger_with_a_price():
     silent UNDER-reporting of precisely the runs --keep-alive encourages, and
     cost_per_video_hour averages the zeros in. Measured 2026-08-09: two real
     A/B arms billed ~20 min of pod time and recorded as free."""
-    src = (ROOT / "pipeline" / "runpod_infra.py").read_text(encoding="utf-8")
-    body = src.split("alive = _live_pod() if reuse else None", 1)[1]
+    src = remote_source()
+    body = src.split("alive = state._live_pod() if reuse else None", 1)[1]
     branch = body.split("else:", 1)[0]
     assert "_LAST_POD.update" in branch, (
         "the --reuse branch does not stamp _LAST_POD, so its runs land in "
         "runs.jsonl with price_per_hr 0 and cost $0.000")
-    assert "pod_price(info)" in branch, (
+    assert "provider.active().price(info)" in branch, (
         "the reuse branch must read the REAL rate from the API, not fall back "
         "to assumed_price_per_hr (deliberately the worst case, ~2.5x high)")
 
@@ -210,9 +223,9 @@ def test_ru_icl_arms_differ_in_exactly_one_axis():
     config.exp.ru-stress.yaml originally shipped with was a reference pinned
     from a different experiment, which measured the reference, not the axis."""
     import yaml
-    b = yaml.safe_load((ROOT / "config.exp.ru-icl-stress.yaml").read_text(
+    b = yaml.safe_load(config("config.exp.ru-icl-stress.yaml").read_text(
         encoding="utf-8"))["tts"]
-    c = yaml.safe_load((ROOT / "config.exp.ru-icl-plain.yaml").read_text(
+    c = yaml.safe_load(config("config.exp.ru-icl-plain.yaml").read_text(
         encoding="utf-8"))["tts"]
     for k in ("reference_wav", "reference_max_s", "qwen_x_vector_only"):
         assert b[k] == c[k], f"arms differ in {k}: {b[k]!r} vs {c[k]!r}"
@@ -265,19 +278,15 @@ def test_each_weight_block_has_exactly_one_consumer():
     _take_rank). Pinning the WIRING is what closes the class instead of the
     instance.
     """
-    tune_src = (ROOT / "pipeline" / "tune.py").read_text(encoding="utf-8")
-    assert '"r1_weights"' in tune_src, "tune lost its own objective block"
-    assert 'get("eval", {}).get("weights"' not in tune_src, (
+    tune_src = (source("dubadabidu.lab.tune")).read_text(encoding="utf-8")
+    assert "tn.r1_weights" in tune_src, "tune lost its own objective block"
+    assert "eval.weights" not in tune_src.replace("qc.eval.weights here", ""), (
         "tune is reading qc.eval.weights again — that block ranks TAKES of one "
         "segment; tune R1 picks the CLONE SOURCE, where similarity is the "
         "whole question")
 
-    import yaml
-    cfg = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
-    from pipeline.tune import DEFAULTS as TUNE_DEFAULTS
-    r1 = {**TUNE_DEFAULTS["r1_weights"], **(cfg.get("tune", {})
-                                            .get("r1_weights") or {})}
-    assert r1.get("sim", 0.0) > 0, (
+    r1 = settings().tune.r1_weights          # the shipped, validated value
+    assert r1.sim > 0, (
         "reference selection has no identity term — R1 would rank clone "
         "sources without measuring whether they sound like the speaker")
 
@@ -297,12 +306,14 @@ def test_tempo_means_the_same_thing_wherever_it_is_read():
     Until they are split, this test documents the collision so nobody "tidies"
     one of them into agreement with the other by accident.
     """
-    from pipeline.tts_engine import _take_rank
-    from qc.metrics import composite_score
-    w = {"sim": 0.0, "mos": 0.55, "f0": 0.30, "tempo": 0.15}
+    from dubadabidu.qc.selection import _take_rank
+    from dubadabidu.core.config.schema import EvalWeights
+    from dubadabidu.qc.metrics import composite_score
+    w = EvalWeights(**{"sim": 0.0, "mos": 0.55, "f0": 0.30, "tempo": 0.15})
     # penalty direction: more stretch -> lower score
-    assert composite_score(0.5, 4.0, 1.0, w, 2.2) < \
-        composite_score(0.5, 4.0, 0.0, w, 2.2)
+    wd = w.model_dump()                     # composite_score takes a plain dict
+    assert composite_score(0.5, 4.0, 1.0, wd, 2.2) < \
+        composite_score(0.5, 4.0, 0.0, wd, 2.2)
     # reward direction: closer to the source pace -> higher rank
     on_pace = {"mos_min": 3.8, "f0st": 2.2, "sim": 0.5, "dur": 4.0}
     rushed = {"mos_min": 3.8, "f0st": 2.2, "sim": 0.5, "dur": 2.6}
@@ -317,12 +328,9 @@ def test_per_video_reference_override_matches_the_findings_verdict():
     not a per-video override". Only the root cause was fixed; preamble kept
     writing man["tts_overrides"] on every video and s4/s5/evaluate/bakeoff all
     merge it, so the refuted mechanism stayed live. The code says it now."""
-    from pipeline.tune import DEFAULTS as TUNE_DEFAULTS
-    import yaml
-    cfg = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
-    enabled = (cfg.get("tune", {})
-               .get("per_video_ref_override",
-                    TUNE_DEFAULTS["per_video_ref_override"]))
+    from dubadabidu.core.config.schema import Tune
+    assert Tune.model_fields["per_video_ref_override"].default is False
+    enabled = settings().tune.per_video_ref_override   # shipped config, validated
     assert enabled is False, (
         "per-video reference overrides are back on. FINDINGS 2.2 refuted them: "
         "source quality varies per lesson, and that lesson's own ref_04 was "
@@ -331,16 +339,17 @@ def test_per_video_reference_override_matches_the_findings_verdict():
 
 
 def test_take_ranking_actually_reads_the_configured_weights():
-    """qc.eval.weights was read ONLY by tune.py, while tts_engine._take_rank
+    """qc.eval.weights was read ONLY by tune.py, while qc.selection._take_rank
     hardcoded its own copy — so editing the weights changed the reference-sweep
     objective and nothing about which take ships. refit gated on a formula the
     pipeline never ran, and dropping sim to 0.0 left it at an effective 0.2 in
     selection. Wired up 2026-08-09; this keeps them connected."""
-    from pipeline.tts_engine import _take_rank
+    from dubadabidu.qc.selection import _take_rank
+    from dubadabidu.core.config.schema import EvalWeights
     m_hi_sim = {"mos_min": 3.0, "f0st": 2.0, "sim": 0.9}
     m_lo_sim = {"mos_min": 3.0, "f0st": 2.0, "sim": 0.1}
-    sim_heavy = {"sim": 1.0, "mos": 0.0, "f0": 0.0, "tempo": 0.0}
-    no_sim = {"sim": 0.0, "mos": 1.0, "f0": 0.0, "tempo": 0.0}
+    sim_heavy = EvalWeights(**{"sim": 1.0, "mos": 0.0, "f0": 0.0, "tempo": 0.0})
+    no_sim = EvalWeights(**{"sim": 0.0, "mos": 1.0, "f0": 0.0, "tempo": 0.0})
     # with all weight on sim the high-sim take must win
     assert _take_rank(m_hi_sim, None, sim_heavy) > _take_rank(m_lo_sim, None, sim_heavy)
     # with sim at zero the two must tie — otherwise sim still leaks in
@@ -351,8 +360,9 @@ def test_zero_weights_do_not_disable_best_of():
     """If every applicable weight is 0 the rank must not become a constant —
     `max` would then return the FIRST take every time and best_of would quietly
     stop selecting at all."""
-    from pipeline.tts_engine import _take_rank
-    zero = {"sim": 0.0, "mos": 0.0, "f0": 0.0, "tempo": 0.0}
+    from dubadabidu.qc.selection import _take_rank
+    from dubadabidu.core.config.schema import EvalWeights
+    zero = EvalWeights(**{"sim": 0.0, "mos": 0.0, "f0": 0.0, "tempo": 0.0})
     better = {"mos_min": 4.0, "f0st": 2.0, "sim": 0.5}
     worse = {"mos_min": 2.0, "f0st": 2.0, "sim": 0.5}
     assert _take_rank(better, None, zero) > _take_rank(worse, None, zero)
@@ -363,7 +373,7 @@ def test_s4_and_s5_pass_the_weights_through():
     lookup has to happen at the call site. If a caller forgets, that language
     silently reverts to DEFAULT_RANK_W."""
     for mod in ("s4_synthesize", "s5_fit"):
-        src = (ROOT / "pipeline" / f"{mod}.py").read_text(encoding="utf-8")
+        src = source(f"dubadabidu.stages.{mod}").read_text(encoding="utf-8")
         assert "rank_weights=" in src, f"{mod} does not pass rank_weights"
 
 
@@ -372,7 +382,7 @@ def test_the_closed_list_survives_and_stays_near_the_top():
     same answers more than once — "what does an hour cost" got three numbers in
     one day, and a refuted hypothesis was re-proposed twice. It only works if it
     is the first thing read, so it must stay above the detail sections."""
-    text = (ROOT / "FINDINGS.md").read_text(encoding="utf-8")
+    text = (ROOT / "ledger" / "FINDINGS.md").read_text(encoding="utf-8")
     assert "## CLOSED — do not re-attempt" in text
     assert text.index("## CLOSED") < text.index("## 1. ASR"), (
         "the closed list moved below the detail — it is an index, and an index "
@@ -387,7 +397,7 @@ def test_russian_ships_as_is_is_recorded_as_a_DECISION():
     """A known defect that is shipped on purpose has to be written down, or the
     next session reads ~29% wrong stress as a bug to chase — which is what four
     failed experiments already cost."""
-    text = (ROOT / "FINDINGS.md").read_text(encoding="utf-8")
+    text = (ROOT / "ledger" / "FINDINGS.md").read_text(encoding="utf-8")
     assert "ru ships with the defect" in text
     assert "SYSTEMATIC" in text, (
         "the REASON must survive alongside the decision: the errors are partly "
@@ -408,7 +418,7 @@ def test_no_comment_states_a_stale_runtime_cap():
     """
     import re
     import yaml
-    text = (ROOT / "config.gpu.yaml").read_text(encoding="utf-8")
+    text = config("config.gpu.yaml").read_text(encoding="utf-8")
     actual = yaml.safe_load(text)["runpod"]["max_runtime_hours"]
     claims = re.findall(r"(?:caps? a run at|capped at[^\n]*?=)\s*([\d.]+)\s*h",
                         text)
@@ -422,19 +432,20 @@ def _doctor_lines(monkeypatch, *, device, runpod_key):
     """Run doctor with a faked torch device / env and capture what it printed."""
     import io
     import contextlib
-    import dub
+    from dubadabidu.cli import health as dub
     monkeypatch.setattr(dub, "torch_device", lambda: device)
     if runpod_key:
         monkeypatch.setenv("RUNPOD_API_KEY", "x")
     else:
         monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
     import yaml
-    from pipeline.logic import deep_merge
+    from dubadabidu.core.logic import deep_merge
     cfg = deep_merge(yaml.safe_load((ROOT / "config.yaml").read_text()),
-                     yaml.safe_load((ROOT / "config.gpu.yaml").read_text()))
+                     yaml.safe_load(config("config.gpu.yaml").read_text()))
+    from dubadabidu.core.config.schema import validate
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        rc = dub.doctor(cfg)
+        rc = dub.doctor(validate(cfg))
     return rc, buf.getvalue()
 
 
@@ -486,7 +497,7 @@ def test_doctor_warns_without_failing_when_pedalboard_is_missing(monkeypatch):
 def test_doctor_warns_when_ffmpeg_lacks_rubberband(monkeypatch):
     import subprocess
     import shutil
-    import dub
+    from dubadabidu.cli import health as dub
 
     class _P:
         stdout = " ... atempo  A->A  Adjust audio tempo.\n"

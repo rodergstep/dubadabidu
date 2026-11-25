@@ -1,8 +1,11 @@
-# dubadabidu — Ukrainian → multilingual AI dubbing
+# dubadabidu — Ukrainian/Russian → multilingual AI dubbing
 
-Turns a Ukrainian lesson video into one MP4 with dubbed audio tracks in
-English, French, German, Spanish and Russian, plus soft subtitles, in **your
-own cloned voice**.
+Turns a Ukrainian or Russian lesson video (`source_language: uk | ru`; stack
+`--overlay config.source-ru.yaml` for Russian) into one MP4 with dubbed audio
+tracks in English, French, German, Spanish, Russian and Ukrainian (never the
+source itself), plus soft subtitles, in **your own cloned voice**. Ukrainian is
+the exception: Qwen3-TTS has no Ukrainian, so uk is voiced by edge-tts
+`uk-UA-OstapNeural` (`tts.engine_by_lang`, FINDINGS §2.4).
 
 `input/lesson01.mp4` → `output/lesson01_multi.mp4` (video copy + N audio
 tracks + N subtitle tracks), and optionally one MP4 per language.
@@ -10,7 +13,7 @@ tracks + N subtitle tracks), and optionally one MP4 per language.
 Voice-over content with loose sync: dubs may drift a little against the source
 instead of being squeezed (`fit.drift_max_s`). Russian ships with a known
 lexical-stress defect (~29% of takes carry one wrong stress); everything tried
-against it is recorded in `FINDINGS.md` (CLOSED table).
+against it is recorded in `ledger/FINDINGS.md` (CLOSED table).
 
 ## How it runs
 
@@ -51,7 +54,7 @@ changed segments are re-synthesized (content-hash cache).
   including a local LM Studio or Ollama, works).
 - For cloned voices: a RunPod account and API key, plus an SSH key pair. A
   pod needs an NVIDIA GPU with ≥ 16 GB VRAM (measured peak ~12 GB) and a
-  CUDA ≥ 12.8 driver; `config.gpu.yaml` picks the cards.
+  CUDA ≥ 13.0 driver; `config.gpu.yaml` picks the cards.
 - 2–4 clean 15–20 s WAV clips of your voice (see "Reference voice").
 
 dubadabidu runs **from a clone of this repository**. Config, prompts, glossary,
@@ -111,7 +114,7 @@ Create the SSH key the pod is reached with (its `.pub` is sent to the pod):
 ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_runpod
 ```
 
-Transcribe locally, then **hand-review the Ukrainian text** in
+Transcribe locally, then **hand-review the source text** (`text_src`) in
 `work/lesson01/manifest.json`; one fix there propagates to every language:
 
 ```bash
@@ -153,35 +156,44 @@ dubadabidu preamble <video>                s1+s2+reference candidates, then a pa
 dubadabidu qc | report | evaluate | review <video>
 dubadabidu verdicts <video> <export.json>  ingest review-page verdicts
 dubadabidu batch [video...]                per-video × per-language matrix
-dubadabidu autopilot <video...>            spec-driven accept/fix loop (AUTOPILOT.md)
+dubadabidu autopilot <video...>            spec-driven accept/fix loop (docs/AUTOPILOT.md)
 dubadabidu refit                           propose qc weights from your ratings (never applies)
+dubadabidu migrate [video...] [--apply]    rewrite pre-text_src work files (dry run by default)
 dubadabidu bakeoff | tune | prep <video>   engine / reference experiments
 dubadabidu remote status | kill | smoke | setup-check
 dubadabidu remote run | bakeoff | autopilot <video...>
-python -m pipeline.course ...              many videos, one pod
-python -m pipeline.experiments ...         queue experiments (experiments.yaml) on one pod
+python -m pipeline.course ...              many videos, one pod (from a clone)
+python -m pipeline.experiments ...         queue experiments (specs/experiments.yaml) on one pod
 ```
+
+Every command works on a project directory (`config.yaml`, `glossary/`, `ref/`,
+`work/`, `.env`): `--project DIR`, else `$DUBADABIDU_HOME`, else the nearest
+directory above the current one that holds `config.yaml`. `doctor` prints which
+one it used. `python -m dubadabidu` is the same CLI.
 
 `remote` flags: `--budget USD`, `--keep-alive` (leave the pod up to debug over
 SSH; the watchdog still fires), `--reuse` (attach to that pod).
 
 ## Configuration
 
-`config.yaml` is the base; overlays are deep-merged over it, left to right:
+`config.yaml` is the base; overlays are deep-merged over it, left to right.
+`--overlay NAME` looks for NAME in the project root, then `configs/`, then
+`configs/experiments/`, so overlays are named by file name alone:
 
 | File | What it sets |
 |---|---|
 | `config.yaml` | everything; defaults for a Mac |
-| `config.gpu.yaml` | the pod profile: qwen + fast path, takes, RunPod GPU list, image, budget, runtime cap |
-| `config.deepseek.yaml` | translation via DeepSeek (also forwarded to every pod run) |
-| `config.gemini.yaml` | translation via Google Gemini's OpenAI-compatible endpoint. Its model id is **unverified**: run `doctor` before using it |
-| `config.exp.*.yaml` | experiment arms; the record behind FINDINGS.md |
+| `configs/config.gpu.yaml` | the pod profile: qwen + fast path, takes, RunPod GPU list, image, budget, runtime cap |
+| `configs/config.deepseek.yaml` | translation via DeepSeek (also forwarded to every pod run) |
+| `configs/config.gemini.yaml` | translation via Google Gemini's OpenAI-compatible endpoint. Its model id is **unverified**: run `doctor` before using it |
+| `configs/experiments/config.exp.*.yaml` | experiment arms; the record behind FINDINGS.md |
 
 ```bash
 uv run dubadabidu run input/lesson01.mp4 --overlay config.gpu.yaml --overlay config.gemini.yaml
 ```
 
-Every key is validated against `pipeline/config_schema.py`, so a typo fails
+Every key is validated against `src/dubadabidu/core/config/schema.py`, the
+only place a default lives, so a typo fails
 with its dotted path instead of being silently ignored.
 
 ### Translation backend
@@ -208,19 +220,19 @@ A wrong `response_format` produces errors like
 
 Record 2–4 clean 15–20 s WAV clips (quiet room, no music, natural teaching
 tone; `ref/README.txt` has the checklist), put them in `ref/` (git-ignored) and
-set `tts.reference_wav`. The Ukrainian reference is cloned through Qwen3-TTS's
+set `tts.reference_wav`. The reference is cloned through Qwen3-TTS's
 speaker-embedding path (`qwen_x_vector_only`). `tts.reference_max_s` trims it:
 quality climbs to ~15 s and then degrades. The reference is a curated asset;
 per-video references measured worse (FINDINGS §2.2).
 
 ## Cost
 
-Measured on RunPod, from `runs.jsonl`: about **$1.10–1.22 per hour of video for
+Measured on RunPod, from `ledger/runs.jsonl`: about **$1.10–1.22 per hour of video for
 all 5 languages** (~$0.22 per language), plus a fixed bootstrap of a few
 minutes per pod. RAM and vCPU are bundled with the GPU and not billed
 separately. Translation with DeepSeek costs well under $1 per video. Re-derive
 the number from your own runs instead of quoting it:
-`python -c "from pipeline.runlog import cost_per_video_hour as c; print(c())"`.
+`python -c "from dubadabidu.core.runlog import cost_per_video_hour as c; print(c())"`.
 Always cap a run with `--budget` and check `remote status` afterwards.
 
 ## Development
@@ -233,24 +245,40 @@ uv run pytest -q
 uvx ruff check .
 ```
 
+The code is one package, `src/dubadabidu/`, in layers (cli → workflows →
+lab | infra → review → stages → qc → engines → core); `tests/` mirrors them and
+`tests/test_layers.py` rejects an upward import. `docs/ARCHITECTURE.md` has the
+map, the config rules and the checks that prove a refactor changes no output.
+
+To use a built wheel instead of the clone, install it into any environment
+and point it at a project directory:
+
+```bash
+uv build && uv pip install dist/dubadabidu-1.0.0-py3-none-any.whl
+```
+
+```bash
+dubadabidu --project ~/dubbing doctor
+```
+
 After changing a dependency in `pyproject.toml`, run `uv lock` and
 `scripts/export_requirements.sh` (`requirements.txt` is the pod's generated
-Linux export, `+cu128` torch; CI checks it is current).
+Linux export, `+cu130` torch; CI checks it is current).
 
 Pinned versions that matter, and why, are commented in `pyproject.toml`
-(`transformers==4.57.3`, `av<19`, torch/torchaudio 2.11.0 from the cu128 index
-on Linux). Measured results and closed questions are in `FINDINGS.md`; read
+(`transformers==4.57.3`, `av<19`, torch 2.14.1 from the cu130 index on Linux,
+torchaudio 2.11.1). Glossaries live in `glossary/<source>/<target>.csv`. Measured results and closed questions are in `ledger/FINDINGS.md`; read
 its CLOSED table before spending a pod.
 
 ## Roadmap
 
 Open work, in order. Everything else from the earlier planning docs is done
-or closed by evidence (FINDINGS.md, CLOSED table).
+or closed by evidence (`ledger/FINDINGS.md`, CLOSED table).
 
 **Next**
 - One full ~1 h lesson end-to-end on the pod, all 5 languages
   (`python -m pipeline.course`, `--reuse --keep-alive`), wall clock and $
-  recorded in `runs.jsonl`. Re-test `tts.best_of: 2` on it: how often is the
+  recorded in `ledger/runs.jsonl`. Re-test `tts.best_of: 2` on it: how often is the
   shipped take marked unusable?
 - The 20-video batch (~15 min/video of review on worst-first pages), then
   publish per-language audio (YouTube multi-language audio; `per_language`
@@ -260,7 +288,7 @@ or closed by evidence (FINDINGS.md, CLOSED table).
 - Widen `specs/batch.yaml` `policy.langs` from `[en]` to all five (a human edit).
 
 **Planned**
-- Vast.ai as the second provider — MIGRATION_VAST.md.
+- Vast.ai as the second provider — docs/MIGRATION_VAST.md.
 
 **Deferred, each with its trigger**
 - Enhancement / bandwidth pass — 24 kHz dullness audible through real speakers.
@@ -269,7 +297,7 @@ or closed by evidence (FINDINGS.md, CLOSED table).
 - Gradio UI / multi-GPU s4 — a productization decision.
 - Cross-model ASR consensus (catches silent omissions) and f0/wer scoring on
   GPU — FINDINGS §5.
-- `pyright --basic` in CI on `pipeline/`.
+- `pyright --basic` in CI on `src/`.
 
 Comments tagged `PLAN_v0.5 Pn` or `IMPROVEMENT_PLAN Phase X` refer to planning
 docs retired in 1.0.0: `git show d7ffdc6:PLAN_v0.5.md` /

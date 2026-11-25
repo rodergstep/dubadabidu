@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 {
   echo "# GENERATED from uv.lock by scripts/export_requirements.sh — do not edit."
   echo "# Preferred install: uv sync --extra dev   (add --extra sep,mac on the Mac)"
-  echo "# torch on Linux comes from the CUDA 12.8 index:"
-  echo "--extra-index-url https://download.pytorch.org/whl/cu128"
+  echo "# torch on Linux comes from the CUDA 13.0 index:"
+  echo "--extra-index-url https://download.pytorch.org/whl/cu130"
   uv export --frozen --no-hashes --no-emit-project --extra dev
 } > requirements.txt

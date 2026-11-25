@@ -1,0 +1,84 @@
+# RunPod profile — GPU / TTS settings ONLY. Stack with a provider overlay:
+#   dubadabidu run video.mp4 --overlay config.gpu.yaml --overlay config.deepseek.yaml
+# Comments here say WHAT a value is; WHY lives in FINDINGS.md (§ given).
+
+tts:
+  # 2 takes: ranking does not perceptibly pick a better take (FINDINGS §2,
+  # §2.1p), but a pool of 2 lets the WER veto and runaway guard reject a
+  # disaster. Re-test on the scale run (README Roadmap).
+  best_of: 2
+  # THE production engine and checkpoint (FINDINGS §2; 0.6B: CLOSED list).
+  engine: qwen
+  qwen_model_dir: Qwen/Qwen3-TTS-12Hz-1.7B-Base
+  qwen_x_vector_only: true             # UA reference: speaker embedding only
+  # Reference: chosen by blind ear 2026-08-04, then shown to be below the
+  # ear's resolution (21-21, FINDINGS §2.2). Stop sweeping it.
+  reference_wav: ref/sketch_ref_08.trim12s.wav
+  # reference_max_s: unset — per-reference property, sweepable in bakeoff.grids
+  early_accept_mos: 2.8                # engine-relative bar: free on qwen takes (§2)
+  qwen_max_audio_s: 60                 # longer = runaway generation, take rejected
+  # faster-qwen3-tts CUDA graphs: 14.0 -> 2.36 s/take (FINDINGS §2). Salted
+  # into synth_hash. qwen_flash_attn is NOT a speed fix (dispatch-bound).
+  qwen_fast: true
+
+bakeoff:                       # `dubadabidu bakeoff <video> --langs en`
+  engines: [qwen]              # one engine at a time (disk + failure isolation)
+  incumbent: qwen              # the adoption gate's baseline row
+  subset_size: 6               # comparison segments, stratified by length
+  takes: 3                     # averaged per segment to beat take variance
+  tune:
+    enabled: true
+    subset_size: 3             # tune-lite's own subset (cost = points x segs x takes)
+    takes: 4                   # at 2 takes tune-lite selected noise (FINDINGS §4)
+  grids:
+    qwen:
+      reference_wav: [ref/sketch60_ref_01.wav, ref/sketch60_ref_02.wav,
+                      ref/sketch60_ref_03.wav, ref/sketch_ref_06.wav,
+                      ref/sketch_ref_07.wav, ref/sketch_ref_08.wav]
+      reference_max_s: [12, 18]
+
+runpod:                        # `dubadabidu remote <task> <video>` (REST v2)
+  cloud_type: SECURE           # COMMUNITY had no on-demand capacity (FINDINGS §3)
+  # Tried IN ORDER, cheapest-capable first; create_pod falls through on no
+  # capacity. Ids checked against GET /v2/catalog/gpus 2026-11-19. 4080/4090
+  # are last-resort capacity, not preferences (7% utilisation, FINDINGS §3).
+  gpu_type_ids: ["NVIDIA RTX A4000", "NVIDIA RTX 4000 Ada Generation",
+                 "NVIDIA RTX A4500", "NVIDIA L4",
+                 "NVIDIA RTX A5000", "NVIDIA GeForce RTX 3090",
+                 "NVIDIA GeForce RTX 3090 Ti",
+                 "NVIDIA GeForce RTX 4080", "NVIDIA GeForce RTX 4080 SUPER",
+                 "NVIDIA GeForce RTX 4090"]
+  # Base image. To use the prebuilt one (PLAN_v0.5 P3), after .github/workflows/
+  # image.yml has pushed it: ghcr.io/<owner>/dubadabidu-pod:lock-<sha12 of uv.lock>
+  # (+ registry_auth_id if the package is private). Never trust a tag's
+  # contents — run `remote setup-check` after any change (FINDINGS §4).
+  image: runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404
+  # registry_auth_id: <RunPod container-registry credential id>
+  # Driver floor >= the cu-build of torch in uv.lock (cu130). 13.0, not 12.8:
+  # torchaudio 2.11.1 exists only as a CUDA 13 build on Linux (2026-11-25).
+  # A floor, not an exact list: on 2026-11-19 an exact 12.8 match had no
+  # capacity at all.
+  min_cuda_version: "13.0"
+  # ~26 GB measured peak, so 40 keeps ~14 GB headroom. Never ~30: a full disk
+  # kills the container and looks like a network fault (FINDINGS §4).
+  container_disk_gb: 40
+  interruptible: false         # REST v2 has no spot pods at all (2026-11-19)
+  budget_usd: 10.0             # HARD cap -> auto-terminate; override with --budget
+  assumed_price_per_hr: 0.70   # worst case for the deadline; real price is logged
+  max_runtime_hours: 6.0       # absolute ceiling regardless of budget
+  ssh_key: ~/.ssh/id_ed25519_runpod   # its .pub is sent as PUBLIC_KEY
+  # Network volume: REJECTED — bills while idle and is region-locked (FINDINGS §3).
+  engine_setup:
+    # qwen pinned at 022e286 + faster-qwen3-tts 0.3.2 (docker/Dockerfile pins
+    # the same; a test keeps them equal). qwen-tts declares no install_requires,
+    # hence the import + CUDA assert; weights are fetched HERE (with an Xet
+    # fallback) so a Hub failure is retried before the task starts.
+    qwen: "pip install -q -U 'huggingface-hub<1.0' && { [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && git -C third_party/Qwen3-TTS checkout 022e286b98fbec7e1e916cb940cdf532cd9f488e && pip install -q -e third_party/Qwen3-TTS && pip install -q faster-qwen3-tts==0.3.2 && python -c 'import qwen_tts, faster_qwen3_tts, torch; assert torch.cuda.is_available(), \"CPU-only torch: \"+torch.__version__; print(\"qwen ok, torch\", torch.__version__, \"transformers\", __import__(\"transformers\").__version__)' && { python -c 'from huggingface_hub import snapshot_download as d; print(\"weights ok:\", d(\"Qwen/Qwen3-TTS-12Hz-1.7B-Base\"))' || { echo '[weights] Hub fetch failed - retrying with Xet disabled'; HF_HUB_DISABLE_XET=1 python -c 'from huggingface_hub import snapshot_download as d; print(\"weights ok (no xet):\", d(\"Qwen/Qwen3-TTS-12Hz-1.7B-Base\"))'; }; }"
+  # SAFETY: pod id persisted to work/.runpod_active.json on create; terminate
+  # retries + verifies; a pod-side watchdog self-destructs at the deadline;
+  # `remote kill` sweeps orphans. The RunPod key never reaches the pod.
+
+qc:
+  # ECAPA + Distill-MOS on CUDA: bit-comparable with cpu scores, 12x faster
+  # (FINDINGS §3). Pod profile only — local scores stay on cpu.
+  metrics_device: cuda

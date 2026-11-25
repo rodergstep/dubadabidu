@@ -1,4 +1,4 @@
-# Acceptance spec — the autopilot's contract (AUTOPILOT.md).
+# Acceptance spec — the autopilot's contract (docs/AUTOPILOT.md).
 # The agent must make every video/language row satisfy `accept` within
 # `budget`, or stop and escalate with reasons. Improve the system by editing
 # THIS file, not the pipeline. Only a human edits this file.

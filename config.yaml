@@ -5,8 +5,8 @@
 work_dir: work
 output_dir: output
 
-languages: [en, fr, de, es, ru]   # pl dropped (IMPROVEMENT_PLAN v0.3)
-source_language: uk
+languages: [en, fr, de, es, ru]   # pl dropped (IMPROVEMENT_PLAN v0.3); the source is skipped
+source_language: uk               # uk | ru: the spoken language of the input video
 
 asr:
   model: large-v3            # SETTLED: turbo / v2 / Parakeet measured worse (FINDINGS §1)
@@ -18,7 +18,7 @@ asr:
   max_chars: 300
   max_seconds: 20.0
   pause_split_s: 0.6         # split at word gaps > this; the dub keeps source rhythm
-  glossary_prompt: true      # inject glossary/*.csv Ukrainian terms as initial_prompt
+  glossary_prompt: true      # inject glossary/<source_language>/*.csv terms as initial_prompt
   initial_prompt: ""         # optional extra hint, prepended
 
 separation:
@@ -53,8 +53,10 @@ translation:
   n_short_variants: 2          # shorter variants for overflow retries
 
 tts:
-  engine: qwen                 # qwen | edge (plumbing only, no cloning)
-  engine_by_lang: {}           # per-language engine override
+  engine: qwen                 # qwen | edge (no cloning)
+  # Per-language engine override. uk -> edge: qwen has no Ukrainian and its
+  # "Auto" uk was unusable by ear (FINDINGS §2.4).
+  engine_by_lang: {uk: edge}
   # qwen_model_dir_by_lang: {} # per-language checkpoint (PLAN_v0.5 P4.5)
   reference_text: ""           # ref transcript; only the ICL path uses it
   # RU stress marks. OFF: on the base model they destroy the audio (FINDINGS
@@ -75,13 +77,14 @@ tts:
   # (ref/sketch_ref_08.trim12s.wav); the choice is below the ear's resolution (§2.2).
   reference_wav: ref/sketch_ref_08.wav
   sample_rate: 24000
-  edge_voices:                 # fallback engine voices (edge-tts 7.3.1)
+  edge_voices:                 # edge engine voices (edge-tts 7.3.1)
     en: en-US-AndrewNeural
     fr: fr-FR-HenriNeural
     de: de-DE-ConradNeural
     es: es-ES-AlvaroNeural
     ru: ru-RU-DmitryNeural
     pl: pl-PL-MarekNeural
+    uk: uk-UA-OstapNeural
 
 fit:
   max_tempo: 1.12              # max speed-up (keep mild)
@@ -95,7 +98,7 @@ fit:
 mix:
   bg_gain_db: -6
   lufs: -16
-  # duck the background under the dub (kills the residual Ukrainian voice)
+  # duck the background under the dub (kills the residual source voice)
   duck: true
   duck_threshold: 0.03         # key level (~ -30 dB) that opens the duck
   duck_ratio: 8

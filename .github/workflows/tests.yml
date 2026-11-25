@@ -33,7 +33,7 @@ jobs:
       # need torch skip themselves (pytest.importorskip).
       # num2words is NOT part of the heavy stack the note above excludes: it is
       # pure Python and about a megabyte. It is here because the text
-      # normalisation corpus (tests/test_text_norm.py) is the only automated
+      # normalisation corpus (tests/core/test_text_norm.py) is the only automated
       # guard on a layer that shipped THREE undetected bugs — "1,000 ml" spoken
       # as "one ml", % and ° expanded at synthesis but stripped at QC, and ё
       # scored as a substitution on 15 of 46 real ru segments. Without the
