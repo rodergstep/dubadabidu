@@ -36,13 +36,18 @@ import time
 from pathlib import Path
 
 from dubadabidu.core import manifest as M
+from dubadabidu.core.config.schema import Runpod, derive
 from dubadabidu.infra.remote import bootstrap
 from dubadabidu.infra.remote import provider
-from dubadabidu.infra.remote import runpod
 from dubadabidu.infra.remote import state
 from dubadabidu.infra.remote import transport
 
 log = logging.getLogger("dubadabidu.runpod")
+
+# Constants, not config: both were read as runpod.<key> with a default, but
+# the schema never declared them, so no config could ever have set them.
+PROVISION_ATTEMPTS = 3       # gpu types tried after a proxy-only host
+DIRECT_SSH_WAIT_S = 150.0    # RUNNING with no direct ssh this long => proxy-only
 
 
 # Filled by provision() with the pod's REAL price and shape, read by remote_run
@@ -54,13 +59,13 @@ _LAST_POD: dict = {}
 
 # ---------------- provisioning + orchestration ----------------
 
-def _deadline(rp: dict, budget_usd: float) -> float:
-    hours = min(budget_usd / max(rp["assumed_price_per_hr"], 0.01),
-                rp["max_runtime_hours"])
+def _deadline(rp: Runpod, budget_usd: float) -> float:
+    hours = min(budget_usd / max(rp.assumed_price_per_hr, 0.01),
+                rp.max_runtime_hours)
     return time.time() + hours * 3600
 
 
-def _provision_once(rp: dict, deadline: float) -> tuple[str, str, int, str]:
+def _provision_once(rp: Runpod, deadline: float) -> tuple[str, str, int, str]:
     """One create + wait. Returns (pod_id, host, port, gpu_id). Terminates the
     pod (via the state file) on ANY failure, so nothing can leak."""
     pod = provider.active().create(rp)
@@ -71,8 +76,8 @@ def _provision_once(rp: dict, deadline: float) -> tuple[str, str, int, str]:
     state._save_state({"pod_id": pid, "created_at": time.time()})
     log.info("pod %s created (%s); waiting for RUNNING + SSH ...", pid, gpu_id)
     try:
-        end = min(deadline, time.time() + rp["provision_timeout_s"])
-        direct_wait = float(rp.get("direct_ssh_wait_s", 150))
+        end = min(deadline, time.time() + rp.provision_timeout_s)
+        direct_wait = DIRECT_SSH_WAIT_S
         running_since: float | None = None
         target = None
         while time.time() < end:
@@ -110,18 +115,18 @@ def _provision_once(rp: dict, deadline: float) -> tuple[str, str, int, str]:
     return pid, host, port, gpu_id
 
 
-def provision(rp: dict, deadline: float) -> tuple[str, str, int]:
+def provision(rp: Runpod, deadline: float) -> tuple[str, str, int]:
     """Create a pod and wait for SSH. Returns (pod_id, host, port).
 
     A proxy-only host is retried on the NEXT gpu type (a different host pool),
-    up to runpod.provision_attempts; every failed attempt's pod is terminated
+    up to PROVISION_ATTEMPTS; every failed attempt's pod is terminated
     before the next is created."""
-    attempts = max(1, int(rp.get("provision_attempts", 3)))
-    ids = rp["gpu_type_ids"]
+    attempts = PROVISION_ATTEMPTS
+    ids = rp.gpu_type_ids
     ids = [ids] if isinstance(ids, str) else list(ids)
     for attempt in range(1, attempts + 1):
         try:
-            pid, host, port, used = _provision_once({**rp, "gpu_type_ids": ids},
+            pid, host, port, used = _provision_once(derive(rp, gpu_type_ids=ids),
                                                     deadline)
             break
         except provider.NoDirectSsh as e:
@@ -147,7 +152,7 @@ def provision(rp: dict, deadline: float) -> tuple[str, str, int]:
     try:
         info = provider.active().get(pid)
         price = provider.active().price(info)
-        budgeted = float(rp.get("assumed_price_per_hr", 0) or 0)
+        budgeted = float(rp.assumed_price_per_hr or 0)
         over = (price is not None and budgeted and float(price) > budgeted)
         log.info("pod %s SSH ready at %s:%d — $%s/h, %s vCPU, %s GB RAM%s",
                  pid, host, port, price, provider.active().vcpu(info),
@@ -155,7 +160,7 @@ def provision(rp: dict, deadline: float) -> tuple[str, str, int]:
                  f"  [OVER the budgeted ${budgeted}/h]" if over else "")
         # Stash the ACTUAL price/shape for the run ledger. This is the only
         # place the real rate is known — the API reports costPerHr per pod, and
-        # rp["assumed_price_per_hr"] is deliberately the worst case (0.7), so
+        # rp.assumed_price_per_hr is deliberately the worst case (0.7), so
         # costing a run from config would overstate it ~2.5x. See runlog.py.
         _LAST_POD.update({"pod_id": pid, "price_per_hr": price,
                           "vcpu": provider.active().vcpu(info),
@@ -166,14 +171,14 @@ def provision(rp: dict, deadline: float) -> tuple[str, str, int]:
     return pid, host, port
 
 
-def _install_engines(rp: dict, host: str, port: int, remote: str,
+def _install_engines(rp: Runpod, host: str, port: int, remote: str,
                      needed: list[str], fail_note: str) -> None:
     """Run each engine's engine_setup snippet on the pod, in the main venv.
     edge has no snippet and is skipped. A failure is non-fatal — the caller
     decides what an unavailable engine means (bake-off skips it; a run's s4
     raises)."""
     for eng in needed:
-        snip = rp.get("engine_setup", {}).get(eng)
+        snip = rp.engine_setup.get(eng)
         if not snip:
             continue
         log.info("installing engine on pod: %s (main venv) [%s]",
@@ -198,8 +203,8 @@ def remote_run(cfg: dict, video: str | list[str], langs: list[str], task: str,
     pod. An experiment overlay therefore ran as a plain re-run of the base
     config — measured 2026-08-01, ~10 min of pod time spent re-sweeping
     references while believing an ICL test was running."""
-    rp = {**runpod.DEFAULTS, **cfg.get("runpod", {})}
-    budget = float(budget_usd if budget_usd is not None else rp["budget_usd"])
+    rp = cfg.runpod
+    budget = float(budget_usd if budget_usd is not None else rp.budget_usd)
     # config.gpu.yaml is already in REMOTE_TASK; forward only the extras, in
     # the caller's order, so "later overlay wins" holds on the pod as locally.
     extra_overlays = [o for o in (overlays or [])
@@ -260,7 +265,7 @@ def remote_run(cfg: dict, video: str | list[str], langs: list[str], task: str,
     # after the bootstrap.
     _needed_pre = bootstrap.engines_for_task(cfg, task, langs)
     _no_snippet = [e for e in _needed_pre
-                   if e != "edge" and not (rp.get("engine_setup") or {}).get(e)]
+                   if e != "edge" and not (rp.engine_setup or {}).get(e)]
     if _no_snippet:
         msg = (f"runpod.engine_setup has no install command for "
                f"{_no_snippet} — the pod cannot install {'them' if len(_no_snippet) > 1 else 'it'}, "
@@ -277,8 +282,8 @@ def remote_run(cfg: dict, video: str | list[str], langs: list[str], task: str,
 
     deadline = _deadline(rp, budget)
     # with a persistent volume, put the project (incl .venv) on it so deps survive
-    remote = ("/workspace/dubadabidu" if rp.get("network_volume_id")
-              else rp["remote_dir"])
+    remote = ("/workspace/dubadabidu" if rp.network_volume_id
+              else rp.remote_dir)
     hours = (deadline - time.time()) / 3600
     log.info("budget $%.2f -> auto-terminate in %.1f h", budget, hours)
 
@@ -347,13 +352,13 @@ def remote_run(cfg: dict, video: str | list[str], langs: list[str], task: str,
             # only ever to SHORTEN, never to extend past what was asked for.
             actual = float(_LAST_POD.get("price_per_hr") or 0)
             if actual > 0:
-                hrs = min(budget / actual, rp["max_runtime_hours"])
+                hrs = min(budget / actual, rp.max_runtime_hours)
                 tighter = time.time() + hrs * 3600
                 if tighter < deadline:
                     log.warning(
                         "pod costs $%.2f/h, not the assumed $%.2f — deadline "
                         "cut from %.1f h to %.1f h so $%.2f stays $%.2f",
-                        actual, rp["assumed_price_per_hr"],
+                        actual, rp.assumed_price_per_hr,
                         (deadline - time.time()) / 3600, hrs, budget, budget)
                     deadline = tighter
             # arm the independent pod-side self-destruct FIRST — before the long
@@ -387,7 +392,7 @@ def remote_run(cfg: dict, video: str | list[str], langs: list[str], task: str,
         # of BILLED pod time, and testing engines one at a time multiplies that by
         # the number of runs, so send the code without work/ and then just the
         # three paths (-R keeps their layout).
-        up = f"{rp['ssh_user']}@{host}:{remote}/"
+        up = f"{rp.ssh_user}@{host}:{remote}/"
         if task == "bakeoff":
             transport.rsync(rp, port, "./", up, extra_excludes=("input", "output", "work"))
             wd = M.video_workdir(cfg, video)
@@ -500,7 +505,7 @@ def remote_run(cfg: dict, video: str | list[str], langs: list[str], task: str,
         # 4. results back — only work/ (dubbed audio, subs, manifest, QC). No
         # output/ from the pod; the mux happens locally next. Always attempt it,
         # even on failure, so partial progress is cached for a resumed run.
-        transport.rsync(rp, port, f"{rp['ssh_user']}@{host}:{remote}/work/",
+        transport.rsync(rp, port, f"{rp.ssh_user}@{host}:{remote}/work/",
               "./work/", check=False)
         # 5. mux LOCALLY: the source video is here, muxing is a cheap stream-copy.
         # Both run and autopilot skip the mux on the pod (--to s7 / --no-mux).
@@ -554,7 +559,7 @@ def remote_run(cfg: dict, video: str | list[str], langs: list[str], task: str,
         # install and fires at the deadline even if this process dies, and the
         # state file is deliberately LEFT IN PLACE so `remote kill` (and the
         # sweep at the start of the next remote command) will collect it.
-        hold_min = float(rp.get("hold_on_failure_min") or 0)
+        hold_min = float(rp.hold_on_failure_min or 0)
         st_hold = None
         if not keep_alive and pid and rc not in (None, 0) and hold_min > 0:
             try:
@@ -590,7 +595,7 @@ def remote_run(cfg: dict, video: str | list[str], langs: list[str], task: str,
             log.warning("keep-alive: pod %s LEFT RUNNING (billing!)", pid)
             if st:
                 log.warning("  ssh -i %s -p %d %s@%s   # cd %s",
-                            rp["ssh_key"], st[1], rp["ssh_user"], st[0], remote)
+                            rp.ssh_key, st[1], rp.ssh_user, st[0], remote)
             log.warning("  dubadabidu remote kill --overlay config.gpu.yaml"
                         "   # when done")
             log.warning("  watchdog will self-destruct it in ~%.0f min regardless",

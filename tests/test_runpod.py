@@ -2,13 +2,14 @@
 import time
 from dubadabidu.infra.remote.bootstrap import engine_install_cmd
 from dubadabidu.infra.remote.orchestrator import _deadline
-from dubadabidu.infra.remote.runpod import ssh_target, DEFAULTS
+from dubadabidu.core.config.schema import Runpod, derive, validate
+from dubadabidu.infra.remote.runpod import ssh_target
 from tests.cfgs import settings
 from tests.paths import REPO, config, remote_source
 
 
 def _rp(**over):
-    return {**DEFAULTS, **over}
+    return Runpod(**over)
 
 
 # --- budget -> deadline guardrail ---
@@ -107,17 +108,16 @@ def test_one_snippet_is_enough_to_proceed():
 def test_the_actual_missing_overlay_case_is_caught():
     """THE regression guard: `remote setup-check` with no --overlay. Both the
     bakeoff and runpod sections live in config.gpu.yaml, so plain config.yaml
-    falls back to DEFAULTS (engine_setup: {}) -> a paid pod that probes nothing
+    falls back to the schema defaults (engine_setup: {}) -> a paid pod that probes nothing
     and still returns True because the incumbent imports."""
     import pytest
     import yaml
     from dubadabidu.infra.remote.bootstrap import ENGINE_MODULE
     from dubadabidu.infra.remote.diagnostics import _require_something_to_validate
-    from dubadabidu.infra.remote.runpod import DEFAULTS
     cfg = yaml.safe_load(open("config.yaml", encoding="utf-8"))
-    rp = {**DEFAULTS, **cfg.get("runpod", {})}
+    rp = validate(cfg).runpod
     engines = list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
-    probe = [(e, ENGINE_MODULE[e], bool(rp.get("engine_setup", {}).get(e)))
+    probe = [(e, ENGINE_MODULE[e], bool(rp.engine_setup.get(e)))
              for e in engines if e != "chatterbox" and e in ENGINE_MODULE]
     with pytest.raises(SystemExit, match="config.gpu.yaml"):
         _require_something_to_validate(engines, probe)
@@ -129,12 +129,11 @@ def test_the_correct_invocation_passes():
     from dubadabidu.core.logic import deep_merge
     from dubadabidu.infra.remote.bootstrap import ENGINE_MODULE
     from dubadabidu.infra.remote.diagnostics import _require_something_to_validate
-    from dubadabidu.infra.remote.runpod import DEFAULTS
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
                      yaml.safe_load(open(config("config.gpu.yaml"), encoding="utf-8")))
-    rp = {**DEFAULTS, **cfg.get("runpod", {})}
+    rp = validate(cfg).runpod
     engines = list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
-    probe = [(e, ENGINE_MODULE[e], bool(rp.get("engine_setup", {}).get(e)))
+    probe = [(e, ENGINE_MODULE[e], bool(rp.engine_setup.get(e)))
              for e in engines if e != "chatterbox" and e in ENGINE_MODULE]
     _require_something_to_validate(engines, probe)      # must not raise
 
@@ -214,7 +213,6 @@ def test_gpu_types_are_tried_in_list_order_and_400_falls_through():
     every run on a 4090 at 7% utilisation.) A 400 means no capacity for that
     type -> next one; a 422 is a schema bug and must NOT be retried."""
     from dubadabidu.infra.remote import runpod
-    from dubadabidu.infra.remote.runpod import DEFAULTS
     tried: list[str] = []
     orig = runpod._req
 
@@ -225,7 +223,7 @@ def test_gpu_types_are_tried_in_list_order_and_400_falls_through():
         return {"id": "p1"}
     runpod._req = fake
     try:
-        rp = {**DEFAULTS, "gpu_type_ids": ["a", "b", "c", "d"]}
+        rp = Runpod(gpu_type_ids=["a", "b", "c", "d"])
         assert runpod.create_pod(rp) == {"id": "p1"}
         assert tried == ["a", "b", "c"]
         tried.clear()
@@ -245,8 +243,8 @@ def test_gpu_types_are_tried_in_list_order_and_400_falls_through():
 def test_v2_payload_has_only_documented_fields():
     """v2 rejects unknown keys with 422, so a v1 field left behind fails every
     create. This is the shape from docs.runpod.io/api-reference-v2."""
-    from dubadabidu.infra.remote.runpod import DEFAULTS, pod_payload
-    body = pod_payload({**DEFAULTS, "network_volume_id": "v1"}, "NVIDIA RTX A4000")
+    from dubadabidu.infra.remote.runpod import pod_payload
+    body = pod_payload(Runpod(network_volume_id="v1"), "NVIDIA RTX A4000")
     allowed = {"name", "image", "gpu", "cloud", "disk", "ports", "env",
                "mounts", "registry", "startSsh"}
     assert body["startSsh"] is True, "v2 starts no sshd without it"
@@ -288,12 +286,12 @@ def test_ready_probe_is_conservative(monkeypatch):
     running needlessly costs ~50 s."""
     from dubadabidu.infra.remote import transport
     monkeypatch.setattr(transport, "ssh_exec", lambda *a, **k: 1)      # probe fails
-    assert transport._verify_ready({}, "h", 22, "~/d", ["qwen"]) is False
+    assert transport._verify_ready(Runpod(), "h", 22, "~/d", ["qwen"]) is False
     # no engines to prove anything about -> do not skip
     monkeypatch.setattr(transport, "ssh_exec", lambda *a, **k: 0)
-    assert transport._verify_ready({}, "h", 22, "~/d", []) is False
+    assert transport._verify_ready(Runpod(), "h", 22, "~/d", []) is False
     # an engine with no module mapping (chatterbox lives in the base venv)
-    assert transport._verify_ready({}, "h", 22, "~/d", ["edge"]) is False
+    assert transport._verify_ready(Runpod(), "h", 22, "~/d", ["edge"]) is False
 
 
 def test_remote_run_has_no_function_local_shlex_import():
@@ -409,19 +407,18 @@ def test_torch_pin_and_cuda_filter_move_together():
     exact failure, and nothing else in the repo would catch it before a pod."""
     import yaml
     from dubadabidu.core.logic import deep_merge
-    from dubadabidu.infra.remote.runpod import DEFAULTS
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
                      yaml.safe_load(open(config("config.gpu.yaml"), encoding="utf-8")))
-    rp = {**DEFAULTS, **cfg.get("runpod", {})}
+    rp = validate(cfg).runpod
     setup = open("pyproject.toml", encoding="utf-8").read()
     import re
     m = re.search(r'"torch==(\d+)\.(\d+)\.\d+"', setup)
     assert m, "no torch pin found in pyproject.toml"
     major, minor = int(m.group(1)), int(m.group(2))
     # driver floor actually requested: v2 minCudaVersion, or min of an exact list
-    allowed = ([float(rp["min_cuda_version"])] if rp.get("min_cuda_version")
-               and not rp.get("allowed_cuda_versions") else
-               [float(v) for v in rp.get("allowed_cuda_versions") or []])
+    allowed = ([float(rp.min_cuda_version)] if rp.min_cuda_version
+               and not rp.allowed_cuda_versions else
+               [float(v) for v in rp.allowed_cuda_versions or []])
     if (major, minor) > (2, 6):
         assert allowed, (
             f"torch {major}.{minor} needs a CUDA>=12.6 driver, but "
@@ -450,14 +447,13 @@ def test_torch_wheel_matches_the_oldest_allowed_driver():
     import re
     import yaml
     from dubadabidu.core.logic import deep_merge
-    from dubadabidu.infra.remote.runpod import DEFAULTS
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
                      yaml.safe_load(open(config("config.gpu.yaml"), encoding="utf-8")))
-    rp = {**DEFAULTS, **cfg.get("runpod", {})}
+    rp = validate(cfg).runpod
     # driver floor actually requested: v2 minCudaVersion, or min of an exact list
-    allowed = ([float(rp["min_cuda_version"])] if rp.get("min_cuda_version")
-               and not rp.get("allowed_cuda_versions") else
-               [float(v) for v in rp.get("allowed_cuda_versions") or []])
+    allowed = ([float(rp.min_cuda_version)] if rp.min_cuda_version
+               and not rp.allowed_cuda_versions else
+               [float(v) for v in rp.allowed_cuda_versions or []])
     # v0.5: the index is declared in pyproject [tool.uv.index] and the lock
     # records which build Linux resolves; both must name the same cuXYZ.
     setup = open("pyproject.toml", encoding="utf-8").read()
@@ -480,17 +476,16 @@ def test_torch_wheel_matches_the_oldest_allowed_driver():
 
 def test_pod_payload_sends_the_cuda_filter():
     """It is only a guarantee if it reaches the API."""
-    from dubadabidu.infra.remote.runpod import DEFAULTS
     from dubadabidu.infra.remote import runpod
     sent = {}
     orig = runpod._req
     runpod._req = lambda method, path, body=None: sent.update(body or {}) or {}
     try:
-        runpod.create_pod({**DEFAULTS, "allowed_cuda_versions": ["12.9"]})
+        runpod.create_pod(Runpod(allowed_cuda_versions=["12.9"]))
         assert sent["gpu"].get("allowedCudaVersions") == ["12.9"]
         assert "minCudaVersion" not in sent["gpu"], "v2 400s on both together"
         sent.clear()
-        runpod.create_pod({**DEFAULTS, "allowed_cuda_versions": []})
+        runpod.create_pod(Runpod(allowed_cuda_versions=[]))
         assert sent["gpu"].get("minCudaVersion") == "13.0"
         assert "allowedCudaVersions" not in sent["gpu"], (
             "an empty list must be omitted, not sent — it would filter to no hosts")
@@ -537,7 +532,7 @@ def test_ready_probe_checks_cuda_in_the_main_venv():
     try:
         transport.ssh_exec = lambda rp, h, p, cmd, timeout=None: (
             seen.__setitem__("cmd", cmd) or 0)
-        assert transport._verify_ready({}, "h", 22, "~/d", ["qwen"]) is True
+        assert transport._verify_ready(Runpod(), "h", 22, "~/d", ["qwen"]) is True
     finally:
         transport.ssh_exec = R_ssh
     assert ".venv/bin/python" in seen["cmd"]
@@ -555,16 +550,15 @@ def test_runtime_cap_fits_a_full_hour_lesson():
     ~3.94 h, which the old 3.0 h cap would have cut off at ~76% done."""
     import yaml
     from dubadabidu.core.logic import deep_merge
-    from dubadabidu.infra.remote.runpod import DEFAULTS
     cfg = deep_merge(yaml.safe_load(open("config.yaml", encoding="utf-8")),
                      yaml.safe_load(open(config("config.gpu.yaml"), encoding="utf-8")))
-    rp = {**DEFAULTS, **cfg.get("runpod", {})}
+    rp = validate(cfg).runpod
     SYNTH_MIN_PER_LANG_PER_VIDEO_MIN = 30.9 / 5 / 8.13   # measured
     BOOTSTRAP_H = 7.8 / 60
     langs = len(cfg["languages"])
     need = 60.0 * SYNTH_MIN_PER_LANG_PER_VIDEO_MIN * langs / 60.0 + BOOTSTRAP_H
-    assert rp["max_runtime_hours"] >= need, (
-        f"max_runtime_hours={rp['max_runtime_hours']} but a 1-hour lesson in "
+    assert rp.max_runtime_hours >= need, (
+        f"max_runtime_hours={rp.max_runtime_hours} but a 1-hour lesson in "
         f"{langs} languages needs ~{need:.2f} h — the watchdog would kill the "
         f"pod mid-run, after billing for the whole thing")
 
@@ -609,8 +603,8 @@ def test_edge_alone_still_refuses_to_skip_setup(monkeypatch):
     """edge needs no install, so it proves nothing about the venv."""
     from dubadabidu.infra.remote import transport
     monkeypatch.setattr(transport, "ssh_exec", lambda *a, **k: 0)
-    assert transport._verify_ready({}, "h", 22, "~/d", ["edge"]) is False
-    assert transport._verify_ready({}, "h", 22, "~/d", ["edge", "qwen"]) is True
+    assert transport._verify_ready(Runpod(), "h", 22, "~/d", ["edge"]) is False
+    assert transport._verify_ready(Runpod(), "h", 22, "~/d", ["edge", "qwen"]) is True
 
 
 # --- watchdog: re-armable, or a reused pod dies on the FIRST run's clock ---
@@ -620,7 +614,7 @@ def test_watchdog_kills_the_previous_sleeper_before_arming(monkeypatch):
     sent = []
     monkeypatch.setattr(transport, "ssh_exec",
                         lambda rp, h, p, cmd, timeout=30: sent.append(cmd) or 0)
-    runpod.arm_pod_watchdog({}, "h", 22, 3600)
+    runpod.arm_pod_watchdog(Runpod(), "h", 22, 3600)
     cmd = sent[0]
     assert f"kill \"$(cat {runpod.WATCHDOG_PID})\"" in cmd, \
         "re-arming must cancel the deadline the previous run set"
@@ -668,7 +662,7 @@ def test_unknown_remote_task_is_refused_before_provisioning():
     state._live_pod = lambda *a, **k: None
     try:
         with pytest.raises(SystemExit, match="unknown remote task"):
-            remote_run(cfg, "v.mp4", ["en"], "typoed-task")
+            remote_run(validate(cfg), "v.mp4", ["en"], "typoed-task")
     finally:
         state.sweep_orphans, state._live_pod = orig_sweep, orig_live
     # and the tasks that DO exist must stay reachable
@@ -829,11 +823,11 @@ def test_a_ghcr_image_in_config_is_tagged_with_the_current_lock():
 
 
 def test_payload_sends_only_the_public_half_of_the_ssh_key(tmp_path):
-    from dubadabidu.infra.remote.runpod import DEFAULTS, pod_payload
+    from dubadabidu.infra.remote.runpod import pod_payload
     key = tmp_path / "k"
     key.write_text("PRIVATE-NEVER-SENT")
     (tmp_path / "k.pub").write_text("ssh-ed25519 AAAA test\n")
-    body = pod_payload({**DEFAULTS, "ssh_key": str(key)}, "x")
+    body = pod_payload(Runpod(ssh_key=str(key)), "x")
     assert body["env"]["PUBLIC_KEY"] == "ssh-ed25519 AAAA test"
     assert "PRIVATE-NEVER-SENT" not in str(body)
 
@@ -847,15 +841,15 @@ def test_a_proxy_only_host_is_retried_on_the_next_gpu_type(monkeypatch):
     starts: list[str] = []
 
     def fake_once(rp, deadline):
-        starts.append(rp["gpu_type_ids"][0])
+        starts.append(rp.gpu_type_ids[0])
         if len(starts) == 1:
             raise provider.NoDirectSsh("pod p1 (NVIDIA RTX 4000 Ada Generation) RUNNING 150s ...")
         return "p2", "1.2.3.4", 2222, "NVIDIA RTX A4500"
     monkeypatch.setattr(orchestrator, "_provision_once", fake_once)
     monkeypatch.setattr(runpod, "get_pod", lambda pid: {"cost": 0.25})
-    rp = {**runpod.DEFAULTS, "gpu_type_ids": ["NVIDIA RTX A4000",
+    rp = Runpod(gpu_type_ids=["NVIDIA RTX A4000",
                                          "NVIDIA RTX 4000 Ada Generation",
-                                         "NVIDIA RTX A4500"]}
+                                         "NVIDIA RTX A4500"])
     assert orchestrator.provision(rp, _t.time() + 3600) == ("p2", "1.2.3.4", 2222)
     assert starts == ["NVIDIA RTX A4000", "NVIDIA RTX A4500"]
 
@@ -864,7 +858,7 @@ def test_failed_task_holds_the_pod_and_next_run_reuses_it(tmp_path, monkeypatch)
     """A failure after a 20+ min bootstrap must not throw the pod away: it is
     held (state file flag) and the next remote command picks it up."""
     import json
-    from dubadabidu.infra.remote import runpod, state
+    from dubadabidu.infra.remote import state
     monkeypatch.setattr(state, "STATE_FILE", tmp_path / "s.json")
     assert state._held_pod() is None
     state._save_state({"pod_id": "abc", "created_at": 0})
@@ -872,7 +866,7 @@ def test_failed_task_holds_the_pod_and_next_run_reuses_it(tmp_path, monkeypatch)
     state._save_state({"pod_id": "abc", "created_at": 0, "held_for_hotfix": True})
     assert state._held_pod() == "abc"
     assert json.loads((tmp_path / "s.json").read_text())["pod_id"] == "abc"
-    assert runpod.DEFAULTS["hold_on_failure_min"] > 0
+    assert Runpod().hold_on_failure_min > 0
 
 
 def test_proxy_only_clock_starts_at_container_start():
@@ -899,8 +893,8 @@ def test_no_capacity_anywhere_waits_and_resweeps(monkeypatch):
         return {"id": "p9"}
     monkeypatch.setattr(runpod, "_req", fake)
     monkeypatch.setattr(runpod.time, "sleep", sleeps.append)
-    rp = {**runpod.DEFAULTS, "gpu_type_ids": ["a", "b"],
-          "capacity_wait_min": 10, "capacity_retry_s": 60}
+    rp = Runpod(gpu_type_ids=["a", "b"],
+          capacity_wait_min=10, capacity_retry_s=60)
     assert runpod.create_pod(rp) == {"id": "p9"}
     assert calls == ["a", "b", "a", "b", "a"] and sleeps == [60, 60]
 
@@ -908,7 +902,7 @@ def test_no_capacity_anywhere_waits_and_resweeps(monkeypatch):
     monkeypatch.setattr(runpod, "_req", lambda m, p, b=None: (_ for _ in ()).throw(
         RuntimeError("RunPod POST /pods -> HTTP 400: no capacity")))
     with pytest.raises(RuntimeError, match="no capacity"):
-        runpod.create_pod({**rp, "capacity_wait_min": 0})
+        runpod.create_pod(derive(rp, capacity_wait_min=0))
 
 
 class _FakeRpi:

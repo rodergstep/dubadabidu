@@ -116,14 +116,14 @@ def test_pod_commands(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
                          _load(api.config_path("config.gpu.yaml")))
     key = tmp_path / "id_test"
     key.with_suffix(".pub").write_text("ssh-ed25519 AAAAtest golden\n", encoding="utf-8")
-    rp = {**api.runpod_defaults(), **gpu["runpod"], "ssh_key": str(key)}
+    rp = api.runpod_settings({**gpu["runpod"], "ssh_key": str(key)})
     out: dict[str, JSONValue] = {
         "REMOTE_SETUP": api.remote_setup("~/dubadabidu"),
         "apt_setup(True)": api.apt_setup(True),
         "apt_setup(False)": api.apt_setup(False),
         "engine_install_cmd": api.engine_install_cmd(
-            "~/dubadabidu", "qwen", rp["engine_setup"]["qwen"]),
-        "pod_payload": api.pod_payload(rp, rp["gpu_type_ids"][0]),
+            "~/dubadabidu", "qwen", rp.engine_setup["qwen"]),
+        "pod_payload": api.pod_payload(rp, rp.gpu_type_ids[0]),
         "watchdog": api.watchdog_command(rp, 3600.0),
     }
     for task, tpl in api.remote_tasks().items():

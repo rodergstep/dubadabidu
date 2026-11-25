@@ -7,9 +7,8 @@
 
 A read is `cfg[...]`, `.get(key)` or `.get(key, default)` on an expression the
 scanner can resolve to a dotted config path: the whole config (`cfg`), an alias
-assigned from one (`tts = cfg["tts"]`, `rp = {**DEFAULTS, **cfg["runpod"]}`),
-or a parameter that by convention holds a subtree (PARAMS below). Module-level
-DEFAULTS dicts merged under a block are reported as kind "defaults".
+assigned from one (`tts = cfg["tts"]`), or a parameter that by convention
+holds a subtree (PARAMS below).
 
 Rows are (path, kind, default) with no file or line, so moving code does not
 change the inventory; only adding or removing a read does. The typed-config
@@ -129,19 +128,8 @@ def _rows(path: Path) -> Iterator[Row]:
     yield from found
 
 
-def module_defaults() -> list[Row]:
-    """Module DEFAULTS dicts merged under a config block."""
-    sys.path.insert(0, str(REPO))
-    sys.path.insert(0, str(REPO / "src"))
-    from tests.config import locations
-    out: list[Row] = []
-    for block, table in locations.defaults_tables().items():
-        out += [(f"{block}.{k}", "defaults", repr(v)) for k, v in table.items()]
-    return out
-
-
 def scan() -> list[Row]:
-    rows: set[Row] = set(module_defaults())
+    rows: set[Row] = set()
     for p in sources():
         rows.update(_rows(p))
     return sorted(rows)

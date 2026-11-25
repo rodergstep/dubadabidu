@@ -283,29 +283,61 @@ class Bakeoff(_Block):
 
 
 class Runpod(_Block):
-    name: str | None = None
-    gpu_type_ids: list[str]
-    gpu_count: int | None = None
-    image: str
+    """`dubadabidu remote` (comments moved from runpod.DEFAULTS). Every field
+    has a default, so `remote status`, `remote kill`, doctor and --reuse work
+    without the gpu overlay."""
+    name: str | None = "dubadabidu"
+    # cheapest adequate community GPUs (>=16GB), in priority order; the API
+    # picks the first available. Prices ~$0.16-0.22/hr (checked 2026-07).
+    gpu_type_ids: list[str] = Field(default_factory=lambda: [
+        "NVIDIA RTX A5000", "NVIDIA GeForce RTX 3090",
+        "NVIDIA RTX A4500", "NVIDIA RTX A4000"])
+    gpu_count: int | None = 1
+    # Ubuntu 24.04 => python3.12 (the old py3.10 image capped numpy at 2.2.6);
+    # cu129 base image; the torch in the venv is cu130 and needs a 13.0 driver.
+    # Verified present on Docker Hub 2026-08-02 (stable, not an -rc tag).
+    image: str = "runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404"
     registry_auth_id: str | None = None
-    min_cuda_version: str | None = None
-    allowed_cuda_versions: list[str] | None = None
-    container_disk_gb: int
-    volume_gb: int | None = None
+    # Filters to hosts whose DRIVER supports these CUDA versions. Without it the
+    # scheduler handed us a CUDA 12.4 driver, which caps torch at 2.6.0. Enum is
+    # 11.8..13.0 (RunPod OpenAPI). Empty/absent => no filter, old behaviour.
+    # TRADE-OFF: every entry removed here shrinks the host pool, and this project
+    # has lost runs to capacity before. Widen this list first if provisioning
+    # starts failing with "no instances currently available".
+    min_cuda_version: str | None = "13.0"   # driver floor >= torch's cu-build (cu130)
+    # v1-style exact list; mutually exclusive (400)
+    allowed_cuda_versions: list[str] | None = Field(default_factory=list)
+    container_disk_gb: int = 30
+    volume_gb: int | None = 0               # ephemeral; all state rsync'd back
     network_volume_id: str | None = None
+    # COMMUNITY had no on-demand capacity (FINDINGS §3)
     cloud_type: Literal["SECURE", "COMMUNITY"] = "SECURE"
+    # REST v2 has NO spot pods. Kept as a key only so an old overlay that sets
+    # it is reported instead of silently ignored (create_pod warns).
     interruptible: bool = False
-    ports: list[str] | None = None
-    budget_usd: Number
-    assumed_price_per_hr: Number
-    max_runtime_hours: Number
-    ssh_key: str
-    ssh_user: str | None = None
-    remote_dir: str | None = None
-    provision_timeout_s: int | None = None
-    hold_on_failure_min: Number | None = None
-    capacity_wait_min: Number | None = None
-    capacity_retry_s: Number | None = None
+    ports: list[str] | None = Field(default_factory=lambda: ["22/tcp"])
+    budget_usd: Number = 10.0           # hard session cap (overridden by --budget / spec)
+    assumed_price_per_hr: Number = 0.25 # conservative: deadline = budget / this
+    max_runtime_hours: Number = 3.0     # absolute ceiling regardless of budget
+    ssh_key: str = "~/.ssh/id_ed25519_runpod"
+    ssh_user: str | None = "root"
+    remote_dir: str | None = "~/dubadabidu"
+    provision_timeout_s: int | None = 420   # wait this long for the pod to reach RUNNING+SSH
+    # HOTFIX HOLD: when the task fails on a pod that bootstrapped, keep it up
+    # this many minutes (pod-side watchdog re-armed to it) instead of
+    # terminating, so the fix is tested on the same pod with no new bootstrap.
+    # The next `remote` command reuses it automatically. 0 = terminate always.
+    hold_on_failure_min: Number | None = 30
+    # no GPU type has capacity: re-sweep the list every capacity_retry_s for
+    # up to capacity_wait_min before failing (creating nothing costs nothing)
+    capacity_wait_min: Number | None = 15
+    capacity_retry_s: Number | None = 60
+    # per-engine install snippets for the bake-off (git-clone challengers —
+    # THIRD_PARTY.md). Each runs on the pod in that engine's OWN venv
+    # (installed into .venv by engine_install_cmd — the per-engine venvs were
+    # untouchable by construction); empty => that engine is marked unavailable
+    # and skipped. Fill with PINNED commands once validated.
+    # e.g. {"qwen": "git clone ... && pip install ..."}
     engine_setup: dict[str, str] = Field(default_factory=dict)
 
 
@@ -325,7 +357,7 @@ class Config(_Block):
     prep: Prep
     tune: Tune
     bakeoff: Bakeoff | None = None
-    runpod: Runpod | None = None
+    runpod: Runpod = Field(default_factory=Runpod)
 
 
 

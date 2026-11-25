@@ -8,7 +8,6 @@ import time
 from dubadabidu.infra.remote import bootstrap
 from dubadabidu.infra.remote import orchestrator
 from dubadabidu.infra.remote import provider
-from dubadabidu.infra.remote import runpod
 from dubadabidu.infra.remote import state
 from dubadabidu.infra.remote import transport
 
@@ -21,9 +20,9 @@ def smoke_test(cfg: dict) -> bool:
     """Cheapest possible lifecycle validation (~$0.02): provision -> print the
     raw pod JSON (to learn field shapes) + nvidia-smi over SSH -> terminate.
     Run this ONCE before trusting the full remote_run path."""
-    rp = {**runpod.DEFAULTS, **cfg.get("runpod", {})}
+    rp = cfg.runpod
     state.sweep_orphans()
-    deadline = time.time() + rp["provision_timeout_s"] + 120
+    deadline = time.time() + rp.provision_timeout_s + 120
     pid = None
     try:
         pid, host, port = orchestrator.provision(rp, deadline)
@@ -80,20 +79,20 @@ def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
     checkpoint id, or a dependency conflict BEFORE a full billing run hits them.
     Returns True iff CUDA is available AND every snippet-backed engine imports.
     Terminates on every path (state-file driven)."""
-    rp = {**runpod.DEFAULTS, **cfg.get("runpod", {})}
-    budget = float(budget_usd if budget_usd is not None else rp["budget_usd"])
+    rp = cfg.runpod
+    budget = float(budget_usd if budget_usd is not None else rp.budget_usd)
     # No overlay forwarding here (remote_run has it): setup-check builds no
     # pod-side dub command — it runs REMOTE_SETUP + an import probe, both driven
     # by the LOCAL merged cfg. It read an undefined `overlays` until 2026-08-02.
     engines = list(dict.fromkeys(cfg.get("bakeoff", {}).get("engines", [])))
     # engines are probed by importing their module in the venv — the exact
     # thing a real synth call needs. (engine, module, has_snippet)
-    probe_engines = [(e, bootstrap.ENGINE_MODULE[e], bool(rp.get("engine_setup", {}).get(e)))
+    probe_engines = [(e, bootstrap.ENGINE_MODULE[e], bool(rp.engine_setup.get(e)))
                      for e in engines if e in bootstrap.ENGINE_MODULE]
     _require_something_to_validate(engines, probe_engines)
     state.sweep_orphans()
-    remote = ("/workspace/dubadabidu" if rp.get("network_volume_id")
-              else rp["remote_dir"])
+    remote = ("/workspace/dubadabidu" if rp.network_volume_id
+              else rp.remote_dir)
     deadline = orchestrator._deadline(rp, budget)
     pid = None
     try:
@@ -103,7 +102,7 @@ def setup_check(cfg: dict, budget_usd: float | None = None) -> bool:
         if transport.ssh_exec(rp, host, port, bootstrap.apt_setup(False), timeout=600) != 0:
             raise RuntimeError("apt rsync/ffmpeg install failed")
         # code + ref only — no work/ needed for an install check (skip the upload)
-        transport.rsync(rp, port, "./", f"{rp['ssh_user']}@{host}:{remote}/",
+        transport.rsync(rp, port, "./", f"{rp.ssh_user}@{host}:{remote}/",
               extra_excludes=("input", "output", "work"))
         if transport.ssh_exec(rp, host, port, bootstrap.REMOTE_SETUP.format(dir=remote),
                     timeout=1800) != 0:

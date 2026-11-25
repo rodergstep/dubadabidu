@@ -11,6 +11,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from dubadabidu.core.config.schema import Runpod
 from dubadabidu.infra.remote import transport
 
 log = logging.getLogger("dubadabidu.runpod")
@@ -22,56 +23,6 @@ log = logging.getLogger("dubadabidu.runpod")
 # has no spot pods and reports state as `status`. Migration guide:
 # https://docs.runpod.io/api-reference-v2/migrate-from-v1
 BASE = "https://api.runpod.io/v2"
-
-
-DEFAULTS = {
-    # cheapest adequate community GPUs (>=16GB), in priority order; the API
-    # picks the first available. Prices ~$0.16-0.22/hr (checked 2026-07).
-    "gpu_type_ids": ["NVIDIA RTX A5000", "NVIDIA GeForce RTX 3090",
-                     "NVIDIA RTX A4500", "NVIDIA RTX A4000"],
-    "gpu_count": 1,
-    # Ubuntu 24.04 => python3.12 (the old py3.10 image capped numpy at 2.2.6);
-    # cu129 base image; the torch in the venv is cu130 and needs a 13.0 driver.
-    # Verified present on Docker Hub 2026-08-02 (stable, not an -rc tag).
-    "image": "runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404",
-    # Filters to hosts whose DRIVER supports these CUDA versions. Without it the
-    # scheduler handed us a CUDA 12.4 driver, which caps torch at 2.6.0. Enum is
-    # 11.8..13.0 (RunPod OpenAPI). Empty/absent => no filter, old behaviour.
-    # TRADE-OFF: every entry removed here shrinks the host pool, and this project
-    # has lost runs to capacity before. Widen this list first if provisioning
-    # starts failing with "no instances currently available".
-    "min_cuda_version": "13.0",   # driver floor >= torch's cu-build (cu130)
-    "allowed_cuda_versions": [],  # v1-style exact list; mutually exclusive (400)
-    "container_disk_gb": 30,
-    "volume_gb": 0,               # ephemeral; all state rsync'd back
-    "cloud_type": "SECURE",       # COMMUNITY had no on-demand capacity (FINDINGS §3)
-    # REST v2 has NO spot pods. Kept as a key only so an old overlay that sets
-    # it is reported instead of silently ignored (create_pod warns).
-    "interruptible": False,
-    "ports": ["22/tcp"],
-    "budget_usd": 10.0,           # hard session cap (overridden by --budget / spec)
-    "assumed_price_per_hr": 0.25, # conservative: deadline = budget / this
-    "max_runtime_hours": 3.0,     # absolute ceiling regardless of budget
-    "ssh_key": "~/.ssh/id_ed25519_runpod",
-    "ssh_user": "root",
-    "remote_dir": "~/dubadabidu",
-    "provision_timeout_s": 420,   # wait this long for the pod to reach RUNNING+SSH
-    # HOTFIX HOLD: when the task fails on a pod that bootstrapped, keep it up
-    # this many minutes (pod-side watchdog re-armed to it) instead of
-    # terminating, so the fix is tested on the same pod with no new bootstrap.
-    # The next `remote` command reuses it automatically. 0 = terminate always.
-    "hold_on_failure_min": 30,
-    # no GPU type has capacity: re-sweep the list every capacity_retry_s for
-    # up to capacity_wait_min before failing (creating nothing costs nothing)
-    "capacity_wait_min": 15,
-    "capacity_retry_s": 60,
-    # per-engine install snippets for the bake-off (git-clone challengers —
-    # THIRD_PARTY.md). Each runs on the pod in that engine's OWN venv
-    # (installed into .venv by engine_install_cmd — the per-engine venvs were
-    # untouchable by construction); empty => that engine is marked unavailable
-    # and skipped. Fill with PINNED commands once validated.
-    "engine_setup": {},           # e.g. {"qwen": "git clone ... && pip install ..."}
-}
 
 
 # ---------------- REST client ----------------
@@ -99,37 +50,37 @@ def _req(method: str, path: str, body: dict | None = None) -> object:
                            f"{e.read().decode()[:300]}") from e
 
 
-def pod_payload(rp: dict, gpu_id: str) -> dict:
+def pod_payload(rp: Runpod, gpu_id: str) -> dict:
     """REST v2 create body for ONE gpu type. v2 is strict (unknown keys -> 422),
     so only documented fields are sent."""
-    gpu: dict = {"id": gpu_id, "count": int(rp["gpu_count"])}
+    gpu: dict = {"id": gpu_id, "count": int(rp.gpu_count)}
     # Only send it when set — an empty list would filter to nothing. The wheel
     # in uv.lock (cu130) must be <= min() of this list; tests assert it.
     # v2 rejects both together (400). The floor is preferred: an exact list
     # excludes every newer driver, which v2's catalog showed leaves no capacity.
-    if rp.get("allowed_cuda_versions"):
-        gpu["allowedCudaVersions"] = [str(v) for v in rp["allowed_cuda_versions"]]
-    elif rp.get("min_cuda_version"):
-        gpu["minCudaVersion"] = str(rp["min_cuda_version"])
+    if rp.allowed_cuda_versions:
+        gpu["allowedCudaVersions"] = [str(v) for v in rp.allowed_cuda_versions]
+    elif rp.min_cuda_version:
+        gpu["minCudaVersion"] = str(rp.min_cuda_version)
     payload: dict = {
-        "name": rp.get("name", "dubadabidu"),
-        "image": rp["image"],
+        "name": rp.name,
+        "image": rp.image,
         "gpu": gpu,
-        "cloud": rp["cloud_type"],
-        "disk": int(rp["container_disk_gb"]),
+        "cloud": rp.cloud_type,
+        "disk": int(rp.container_disk_gb),
         # v1 defaulted to "8888/http,22/tcp"; v2 has no default, and without
         # 22/tcp there is no ssh.direct mapping at all.
-        "ports": list(rp["ports"]),
+        "ports": list(rp.ports),
     }
-    if rp.get("registry_auth_id"):
+    if rp.registry_auth_id:
         # private image (P3): RunPod container-registry credential id
-        payload["registry"] = {"authId": rp["registry_auth_id"]}
-    if rp.get("network_volume_id"):
+        payload["registry"] = {"authId": rp.registry_auth_id}
+    if rp.network_volume_id:
         # persistent volume at /workspace — remote_dir moves onto it
-        payload["mounts"] = {"network": [{"volumeId": rp["network_volume_id"],
+        payload["mounts"] = {"network": [{"volumeId": rp.network_volume_id,
                                           "path": "/workspace"}]}
-    elif rp.get("volume_gb"):
-        payload["mounts"] = {"persistent": {"size": max(10, int(rp["volume_gb"])),
+    elif rp.volume_gb:
+        payload["mounts"] = {"persistent": {"size": max(10, int(rp.volume_gb)),
                                             "path": "/workspace"}}
     # inject ONLY the low-privilege translation key into the pod env (encrypted
     # in transit) so s3 can run on the pod. The RunPod full-access key is never
@@ -144,7 +95,7 @@ def pod_payload(rp: dict, gpu_id: str) -> dict:
     # 2026-11-19: 9 min, "SSH never became reachable"). Sending the PUBLIC half
     # of the key this client connects with makes it independent of account
     # state; RunPod images start sshd from PUBLIC_KEY.
-    pub = Path(str(rp.get("ssh_key", "~/.ssh/id_ed25519_runpod")) + ".pub").expanduser()
+    pub = Path(str(rp.ssh_key) + ".pub").expanduser()
     if pub.exists():
         env["PUBLIC_KEY"] = pub.read_text(encoding="utf-8").strip()
     payload["startSsh"] = True
@@ -153,7 +104,7 @@ def pod_payload(rp: dict, gpu_id: str) -> dict:
     return payload
 
 
-def create_pod(rp: dict) -> dict:
+def create_pod(rp: Runpod) -> dict:
     """Create a pod, trying gpu_type_ids IN ORDER (cheapest first).
 
     v1 took the whole list plus gpuTypePriority "custom" and did the fallback
@@ -161,17 +112,17 @@ def create_pod(rp: dict) -> dict:
     which also settles the old "does custom fall back?" doubt by construction.
     A 400 is capacity (or a cross-field rule) for that type: try the next one.
     422 is a schema error and 402 is no balance: never retry those."""
-    if rp.get("interruptible"):
+    if rp.interruptible:
         log.warning("runpod.interruptible is set, but REST v2 has no spot pods "
                     "— creating an on-demand pod")
-    ids = rp["gpu_type_ids"]
+    ids = rp.gpu_type_ids
     ids = [ids] if isinstance(ids, str) else list(ids)
     # No type has capacity -> wait and sweep the list again instead of
     # failing: SECURE stock churns by the minute (2026-11-24: all ten types
     # empty at 15:38, after pods had been created on four of them in the hour
     # before). Creating nothing costs nothing, so waiting is free.
-    wait_s = float(rp.get("capacity_wait_min", 15)) * 60
-    every = float(rp.get("capacity_retry_s", 60))
+    wait_s = float(rp.capacity_wait_min) * 60
+    every = float(rp.capacity_retry_s)
     give_up = time.time() + wait_s
     last: Exception | None = None
     sweep = 0
@@ -282,7 +233,7 @@ def ssh_target(pod: dict) -> tuple[str, int] | None:
 WATCHDOG_PID = "/tmp/dubadabidu_watchdog.pid"
 
 
-def arm_pod_watchdog(rp: dict, host: str, port: int, seconds: float) -> None:
+def arm_pod_watchdog(rp: Runpod, host: str, port: int, seconds: float) -> None:
     """Independent pod-side self-destruct: a detached process that, after
     `seconds`, makes the pod remove ITSELF (runpodctl is self-authenticated on
     RunPod pods). This is the backstop for the one gap the client-side design
@@ -322,7 +273,7 @@ class RunPodProvider:
     name = "runpod"
     key_env = "RUNPOD_API_KEY"
 
-    def create(self, rp: dict) -> dict:
+    def create(self, rp: Runpod) -> dict:
         return create_pod(rp)
 
     def get(self, pid: str) -> dict:
@@ -352,5 +303,5 @@ class RunPodProvider:
     def ram_gb(self, pod: dict) -> float | None:
         return pod_ram_gb(pod)
 
-    def arm_watchdog(self, rp: dict, host: str, port: int, seconds: float) -> None:
+    def arm_watchdog(self, rp: Runpod, host: str, port: int, seconds: float) -> None:
         arm_pod_watchdog(rp, host, port, seconds)

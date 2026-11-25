@@ -85,8 +85,6 @@ def _raw(raw: Raw, path: str, kind: str, default: str) -> object:
     have = isinstance(node, dict) and last in node
     if kind == "[]":
         return node[last] if have else ABSENT
-    if kind == "defaults":
-        return node[last] if have else ast.literal_eval(default)
     if have:
         return node[last]
     if default == "<falsy>" or default.startswith("dynamic:"):

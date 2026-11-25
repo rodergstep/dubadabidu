@@ -6,24 +6,25 @@ import os
 import subprocess
 import time
 
+from dubadabidu.core.config.schema import Runpod
 from dubadabidu.infra.remote import bootstrap
 
 log = logging.getLogger("dubadabidu.runpod")
 
 
-def _ssh_base(rp: dict, host: str, port: int) -> list[str]:
-    key = os.path.expanduser(rp["ssh_key"])
+def _ssh_base(rp: Runpod, host: str, port: int) -> list[str]:
+    key = os.path.expanduser(rp.ssh_key)
     return ["ssh", "-i", key, "-p", str(port),
             "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "ConnectTimeout=15", f"{rp['ssh_user']}@{host}"]
+            "-o", "ConnectTimeout=15", f"{rp.ssh_user}@{host}"]
 
 
-def ssh_exec(rp: dict, host: str, port: int, cmd: str, timeout: int = 7200) -> int:
+def ssh_exec(rp: Runpod, host: str, port: int, cmd: str, timeout: int = 7200) -> int:
     full = _ssh_base(rp, host, port) + [cmd]
     return subprocess.run(full, timeout=timeout).returncode
 
 
-def wait_ssh(rp: dict, host: str, port: int, deadline: float) -> bool:
+def wait_ssh(rp: Runpod, host: str, port: int, deadline: float) -> bool:
     while time.time() < deadline:
         r = subprocess.run(_ssh_base(rp, host, port) + ["true"],
                            capture_output=True, timeout=30)
@@ -53,7 +54,7 @@ def wait_ssh(rp: dict, host: str, port: int, deadline: float) -> bool:
 _MODEL_CACHE_EXCLUDES = (".models/ecapa", ".models/audio-separator")
 
 
-def _verify_ready(rp: dict, host: str, port: int, remote: str,
+def _verify_ready(rp: Runpod, host: str, port: int, remote: str,
                   engines: list[str]) -> bool:
     """Is this pod ALREADY set up for these engines? Proof, not assumption.
 
@@ -88,7 +89,7 @@ def _verify_ready(rp: dict, host: str, port: int, remote: str,
     return rc == 0
 
 
-def ssh_capture(rp: dict, host: str, port: int, cmd: str,
+def ssh_capture(rp: Runpod, host: str, port: int, cmd: str,
                 timeout: int = 60) -> str:
     """Run a remote command and return its stdout (empty on failure)."""
     try:
@@ -99,7 +100,7 @@ def ssh_capture(rp: dict, host: str, port: int, cmd: str,
         return ""
 
 
-def free_engine(rp: dict, host: str, port: int, remote: str,
+def free_engine(rp: Runpod, host: str, port: int, remote: str,
                 engine: str, threshold_pct: int = 70) -> None:
     """Delete an engine's venv and model cache once its results are banked.
 
@@ -139,13 +140,13 @@ def free_engine(rp: dict, host: str, port: int, remote: str,
                     "next engine")
 
 
-def _rsync_paths(rp: dict, port: int, paths: list[str], dst: str) -> None:
+def _rsync_paths(rp: Runpod, port: int, paths: list[str], dst: str) -> None:
     """Send an explicit list of project-relative paths, preserving their layout
     (-R). Used by the bake-off to ship the 3.5 MB it actually reads instead of
     the whole work/ tree."""
     if not paths:
         return
-    key = os.path.expanduser(rp["ssh_key"])
+    key = os.path.expanduser(rp.ssh_key)
     args = (["rsync", "-azR"]
             + ["-e", f"ssh -i {key} -p {port} -o StrictHostKeyChecking=no "
                      f"-o UserKnownHostsFile=/dev/null"]
@@ -153,11 +154,11 @@ def _rsync_paths(rp: dict, port: int, paths: list[str], dst: str) -> None:
     subprocess.run(args, check=True)
 
 
-def rsync(rp: dict, port: int, src: str, dst: str, check: bool = True,
+def rsync(rp: Runpod, port: int, src: str, dst: str, check: bool = True,
           extra_excludes: tuple[str, ...] = ()) -> None:
     """rsync over SSH on the pod's MAPPED port (RunPod exposes 22 on a random
     public port — omitting -p hits default 22 and fails auth)."""
-    key = os.path.expanduser(rp["ssh_key"])
+    key = os.path.expanduser(rp.ssh_key)
     args = ["rsync", "-az"]
     for e in (".venv", "venvs", "__pycache__", ".env", ".git",
               *_MODEL_CACHE_EXCLUDES, *extra_excludes):

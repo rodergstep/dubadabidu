@@ -119,9 +119,8 @@ def doctor(cfg: Config, project: str = "") -> int:
         _check_translation_models(cfg.translation, check)
     # remote (M2) readiness — informational; only needed for `dubadabidu remote`
     if os.environ.get("RUNPOD_API_KEY"):
-        from dubadabidu.infra.remote.runpod import DEFAULTS as RP_DEFAULTS
-        rp = {**RP_DEFAULTS, **(cfg.get("runpod") or {})}
-        key_path = Path(rp["ssh_key"]).expanduser()
+        rp = cfg.runpod
+        key_path = Path(rp.ssh_key).expanduser()
         check("remote: ssh_key", key_path.exists(),
               f"private key {key_path} missing (ssh-keygen -t ed25519 -f "
               f"{key_path})")
@@ -130,10 +129,10 @@ def doctor(cfg: Config, project: str = "") -> int:
         check("remote: ssh_key .pub", Path(f"{key_path}.pub").exists(),
               f"{key_path}.pub missing (ssh-keygen -y -f {key_path} > "
               f"{key_path}.pub)")
-        hold = float(rp["hold_on_failure_min"] or 0)
-        print(f"  [i ] remote ready: budget cap ${rp['budget_usd']} | "
-              f"no capacity: retry every {rp['capacity_retry_s']:.0f}s for "
-              f"{rp['capacity_wait_min']:.0f} min | on task failure: "
+        hold = float(rp.hold_on_failure_min or 0)
+        print(f"  [i ] remote ready: budget cap ${rp.budget_usd} | "
+              f"no capacity: retry every {rp.capacity_retry_s:.0f}s for "
+              f"{rp.capacity_wait_min:.0f} min | on task failure: "
               + (f"pod held {hold:.0f} min for a hotfix"
                  if hold > 0 else "pod terminated (hold off)"))
         if "runpod" not in cfg:

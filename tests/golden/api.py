@@ -16,6 +16,7 @@ from unittest import mock
 from dubadabidu import cli as dub
 from dubadabidu.cli import remote
 from dubadabidu.core import manifest
+from dubadabidu.core.config.schema import Runpod
 from dubadabidu.infra.remote import bootstrap, runpod, transport
 from dubadabidu.stages import s3_translate
 from dubadabidu.core.logic import deep_merge
@@ -53,8 +54,10 @@ def glossary_block(src: str, lang: str) -> str:
     return s3_translate._glossary(src, lang)
 
 
-def runpod_defaults() -> dict[str, object]:
-    return dict(runpod.DEFAULTS)
+def runpod_settings(block: Mapping[str, object]) -> Runpod:
+    """The typed runpod block the remote commands read (schema defaults under
+    the given keys)."""
+    return Runpod.model_validate(dict(block))
 
 
 def remote_setup(remote_dir: str) -> str:
@@ -65,10 +68,10 @@ def remote_tasks() -> Mapping[str, str]:
     return bootstrap.REMOTE_TASK
 
 
-def watchdog_command(rp: Mapping[str, object], seconds: float) -> str:
+def watchdog_command(rp: Runpod, seconds: float) -> str:
     """The shell command arm_pod_watchdog sends to the pod."""
     with mock.patch.object(transport, "ssh_exec", return_value=0) as ssh:
-        runpod.arm_pod_watchdog(dict(rp), "203.0.113.7", 22022, seconds)
+        runpod.arm_pod_watchdog(rp, "203.0.113.7", 22022, seconds)
     return str(ssh.call_args.args[3])
 
 
