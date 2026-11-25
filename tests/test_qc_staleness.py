@@ -9,8 +9,8 @@ existed. Measured on work/sketch60: stored qc_f0st 2.58 vs 1.70 actual.
 """
 from pathlib import Path
 
-from pipeline import manifest as M
-from tests.paths import REPO
+from dubadabidu.core import manifest as M
+from tests.paths import source
 
 
 def _seg(tmp: Path, name: str, data: bytes) -> str:
@@ -115,7 +115,7 @@ def test_mix_encode_pins_the_output_sample_rate():
     keeps the encoder there too.
 
     Found by an edge plumbing run, not by a test — hence this test."""
-    src = (REPO / "pipeline" / "s6_mix.py").read_text()
+    src = (source("dubadabidu.stages.s6_mix")).read_text()
     enc = src[src.index("def _encode("):]
     enc = enc[:enc.index("check=True)")]
     assert '"-ar", "44100"' in enc, "s6 must pin the encoder sample rate"
@@ -130,7 +130,7 @@ def test_audio_sig_is_memoized_on_size_and_mtime(tmp_path, monkeypatch):
 
     The CONTENT hash is still what is stored and compared — the cache only
     skips re-reading a file whose size and mtime are both unchanged."""
-    from pipeline import manifest as M
+    from dubadabidu.core import manifest as M
     p = tmp_path / "a.wav"
     p.write_bytes(b"x" * 4096)
     first = M.audio_sig(p)
@@ -152,7 +152,7 @@ def test_audio_sig_is_memoized_on_size_and_mtime(tmp_path, monkeypatch):
 def test_changed_content_misses_the_cache(tmp_path):
     """Every writer here (s4/s5/s6, rsync) moves mtime, so a changed file must
     always re-hash. Getting this wrong is a stale score reading as current."""
-    from pipeline import manifest as M
+    from dubadabidu.core import manifest as M
     p = tmp_path / "a.wav"
     p.write_bytes(b"x" * 4096)
     first = M.audio_sig(p)
@@ -163,7 +163,7 @@ def test_changed_content_misses_the_cache(tmp_path):
 
 
 def test_a_corrupt_cache_is_ignored_not_fatal(tmp_path):
-    from pipeline import manifest as M
+    from dubadabidu.core import manifest as M
     p = tmp_path / "a.wav"
     p.write_bytes(b"x" * 512)
     (tmp_path / ".audio_sig.json").write_text("{not json", encoding="utf-8")
@@ -172,7 +172,7 @@ def test_a_corrupt_cache_is_ignored_not_fatal(tmp_path):
 
 def test_the_cache_does_not_grow_without_bound(tmp_path):
     """A segment re-rolled fifty times must not leave fifty entries behind."""
-    from pipeline import manifest as M
+    from dubadabidu.core import manifest as M
     import json as _json
     p = tmp_path / "a.wav"
     for i in range(5):

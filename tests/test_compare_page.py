@@ -3,7 +3,7 @@
 from pathlib import Path
 import soundfile as sf
 import numpy as np
-from qc import compare
+from dubadabidu.review import compare
 
 
 def _mk(d: Path, n: int, secs: float = 6.0):

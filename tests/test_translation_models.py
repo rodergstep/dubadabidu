@@ -3,7 +3,7 @@
 record (PLAN_v0.5 P1)."""
 from types import SimpleNamespace
 
-from pipeline import s3_translate as s3
+from dubadabidu.stages import s3_translate as s3
 
 
 class _Models:

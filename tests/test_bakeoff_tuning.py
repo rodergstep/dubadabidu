@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from pipeline.manifest import synth_hash
-from qc import bakeoff as B
-from tests.paths import REPO
+from dubadabidu.core.manifest import synth_hash
+from dubadabidu.lab import bakeoff as B
+from tests.paths import source
 
 
 # --- grid expansion ---
@@ -72,18 +72,18 @@ def test_grid_axes_all_affect_the_synth_cache_key():
 def stub_synth(monkeypatch, tmp_path):
     """Fake synthesis + metrics; the scores key off the grid point so we can
     assert which point tune-lite picks."""
-    import qc.metrics
-    from pipeline import tts_engine
+    import dubadabidu.qc.metrics
+    from dubadabidu.engines import tts_engine
 
     def fake_synth(text, lang, out, t, retries=2):
         Path(out).write_bytes(b"wav")
 
     monkeypatch.setattr(tts_engine, "synthesize", fake_synth)
-    monkeypatch.setattr(qc.metrics, "ecapa_embed", lambda p: p)
+    monkeypatch.setattr(dubadabidu.qc.metrics, "ecapa_embed", lambda p: p)
     # f0 joined the tune objective 2026-08-01; without a stub it would try to
     # read these placeholder bytes as audio. Constant and above any floor, so
     # tests that predate it still assert on sim/mos exactly as before.
-    monkeypatch.setattr(qc.metrics, "f0_semitone_std", lambda p: 2.5)
+    monkeypatch.setattr(dubadabidu.qc.metrics, "f0_semitone_std", lambda p: 2.5)
     return monkeypatch
 
 
@@ -92,11 +92,11 @@ def _subset():
 
 
 def test_tune_lite_picks_the_best_grid_point(stub_synth, tmp_path):
-    import qc.metrics
+    import dubadabidu.qc.metrics
     # cfg 2.5 is the good one; everything else is mediocre
-    stub_synth.setattr(qc.metrics, "cosine",
+    stub_synth.setattr(dubadabidu.qc.metrics, "cosine",
                        lambda a, b: 0.9 if "p2_" in str(b) else 0.5)
-    stub_synth.setattr(qc.metrics, "mos_min_window",
+    stub_synth.setattr(dubadabidu.qc.metrics, "mos_min_window",
                        lambda p: 4.5 if "p2_" in str(p) else 3.0)
 
     grid = {"qwen_cfg": [1.5, 2.0, 2.5]}
@@ -109,9 +109,9 @@ def test_tune_lite_picks_the_best_grid_point(stub_synth, tmp_path):
 
 
 def test_tune_lite_reports_every_trial_for_audit(stub_synth, tmp_path):
-    import qc.metrics
-    stub_synth.setattr(qc.metrics, "cosine", lambda a, b: 0.7)
-    stub_synth.setattr(qc.metrics, "mos_min_window", lambda p: 4.0)
+    import dubadabidu.qc.metrics
+    stub_synth.setattr(dubadabidu.qc.metrics, "cosine", lambda a, b: 0.7)
+    stub_synth.setattr(dubadabidu.qc.metrics, "mos_min_window", lambda p: 4.0)
 
     _, trials, _ = B._tune_engine(
         "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1,
@@ -123,7 +123,7 @@ def test_tune_lite_reports_every_trial_for_audit(stub_synth, tmp_path):
 
 
 def test_tune_lite_surfaces_an_uninstalled_engine(monkeypatch, tmp_path):
-    from pipeline import tts_engine
+    from dubadabidu.engines import tts_engine
 
     def missing(text, lang, out, t, retries=2):
         raise FileNotFoundError("qwen_tts not importable — git clone ...")
@@ -142,11 +142,11 @@ def test_tune_score_weights_sim_and_mos_comparably(stub_synth, tmp_path):
     f0st was weighted at 0.25 for one day (2026-08-01) until control runs put
     its run-to-run band at 0.24-0.44 on an unchanged config — a term that
     cannot resolve itself cannot rank anything, so it was removed."""
-    import qc.metrics
+    import dubadabidu.qc.metrics
     # p0: sim 1.0 / mos 1.0 (norm 0.0)   p1: sim 0.0 / mos 5.0 (norm 1.0)
-    stub_synth.setattr(qc.metrics, "cosine",
+    stub_synth.setattr(dubadabidu.qc.metrics, "cosine",
                        lambda a, b: 1.0 if "p0_" in str(b) else 0.0)
-    stub_synth.setattr(qc.metrics, "mos_min_window",
+    stub_synth.setattr(dubadabidu.qc.metrics, "mos_min_window",
                        lambda p: 1.0 if "p0_" in str(p) else 5.0)
 
     _, trials, _ = B._tune_engine(
@@ -192,24 +192,24 @@ def _us(n):
 def test_subset_of_one_takes_the_median_length_segment():
     """bakeoff.tune.subset_size: 1 is the natural cheapest setting; the
     even-spacing formula divides by n-1 and used to raise ZeroDivisionError."""
-    from pipeline.tune import _subset
+    from dubadabidu.lab.tune import _subset
     got = _subset(_us(5), 1)
     assert [u["id"] for u in got] == ["u0002"]
 
 
 def test_subset_zero_is_empty_not_a_crash():
-    from pipeline.tune import _subset
+    from dubadabidu.lab.tune import _subset
     assert _subset(_us(5), 0) == []
 
 
 def test_subset_spans_short_and_long():
-    from pipeline.tune import _subset
+    from dubadabidu.lab.tune import _subset
     got = _subset(_us(9), 3)
     assert [u["id"] for u in got] == ["u0000", "u0004", "u0008"]
 
 
 def test_subset_smaller_than_n_returns_everything():
-    from pipeline.tune import _subset
+    from dubadabidu.lab.tune import _subset
     assert len(_subset(_us(2), 5)) == 2
 
 
@@ -219,8 +219,8 @@ def test_one_failing_grid_point_is_skipped_not_fatal(monkeypatch, tmp_path):
     """A grid exists to EXPLORE. If one unsupported value disqualified the whole
     engine, the safe move would be never to widen a grid — which defeats the
     point. Only a total failure means the engine is unusable."""
-    import qc.metrics
-    from pipeline import tts_engine
+    import dubadabidu.qc.metrics
+    from dubadabidu.engines import tts_engine
 
     def fake(text, lang, out, t, retries=2):
         if t.get("qwen_cfg") == 9.9:          # unsupported value
@@ -228,10 +228,10 @@ def test_one_failing_grid_point_is_skipped_not_fatal(monkeypatch, tmp_path):
         Path(out).write_bytes(b"wav")
 
     monkeypatch.setattr(tts_engine, "synthesize", fake)
-    monkeypatch.setattr(qc.metrics, "ecapa_embed", lambda p: p)
-    monkeypatch.setattr(qc.metrics, "cosine", lambda a, b: 0.7)
-    monkeypatch.setattr(qc.metrics, "mos_min_window", lambda p: 4.0)
-    monkeypatch.setattr(qc.metrics, "f0_semitone_std", lambda p: 2.5)
+    monkeypatch.setattr(dubadabidu.qc.metrics, "ecapa_embed", lambda p: p)
+    monkeypatch.setattr(dubadabidu.qc.metrics, "cosine", lambda a, b: 0.7)
+    monkeypatch.setattr(dubadabidu.qc.metrics, "mos_min_window", lambda p: 4.0)
+    monkeypatch.setattr(dubadabidu.qc.metrics, "f0_semitone_std", lambda p: 2.5)
 
     over, trials, unavail = B._tune_engine(
         "qwen", {"engine": "qwen"}, _subset(), "en", None, tmp_path, 1,
@@ -244,7 +244,7 @@ def test_one_failing_grid_point_is_skipped_not_fatal(monkeypatch, tmp_path):
 
 
 def test_engine_is_unavailable_only_when_every_point_fails(monkeypatch, tmp_path):
-    from pipeline import tts_engine
+    from dubadabidu.engines import tts_engine
 
     def always_fail(text, lang, out, t, retries=2):
         raise RuntimeError("worker died: No space left on device")
@@ -272,8 +272,8 @@ def test_removed_engines_stay_removed():
 def test_tune_disqualifies_points_under_the_monotony_floor(monkeypatch, tmp_path):
     """The sim+mos objective picked the most MONOTONE reference we own, because
     a flat clip reads as clean and on-voice. min_f0st must veto that outright."""
-    from pipeline import tts_engine
-    from qc import metrics as X
+    from dubadabidu.engines import tts_engine
+    from dubadabidu.qc import metrics as X
 
     # point 0: flat but pristine.  point 1: livelier, slightly worse mos/sim.
     vals = {"p0": (0.90, 4.5, 1.0), "p1": (0.80, 4.0, 3.0)}
@@ -302,8 +302,8 @@ def test_tune_disqualifies_points_under_the_monotony_floor(monkeypatch, tmp_path
 def test_tune_relaxes_the_floor_when_nothing_clears_it(monkeypatch, tmp_path):
     """Returning nothing would mark a working engine unavailable; ranking the
     unreachable set is the same `filtered or pool` shape synth_best_of uses."""
-    from pipeline import tts_engine
-    from qc import metrics as X
+    from dubadabidu.engines import tts_engine
+    from dubadabidu.qc import metrics as X
     monkeypatch.setattr(tts_engine, "synthesize",
                         lambda text, lang, out, t, retries=2:
                         (out.parent.mkdir(parents=True, exist_ok=True),
@@ -324,7 +324,7 @@ def test_bakeoff_synthesises_takes_serially():
     venvs merged (2026-08-02) synthesis runs in-process against ONE model held
     in module globals — not thread-safe, so two concurrent takes would drive a
     single model. Scoring stays overlapped; that is where the measured 40% was."""
-    src = (REPO / "qc" / "bakeoff.py").read_text()
+    src = (source("dubadabidu.lab.bakeoff")).read_text()
     block = src[src.index("def _synth_one("):src.index("for w, _d in done:")]
     assert "ThreadPoolExecutor" not in block, \
         "synthesis must not be pooled while the model is a module global"
@@ -341,7 +341,7 @@ def test_s4_pre_synthesizes_the_variants_s5_would_need():
     languages of pod synthesis had been paid for. course.py's design (phase C
     is local and free) depends on s5 never needing a GPU, so s4 must pre-make
     the variants."""
-    src = REPO / "pipeline" / "s4_synthesize.py"
+    src = source("dubadabidu.stages.s4_synthesize")
     text = src.read_text()
     assert "VARIANT_MARGIN" in text, "s4 no longer pre-makes fit variants"
     assert 'tr.get("variants")' in text, (
@@ -351,7 +351,7 @@ def test_s4_pre_synthesizes_the_variants_s5_would_need():
 def test_s5_names_the_pod_when_it_cannot_synthesize():
     """The remaining hole is llm_shorten minting a NEW variant at s5 time, which
     s4 cannot predict. That must not resurface as a bare ImportError."""
-    src = REPO / "pipeline" / "s5_fit.py"
+    src = source("dubadabidu.stages.s5_fit")
     text = src.read_text()
     assert "engine_available" in text and "remote run" in text, (
         "s5 must check engine availability and tell the user to run the stage "
@@ -360,7 +360,7 @@ def test_s5_names_the_pod_when_it_cannot_synthesize():
 
 def test_engine_available_is_import_only():
     """It must not load weights or touch CUDA — s5 calls it on a laptop."""
-    from pipeline.tts_engine import engine_available
+    from dubadabidu.engines.tts_engine import engine_available
     assert engine_available("edge") is True
     assert engine_available("nope") is False
     # qwen_fast lives in a DIFFERENT package than qwen itself; checking only

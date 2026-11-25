@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from pipeline import tts_engine as T
-from qc import selection as SEL
+from dubadabidu.engines import tts_engine as T
+from dubadabidu.qc import selection as SEL
 
 TCFG = {"engine": "edge", "best_of": 3, "rank_takes": True,
         "best_of_early_accept": False, "retake_mos_below": 0.0,
@@ -35,8 +35,8 @@ def _wav(p: Path, marker: int) -> None:
 @pytest.fixture
 def stub_metrics(monkeypatch):
     """Stub the model-backed metrics; this suite is about file lifecycle."""
-    import qc.metrics
-    monkeypatch.setattr(qc.metrics, "mos_min_window", lambda p: 4.0)
+    import dubadabidu.qc.metrics
+    monkeypatch.setattr(dubadabidu.qc.metrics, "mos_min_window", lambda p: 4.0)
     monkeypatch.setattr(SEL, "_f0_delivered", lambda p: 3.0)
 
 
@@ -53,8 +53,8 @@ def _fake_synthesizer(monkeypatch, fail_on: int | None = None,
 
     monkeypatch.setattr(T, "synthesize", fake)
     if scores is not None:
-        import qc.metrics
-        monkeypatch.setattr(qc.metrics, "mos_min_window",
+        import dubadabidu.qc.metrics
+        monkeypatch.setattr(dubadabidu.qc.metrics, "mos_min_window",
                             lambda p: scores.get(Path(p).name, 4.0))
     return calls
 

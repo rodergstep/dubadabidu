@@ -24,13 +24,13 @@ from __future__ import annotations
 import sys
 
 import pytest
-from tests.paths import REPO
+from tests.paths import REPO, source
 
 ROOT = REPO
 sys.path.insert(0, str(ROOT))
 
-from pipeline.text_norm import localize_numbers  # noqa: E402
-from qc.backcheck import _norm  # noqa: E402
+from dubadabidu.core.text_norm import localize_numbers  # noqa: E402
+from dubadabidu.qc.backcheck import _norm  # noqa: E402
 
 
 # ---------------------------------------------------------------- grouping ---
@@ -215,7 +215,7 @@ def test_uppercase_yo_folds_too():
 def test_yo_folding_is_russian_only():
     """No other target language has ё; folding elsewhere would be a silent
     no-op today and a trap if a Cyrillic language is ever added."""
-    src = (ROOT / "qc" / "backcheck.py").read_text(encoding="utf-8")
+    src = (source("dubadabidu.qc.backcheck")).read_text(encoding="utf-8")
     assert 'if lang == "ru":' in src
 
 
@@ -224,6 +224,6 @@ def test_wer_folding_does_not_contradict_the_stress_lexicon():
     so the distinction is a remediation lever there. Here it is orthographic
     noise between two spellings of one sound. Different jobs; a future tidy-up
     must not unify them."""
-    from qc.stress_words import lexicon_key
+    from dubadabidu.qc.stress_words import lexicon_key
     assert lexicon_key("тёмным") != lexicon_key("темным")
     assert _norm("тёмным", "ru") == _norm("темным", "ru")

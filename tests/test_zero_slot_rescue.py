@@ -30,8 +30,8 @@ from pathlib import Path
 
 import pytest
 
-from pipeline import manifest as M
-from pipeline import s5_fit as S5
+from dubadabidu.core import manifest as M
+from dubadabidu.stages import s5_fit as S5
 
 CFG = {"work_dir": None,
        "fit": {"max_tempo": 1.12, "soft_tempo": 1.06, "drift_max_s": 1.5,

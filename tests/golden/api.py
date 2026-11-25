@@ -15,9 +15,11 @@ from pathlib import Path
 from unittest import mock
 
 import dub
-from pipeline import manifest, runpod_infra, s3_translate
-from pipeline.logic import deep_merge
-from qc.bakeoff import variant_key
+from dubadabidu.core import manifest
+from dubadabidu.infra.remote import runpod_infra
+from dubadabidu.stages import s3_translate
+from dubadabidu.core.logic import deep_merge
+from dubadabidu.lab.bakeoff import variant_key
 
 REPO = Path(__file__).resolve().parents[2]
 

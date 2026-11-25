@@ -3,9 +3,9 @@
 hashing for the GPU phase."""
 
 
-from pipeline.logic import deep_merge
-from pipeline.manifest import resolve_engine, synth_hash
-from tests.paths import REPO
+from dubadabidu.core.logic import deep_merge
+from dubadabidu.core.manifest import resolve_engine, synth_hash
+from tests.paths import REPO, source
 
 TTS = {"engine": "chatterbox", "reference_wav": "ref/r.wav",
        "cfg_weight": 0.0, "exaggeration": 0.55}
@@ -60,7 +60,7 @@ def test_gpu_profile_actually_routes_production_to_qwen():
     synthesizing five languages with the wrong engine. Silently, since
     chatterbox installs in the base venv: wrong output, not a crash."""
     import yaml
-    from pipeline.logic import deep_merge
+    from dubadabidu.core.logic import deep_merge
     root = REPO
     cfg = deep_merge(yaml.safe_load((root / "config.yaml").read_text()),
                      yaml.safe_load((root / "config.gpu.yaml").read_text()))
@@ -78,7 +78,8 @@ def test_no_isolation_machinery_survives():
     2026-08-02 — this fails if it creeps back without the engines that
     justified it."""
     root = REPO
-    assert not (root / "pipeline" / "engine_client.py").exists()
-    assert not (root / "pipeline" / "engine_worker.py").exists()
-    src = (root / "pipeline" / "tts_engine.py").read_text()
+    for d in (root / "pipeline", root / "src" / "dubadabidu" / "engines"):
+        assert not (d / "engine_client.py").exists()
+        assert not (d / "engine_worker.py").exists()
+    src = (source("dubadabidu.engines.tts_engine")).read_text()
     assert "isolated_python" not in src and "engine_client" not in src

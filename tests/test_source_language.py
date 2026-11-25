@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from pipeline import manifest as M
-from pipeline import s3_translate as S3
-from pipeline.config_schema import ConfigError, validate
+from dubadabidu.core import manifest as M
+from dubadabidu.stages import s3_translate as S3
+from dubadabidu.core.config.schema import ConfigError, validate
 from tests.paths import REPO
 
 ROOT = REPO
@@ -87,7 +87,7 @@ def test_uk_is_voiced_by_edge() -> None:
     import yaml
     base = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
     gpu = yaml.safe_load((ROOT / "config.gpu.yaml").read_text(encoding="utf-8"))
-    from pipeline.logic import deep_merge
+    from dubadabidu.core.logic import deep_merge
     for cfg in (base, deep_merge(base, gpu)):
         assert M.resolve_engine(cfg["tts"], "uk") == "edge"
         assert M.resolve_engine(cfg["tts"], "en") == "qwen"

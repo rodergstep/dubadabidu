@@ -12,13 +12,13 @@ import sys
 from pathlib import Path
 
 import pytest
-from tests.paths import REPO
+from tests.paths import REPO, source
 
 ROOT = REPO
 sys.path.insert(0, str(ROOT))
 
-from qc import stress_words as SW  # noqa: E402
-from qc import review_page as RP  # noqa: E402
+from dubadabidu.qc import stress_words as SW  # noqa: E402
+from dubadabidu.review import review_page as RP  # noqa: E402
 
 
 # ------------------------------------------------------------- tokenizer ----
@@ -142,7 +142,7 @@ def test_the_rating_guidance_reads_as_a_task_not_a_rationale():
     because he once rated STRESS while the page asked for overall quality. The
     guidance has to name each control and say the three are independent.
     """
-    src = (ROOT / "qc" / "review_page.py").read_text(encoding="utf-8")
+    src = (source("dubadabidu.review.review_page")).read_text(encoding="utf-8")
     axis = src[src.index("class='axis'"):src.index("if mark_words else")]
     for control in ("rate 1", "accept", "reject", "click a word"):
         assert control in axis, f"guidance never names the {control!r} control"
@@ -179,8 +179,8 @@ def test_markup_is_escaped():
 @pytest.fixture
 def ingested(tmp_path, monkeypatch):
     """Run verdicts.run over a two-segment ru manifest with word marks."""
-    from pipeline import manifest as M
-    from qc import verdicts as V
+    from dubadabidu.core import manifest as M
+    from dubadabidu.review import verdicts as V
     monkeypatch.chdir(tmp_path)
     cfg = {"work_dir": "work"}
     video = "lesson.mp4"
@@ -232,7 +232,7 @@ def test_lexicon_is_written_with_counts_and_context(ingested):
 def test_re_ingesting_the_same_page_does_not_inflate_the_count(ingested):
     """A reviewer who exports twice must not double the evidence for a word."""
     cfg, video, tmp, M = ingested
-    from qc import verdicts as V
+    from dubadabidu.review import verdicts as V
     V.run(cfg, video, str(tmp / "export.json"))
     lex = json.loads((tmp / "stress_lexicon_ru.json").read_text(encoding="utf-8"))
     assert lex["охра"]["marked"] == 1
@@ -242,7 +242,7 @@ def test_a_second_video_accumulates_into_the_same_entry(ingested):
     """The table is the point: a word marked across several videos is the
     systematic population (FINDINGS 2.1j) and should sort to the top."""
     cfg, _, tmp, M = ingested
-    from qc import verdicts as V
+    from dubadabidu.review import verdicts as V
     man = {"video": "lesson2.mp4", "duration": 9.0, "stages": {}, "utterances": [
         {"id": "u0001", "start": 0.0, "end": 4.0, "text_src": "c",
          "tr": {"ru": {"text": "Здесь охра", "fitted_text": "Здесь охра"}}}]}
@@ -263,8 +263,8 @@ def test_a_second_video_accumulates_into_the_same_entry(ingested):
 
 def test_an_export_without_word_marks_still_ingests(tmp_path, monkeypatch):
     """Every export taken before this feature existed has no `words` key."""
-    from pipeline import manifest as M
-    from qc import verdicts as V
+    from dubadabidu.core import manifest as M
+    from dubadabidu.review import verdicts as V
     monkeypatch.chdir(tmp_path)
     cfg = {"work_dir": "work"}
     man = {"video": "old.mp4", "duration": 5.0, "stages": {}, "utterances": [
@@ -286,8 +286,8 @@ def test_an_export_without_word_marks_still_ingests(tmp_path, monkeypatch):
 def test_a_stale_mark_is_dropped_not_recorded(tmp_path, monkeypatch):
     """Text hand-edited between review and ingest: the index now points
     elsewhere, so the mark must be dropped rather than silently reattached."""
-    from pipeline import manifest as M
-    from qc import verdicts as V
+    from dubadabidu.core import manifest as M
+    from dubadabidu.review import verdicts as V
     monkeypatch.chdir(tmp_path)
     cfg = {"work_dir": "work"}
     man = {"video": "e.mp4", "duration": 5.0, "stages": {}, "utterances": [
@@ -325,8 +325,8 @@ def test_ingest_does_not_collapse_pre_existing_duplicate_rows(tmp_path,
     design (qc/blind.py), the loss is silent, and the printed row count still
     went UP because the ingest added more than it destroyed.
     """
-    from pipeline import manifest as M
-    from qc import verdicts as V
+    from dubadabidu.core import manifest as M
+    from dubadabidu.review import verdicts as V
     monkeypatch.chdir(tmp_path)
     cfg = {"work_dir": "work"}
     man = {"video": "lesson.mp4", "duration": 5.0, "stages": {}, "utterances": [
@@ -362,8 +362,8 @@ def test_ingest_does_not_collapse_pre_existing_duplicate_rows(tmp_path,
 
 def test_ingest_replaces_the_rows_it_re_rates(tmp_path, monkeypatch):
     """The complement: re-reviewing a segment must update it, not duplicate it."""
-    from pipeline import manifest as M
-    from qc import verdicts as V
+    from dubadabidu.core import manifest as M
+    from dubadabidu.review import verdicts as V
     monkeypatch.chdir(tmp_path)
     cfg = {"work_dir": "work"}
     man = {"video": "lesson.mp4", "duration": 5.0, "stages": {}, "utterances": [
@@ -450,7 +450,7 @@ def _cfg(**over):
 
 
 def test_avoid_block_lists_the_words_with_counts(tmp_path, monkeypatch):
-    from pipeline.s3_translate import _avoid_block
+    from dubadabidu.stages.s3_translate import _avoid_block
     monkeypatch.chdir(tmp_path)
     _write_lex(tmp_path, цвета=(3, ["цвета"]), хватит=(1, ["хватит"]))
     out = _avoid_block(_cfg(), "ru", "")
@@ -461,7 +461,7 @@ def test_avoid_block_is_a_preference_not_a_ban(tmp_path, monkeypatch):
     """A word with no natural synonym must survive. Otherwise this trades a
     stress error for a paraphrase nobody asked for, in a course where
     `натюрморт` is the subject matter."""
-    from pipeline.s3_translate import _avoid_block
+    from dubadabidu.stages.s3_translate import _avoid_block
     monkeypatch.chdir(tmp_path)
     _write_lex(tmp_path, цвета=(3, ["цвета"]))
     out = _avoid_block(_cfg(), "ru", "").lower()
@@ -475,7 +475,7 @@ def test_avoid_block_states_that_terminology_wins(tmp_path, monkeypatch):
     """The glossary and the terms base both say "mandatory", and a mandatory
     term can also be mis-stressed — the two sections contradict each other by
     construction unless precedence is stated."""
-    from pipeline.s3_translate import _avoid_block
+    from dubadabidu.stages.s3_translate import _avoid_block
     monkeypatch.chdir(tmp_path)
     _write_lex(tmp_path, охра=(2, ["охра"]))
     out = _avoid_block(_cfg(), "ru", "Mandatory terminology:\n  вохра -> охра")
@@ -484,7 +484,7 @@ def test_avoid_block_states_that_terminology_wins(tmp_path, monkeypatch):
 
 def test_avoid_block_is_empty_when_disabled_or_inapplicable(tmp_path,
                                                             monkeypatch):
-    from pipeline.s3_translate import _avoid_block
+    from dubadabidu.stages.s3_translate import _avoid_block
     monkeypatch.chdir(tmp_path)
     _write_lex(tmp_path, цвета=(3, ["цвета"]))
     assert _avoid_block(_cfg(avoid_mis_stressed=False), "ru", "") == ""
@@ -497,7 +497,7 @@ def test_the_adequacy_judge_does_not_see_the_avoid_list():
     """The judge grades FAITHFULNESS. Telling it which words we would rather
     avoid could bias it toward approving a paraphrase — which is exactly the
     failure this feature could cause and the judge is meant to catch."""
-    src = (ROOT / "pipeline" / "s3_translate.py").read_text(encoding="utf-8")
+    src = (source("dubadabidu.stages.s3_translate")).read_text(encoding="utf-8")
     shared = src[src.index("shared = \"\\n\\n\".join"):]
     shared = shared[:shared.index("sys_draft")]
     assert "avoid" in shared, "the avoid block never reaches the translation prompts"
@@ -519,7 +519,7 @@ def test_avoid_block_forbids_the_failure_modes_measured_on_a_live_ab():
       - rewrote words never on the list (`участков` -> `зон`), churn the
         reviewer has to re-read for nothing.
     """
-    from pipeline.s3_translate import _avoid_block
+    from dubadabidu.stages.s3_translate import _avoid_block
     import tempfile, os
     d = tempfile.mkdtemp()
     cwd = os.getcwd()

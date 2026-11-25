@@ -10,8 +10,8 @@ import random
 
 import pytest
 
-from qc import refit as R
-from qc import metrics as X
+from dubadabidu.review import refit as R
+from dubadabidu.qc import metrics as X
 
 CUR = {"sim": 0.25, "mos": 0.40, "f0": 0.20, "tempo": 0.15}
 TRUE = {"sim": 0.05, "mos": 0.60, "f0": 0.30, "tempo": 0.05}
@@ -198,7 +198,7 @@ def test_mixed_qc_mos_provenance_is_detected():
 
     The permutation test cannot price this in: it shuffles RATINGS, not
     features, so a corrupted feature column survives it untouched."""
-    from qc.refit import mos_provenance_warning
+    from dubadabidu.review.refit import mos_provenance_warning
     collapsed = [{"rating": 3, "qc_mos": 2.5, "qc_mos_min": 2.5} for _ in range(40)]
     proper = [{"rating": 3, "qc_mos": 4.5, "qc_mos_min": 2.8} for _ in range(40)]
     assert mos_provenance_warning(collapsed + proper) is not None
@@ -206,7 +206,7 @@ def test_mixed_qc_mos_provenance_is_detected():
 
 def test_a_self_consistent_file_is_not_flagged():
     """All-or-nothing is at least one metric. Only a MIX is unfittable."""
-    from qc.refit import mos_provenance_warning
+    from dubadabidu.review.refit import mos_provenance_warning
     all_old = [{"rating": 3, "qc_mos": 2.5, "qc_mos_min": 2.5} for _ in range(40)]
     all_new = [{"rating": 3, "qc_mos": 4.5, "qc_mos_min": 2.8} for _ in range(40)]
     assert mos_provenance_warning(all_old) is None
@@ -223,14 +223,14 @@ def test_a_constant_term_is_reported_as_unidentifiable():
     Adopting it would write a real 0.95 stretch penalty into config, and
     `tempo` is ALSO the pace-match reward in qc.selection._take_rank, so take
     selection would move on no evidence."""
-    from qc.refit import constant_terms
+    from dubadabidu.review.refit import constant_terms
     rows = [{"qc_sim_cal": 0.5 + i * 0.01, "qc_mos_min": 4.0 + i * 0.01,
              "qc_f0st": 2.0 + i * 0.01, "tempo": 1.0} for i in range(10)]
     assert constant_terms(rows, 1.12) == ["tempo"]
 
 
 def test_a_varying_term_is_identifiable():
-    from qc.refit import constant_terms
+    from dubadabidu.review.refit import constant_terms
     rows = [{"qc_sim_cal": 0.5, "qc_mos_min": 4.0, "qc_f0st": 2.0,
              "tempo": 1.0 + i * 0.01} for i in range(10)]
     assert "tempo" not in constant_terms(rows, 1.12)

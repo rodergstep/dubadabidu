@@ -14,7 +14,7 @@ import subprocess
 import tomllib
 
 import pytest
-from tests.paths import REPO
+from tests.paths import REPO, source
 
 ROOT = REPO
 EXPORT_CMD = ["uv", "export", "--frozen", "--no-hashes", "--no-emit-project",
@@ -148,7 +148,7 @@ def test_run_ledger_is_machine_written_not_hand_maintained():
     """runs.jsonl must be appended by the code that spends the money. A
     hand-kept stats file rots, which is how 'what does an hour cost' got three
     different answers in one day."""
-    src = (ROOT / "pipeline" / "runpod_infra.py").read_text(encoding="utf-8")
+    src = (source("dubadabidu.infra.remote.runpod_infra")).read_text(encoding="utf-8")
     assert "runlog.append" in src, (
         "remote_run no longer records the run — the ledger will silently stop "
         "reflecting reality")
@@ -161,7 +161,7 @@ def test_run_ledger_is_machine_written_not_hand_maintained():
 def test_ledger_cost_helper_ignores_runs_with_no_audio():
     """A setup-check has no video to divide by; including it would silently
     inflate $/video-hour."""
-    from pipeline.runlog import cost_per_video_hour
+    from dubadabidu.core.runlog import cost_per_video_hour
     rows = [{"task": "setup-check", "wall_s": 200, "price_per_hr": 0.28,
              "langs": []},
             {"task": "run", "wall_s": 2466, "price_per_hr": 0.28,
@@ -204,7 +204,7 @@ def test_reused_pods_reach_the_ledger_with_a_price():
     silent UNDER-reporting of precisely the runs --keep-alive encourages, and
     cost_per_video_hour averages the zeros in. Measured 2026-08-09: two real
     A/B arms billed ~20 min of pod time and recorded as free."""
-    src = (ROOT / "pipeline" / "runpod_infra.py").read_text(encoding="utf-8")
+    src = (source("dubadabidu.infra.remote.runpod_infra")).read_text(encoding="utf-8")
     body = src.split("alive = _live_pod() if reuse else None", 1)[1]
     branch = body.split("else:", 1)[0]
     assert "_LAST_POD.update" in branch, (
@@ -277,7 +277,7 @@ def test_each_weight_block_has_exactly_one_consumer():
     _take_rank). Pinning the WIRING is what closes the class instead of the
     instance.
     """
-    tune_src = (ROOT / "pipeline" / "tune.py").read_text(encoding="utf-8")
+    tune_src = (source("dubadabidu.lab.tune")).read_text(encoding="utf-8")
     assert '"r1_weights"' in tune_src, "tune lost its own objective block"
     assert 'get("eval", {}).get("weights"' not in tune_src, (
         "tune is reading qc.eval.weights again — that block ranks TAKES of one "
@@ -286,7 +286,7 @@ def test_each_weight_block_has_exactly_one_consumer():
 
     import yaml
     cfg = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
-    from pipeline.tune import DEFAULTS as TUNE_DEFAULTS
+    from dubadabidu.lab.tune import DEFAULTS as TUNE_DEFAULTS
     r1 = {**TUNE_DEFAULTS["r1_weights"], **(cfg.get("tune", {})
                                             .get("r1_weights") or {})}
     assert r1.get("sim", 0.0) > 0, (
@@ -309,8 +309,8 @@ def test_tempo_means_the_same_thing_wherever_it_is_read():
     Until they are split, this test documents the collision so nobody "tidies"
     one of them into agreement with the other by accident.
     """
-    from qc.selection import _take_rank
-    from qc.metrics import composite_score
+    from dubadabidu.qc.selection import _take_rank
+    from dubadabidu.qc.metrics import composite_score
     w = {"sim": 0.0, "mos": 0.55, "f0": 0.30, "tempo": 0.15}
     # penalty direction: more stretch -> lower score
     assert composite_score(0.5, 4.0, 1.0, w, 2.2) < \
@@ -329,7 +329,7 @@ def test_per_video_reference_override_matches_the_findings_verdict():
     not a per-video override". Only the root cause was fixed; preamble kept
     writing man["tts_overrides"] on every video and s4/s5/evaluate/bakeoff all
     merge it, so the refuted mechanism stayed live. The code says it now."""
-    from pipeline.tune import DEFAULTS as TUNE_DEFAULTS
+    from dubadabidu.lab.tune import DEFAULTS as TUNE_DEFAULTS
     import yaml
     cfg = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
     enabled = (cfg.get("tune", {})
@@ -348,7 +348,7 @@ def test_take_ranking_actually_reads_the_configured_weights():
     objective and nothing about which take ships. refit gated on a formula the
     pipeline never ran, and dropping sim to 0.0 left it at an effective 0.2 in
     selection. Wired up 2026-08-09; this keeps them connected."""
-    from qc.selection import _take_rank
+    from dubadabidu.qc.selection import _take_rank
     m_hi_sim = {"mos_min": 3.0, "f0st": 2.0, "sim": 0.9}
     m_lo_sim = {"mos_min": 3.0, "f0st": 2.0, "sim": 0.1}
     sim_heavy = {"sim": 1.0, "mos": 0.0, "f0": 0.0, "tempo": 0.0}
@@ -363,7 +363,7 @@ def test_zero_weights_do_not_disable_best_of():
     """If every applicable weight is 0 the rank must not become a constant —
     `max` would then return the FIRST take every time and best_of would quietly
     stop selecting at all."""
-    from qc.selection import _take_rank
+    from dubadabidu.qc.selection import _take_rank
     zero = {"sim": 0.0, "mos": 0.0, "f0": 0.0, "tempo": 0.0}
     better = {"mos_min": 4.0, "f0st": 2.0, "sim": 0.5}
     worse = {"mos_min": 2.0, "f0st": 2.0, "sim": 0.5}
@@ -375,7 +375,7 @@ def test_s4_and_s5_pass_the_weights_through():
     lookup has to happen at the call site. If a caller forgets, that language
     silently reverts to DEFAULT_RANK_W."""
     for mod in ("s4_synthesize", "s5_fit"):
-        src = (ROOT / "pipeline" / f"{mod}.py").read_text(encoding="utf-8")
+        src = source(f"dubadabidu.stages.{mod}").read_text(encoding="utf-8")
         assert "rank_weights=" in src, f"{mod} does not pass rank_weights"
 
 
@@ -441,7 +441,7 @@ def _doctor_lines(monkeypatch, *, device, runpod_key):
     else:
         monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
     import yaml
-    from pipeline.logic import deep_merge
+    from dubadabidu.core.logic import deep_merge
     cfg = deep_merge(yaml.safe_load((ROOT / "config.yaml").read_text()),
                      yaml.safe_load((ROOT / "config.gpu.yaml").read_text()))
     buf = io.StringIO()

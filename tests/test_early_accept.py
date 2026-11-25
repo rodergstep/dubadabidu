@@ -7,7 +7,7 @@ filter in synth_best_of degrades to a no-op on a one-element pool
 checked HERE too. f0 was missing, which meant best_of_early_accept silently
 bypassed tts.min_f0st — hardest on config.gpu.yaml (best_of: 5).
 """
-from qc.selection import early_accept_ok
+from dubadabidu.qc.selection import early_accept_ok
 
 GOOD = {"mos_min": 4.0, "dur": 5.0, "sim": 0.8, "f0st": 3.0, "wer": 0.0}
 

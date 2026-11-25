@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-from pipeline.manifest import synth_hash
+from dubadabidu.core.manifest import synth_hash
 
 T = {"reference_wav": "ref/r.wav", "cfg_weight": 0.0,
      "exaggeration": 0.55, "engine": "chatterbox"}

@@ -21,33 +21,21 @@ RANK = {"core": 0, "engines": 1, "qc": 2, "stages": 3, "review": 4,
         "lab": 5, "infra": 5, "workflows": 6, "cli": 7}
 SIBLINGS_APART = {frozenset({"lab", "infra"})}
 
-LAYER_OF = {
-    "dub": "cli",
-    "pipeline.manifest": "core", "pipeline.text_norm": "core",
-    "pipeline.logic": "core", "pipeline.device": "core",
-    "pipeline.runlog": "core", "pipeline.config_schema": "core",
-    "pipeline.audio": "core",
-    "pipeline.tts_engine": "engines", "pipeline.asr": "engines",
-    "qc.metrics": "qc", "qc.backcheck": "qc", "qc.evaluate": "qc",
-    "qc.stress_words": "qc", "qc.selection": "qc",
-    **{f"pipeline.{s}": "stages" for s in (
-        "s1_extract", "s2_transcribe", "s3_translate", "s4_synthesize",
-        "s5_fit", "s6_mix", "s7_subtitles", "s8_mux")},
-    "qc.review_page": "review", "qc.verdicts": "review", "qc.refit": "review",
-    "qc.batch_report": "review", "qc.blind": "review", "qc.compare": "review",
-    "qc.listen": "review",
-    "pipeline.prep": "lab", "pipeline.tune": "lab", "qc.bakeoff": "lab",
-    "qc.tune_page": "lab", "pipeline.experiments": "lab",
-    "pipeline.runpod_infra": "infra",
-    "pipeline.autopilot": "workflows", "pipeline.course": "workflows",
-}
+# a product module's layer is its subpackage: dubadabidu.<layer>.<...>
+LAYER_OF = {"dub": "cli"}
 RESEARCH_DIR = "research"
+SHIM_DIRS = ("pipeline", "qc")      # clone-only `python -m` compatibility shims
 ALLOWED: set[tuple[str, str]] = set()
 
 
 def modules() -> dict[str, Path]:
     out = {"dub": REPO / "dub.py"} if (REPO / "dub.py").exists() else {}
-    for pkg in ("pipeline", "qc", RESEARCH_DIR):
+    src = REPO / "src"
+    for p in sorted((src / "dubadabidu").rglob("*.py")):
+        rel = p.relative_to(src).with_suffix("")
+        parts = rel.parts[:-1] if rel.name == "__init__" else rel.parts
+        out[".".join(parts)] = p
+    for pkg in (RESEARCH_DIR, *SHIM_DIRS):
         for p in sorted((REPO / pkg).glob("*.py")):
             if p.stem != "__init__":
                 out[f"{pkg}.{p.stem}"] = p
@@ -56,7 +44,7 @@ def modules() -> dict[str, Path]:
 
 def imports(name: str, path: Path, known: set[str]) -> set[str]:
     """Every internal module `name` imports, wherever the statement sits."""
-    pkg = name.rsplit(".", 1)[0] if "." in name else ""
+    pkg = name if path.name == "__init__.py" else (name.rsplit(".", 1)[0] if "." in name else "")
     out: set[str] = set()
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Import):
@@ -82,6 +70,14 @@ def edges() -> set[tuple[str, str]]:
 def layer(m: str) -> str:
     if m.startswith(RESEARCH_DIR + "."):
         return "research"
+    if m.split(".")[0] in SHIM_DIRS:
+        return "shim"
+    parts = m.split(".")
+    if parts[0] == "dubadabidu":
+        if len(parts) == 1:
+            return "core"                  # the package root holds no code
+        assert parts[1] in RANK, f"{m}: no layer named {parts[1]!r} (RANK in tests/test_layers.py)"
+        return parts[1]
     assert m in LAYER_OF, f"{m} has no layer: add it to LAYER_OF in tests/test_layers.py"
     return LAYER_OF[m]
 
@@ -90,9 +86,9 @@ def violations() -> set[tuple[str, str]]:
     bad = set()
     for a, b in edges():
         la, lb = layer(a), layer(b)
-        if la == "research":
+        if la in ("research", "shim"):
             continue
-        if lb == "research" or RANK[lb] > RANK[la] \
+        if lb in ("research", "shim") or RANK[lb] > RANK[la] \
                 or (la != lb and frozenset({la, lb}) in SIBLINGS_APART):
             bad.add((a, b))
     return bad

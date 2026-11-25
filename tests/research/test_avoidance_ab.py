@@ -10,7 +10,7 @@ import sys
 
 import pytest
 import yaml
-from tests.paths import REPO
+from tests.paths import REPO, source
 
 ROOT = REPO
 sys.path.insert(0, str(ROOT))
@@ -33,16 +33,17 @@ def test_the_text_variant_key_is_scoped_to_its_only_consumer():
     """`bakeoff.text_variant`, never `tts.text_variant`. A tts.* key would look
     like it changed what production synthesizes while only the bake-off read it
     — the shape of qc.eval.weights ranking nothing for weeks."""
-    src = (ROOT / "qc" / "bakeoff.py").read_text(encoding="utf-8")
+    src = (source("dubadabidu.lab.bakeoff")).read_text(encoding="utf-8")
     assert 'get("bakeoff", {}) or {}).get("text_variant")' in src
-    for f in ("pipeline/s4_synthesize.py", "pipeline/s5_fit.py",
-              "pipeline/tts_engine.py"):
+    for f in ("src/dubadabidu/stages/s4_synthesize.py",
+              "src/dubadabidu/stages/s5_fit.py",
+              "src/dubadabidu/engines/tts_engine.py"):
         assert "text_variant" not in (ROOT / f).read_text(encoding="utf-8"), \
             f"{f} reads text_variant — then the key has two consumers again"
 
 
 def test_a_segment_without_an_alternative_falls_back_to_shipped():
-    src = (ROOT / "qc" / "bakeoff.py").read_text(encoding="utf-8")
+    src = (source("dubadabidu.lab.bakeoff")).read_text(encoding="utf-8")
     block = src[src.index("bakeoff.text_variant selects"):]
     block = block[:block.index("\n\n")]
     assert 'or u["tr"][lang].get("fitted_text")' in block, \
@@ -70,7 +71,7 @@ def test_take_offset_selects_unheard_takes():
     Without an offset a second page re-rates the same audio: more rows, no more
     evidence, and the pair is already in comparisons_<lang>.json."""
     import inspect
-    from qc.compare import _groups, build
+    from dubadabidu.review.compare import _groups, build
     assert "take_offset" in inspect.signature(_groups).parameters
     assert "take_offset" in inspect.signature(build).parameters
     src = inspect.getsource(_groups)

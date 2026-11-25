@@ -36,9 +36,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from pipeline import manifest as M  # noqa: E402
-from pipeline import s3_translate as S3  # noqa: E402
-from qc.stress_words import load_avoid_list  # noqa: E402
+from dubadabidu.core import manifest as M  # noqa: E402
+from dubadabidu.stages import s3_translate as S3  # noqa: E402
+from dubadabidu.qc.stress_words import load_avoid_list  # noqa: E402
 
 log = logging.getLogger("dubadabidu.qc.avoidance_ab")
 

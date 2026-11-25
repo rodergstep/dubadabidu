@@ -15,13 +15,27 @@ from pathlib import Path
 from typing import Callable
 import yaml
 
-from pipeline import s1_extract, s2_transcribe, s3_translate, s4_synthesize, \
-    s5_fit, s6_mix, s7_subtitles, s8_mux, prep as prep_mod, tune as tune_mod, \
-    autopilot as autopilot_mod, manifest as M
-from pipeline.device import torch_device, whisper_device
-from pipeline.logic import deep_merge
-from qc import backcheck, bakeoff, batch_report, evaluate, refit, review_page, \
-    verdicts
+from dubadabidu.stages import s1_extract
+from dubadabidu.stages import s2_transcribe
+from dubadabidu.stages import s3_translate
+from dubadabidu.stages import s4_synthesize
+from dubadabidu.stages import s5_fit
+from dubadabidu.stages import s6_mix
+from dubadabidu.stages import s7_subtitles
+from dubadabidu.stages import s8_mux
+from dubadabidu.lab import prep as prep_mod
+from dubadabidu.lab import tune as tune_mod
+from dubadabidu.workflows import autopilot as autopilot_mod
+from dubadabidu.core import manifest as M
+from dubadabidu.core.device import torch_device, whisper_device
+from dubadabidu.core.logic import deep_merge
+from dubadabidu.qc import backcheck
+from dubadabidu.lab import bakeoff
+from dubadabidu.review import batch_report
+from dubadabidu.qc import evaluate
+from dubadabidu.review import refit
+from dubadabidu.review import review_page
+from dubadabidu.review import verdicts
 
 ROOT = Path(__file__).resolve().parent
 
@@ -55,7 +69,7 @@ def doctor(cfg: dict) -> int:
     check("ffmpeg", shutil.which("ffmpeg"), "install ffmpeg and add to PATH")
     check("ffprobe", shutil.which("ffprobe"), "comes with ffmpeg")
     dev = torch_device()
-    from pipeline.asr import resolve_backend
+    from dubadabidu.engines.asr import resolve_backend
     backend = resolve_backend(cfg["asr"])
     if backend == "mlx":
         print(f"  [i ] torch device: {dev} | whisper: mlx-whisper (Metal/ANE)")
@@ -144,7 +158,7 @@ def doctor(cfg: dict) -> int:
         _check_translation_models(cfg["translation"], check)
     # remote (M2) readiness — informational; only needed for `dubadabidu remote`
     if os.environ.get("RUNPOD_API_KEY"):
-        from pipeline.runpod_infra import DEFAULTS as RP_DEFAULTS
+        from dubadabidu.infra.remote.runpod_infra import DEFAULTS as RP_DEFAULTS
         rp = {**RP_DEFAULTS, **(cfg.get("runpod") or {})}
         key_path = Path(rp["ssh_key"]).expanduser()
         check("remote: ssh_key", key_path.exists(),
@@ -180,7 +194,7 @@ def _check_translation_models(tcfg: dict,
     should not fail doctor over the network."""
     import os
     from openai import OpenAI
-    from pipeline.s3_translate import missing_models
+    from dubadabidu.stages.s3_translate import missing_models
     try:
         client = OpenAI(base_url=tcfg["base_url"],
                         api_key=os.environ[tcfg["api_key_env"]], timeout=15)
@@ -532,7 +546,7 @@ def main() -> None:
         cfg["tts"]["engine"] = a.engine
     # every key of the MERGED config must be declared (a typo used to be
     # silently ignored and the code ran on its default) — PLAN_v0.5 P7
-    from pipeline.config_schema import validate as _validate_config
+    from dubadabidu.core.config.schema import validate as _validate_config
     _validate_config(cfg)
     langs = ([x.strip() for x in a.langs.split(",") if x.strip()]
              if a.langs else cfg["languages"])
@@ -543,7 +557,7 @@ def main() -> None:
     # where ECAPA / Distill-MOS run. Default 'cpu' keeps every stored score
     # comparable with the ones already in the manifests; 'cuda'/'auto' is the
     # pod-cost lever (see qc.metrics.set_device for how to validate the switch).
-    from qc import metrics as _metrics
+    from dubadabidu.qc import metrics as _metrics
     _metrics.set_device(cfg.get("qc", {}).get("metrics_device", "cpu"))
 
     if a.cmd == "doctor":
@@ -616,7 +630,7 @@ def main() -> None:
             bakeoff.run(cfg, v, langs)
         return
     if a.cmd == "remote":    # M2: RunPod lifecycle. `remote <task> [video]`
-        from pipeline import runpod_infra as rpi
+        from dubadabidu.infra.remote import runpod_infra as rpi
         task = a.rest[0] if a.rest else "status"
         if task == "status":
             rpi.status(); return

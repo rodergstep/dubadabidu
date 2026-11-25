@@ -5,3 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+SRC = REPO / "src" / "dubadabidu"
+
+
+def source(module: str) -> Path:
+    """The file a module is loaded from (`source("dubadabidu.stages.s5_fit")`),
+    so a test that reads code follows the import system, not a hard-coded path."""
+    import importlib.util
+    spec = importlib.util.find_spec(module)
+    assert spec is not None and spec.origin, f"no module {module}"
+    return Path(spec.origin)

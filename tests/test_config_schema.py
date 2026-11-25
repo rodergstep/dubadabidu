@@ -6,8 +6,8 @@ import copy
 import pytest
 import yaml
 
-from pipeline.config_schema import ConfigError, validate
-from pipeline.logic import deep_merge
+from dubadabidu.core.config.schema import ConfigError, validate
+from dubadabidu.core.logic import deep_merge
 from tests.paths import REPO
 
 
@@ -58,7 +58,7 @@ def test_tune_round_r2_is_still_accepted() -> None:
 
 
 @pytest.mark.parametrize("block,key,src", [
-    ("translation", "avoid_mis_stressed", "pipeline/s3_translate.py"),
+    ("translation", "avoid_mis_stressed", "src/dubadabidu/stages/s3_translate.py"),
 ])
 def test_schema_default_matches_the_code_default(block: str, key: str,
                                                  src: str) -> None:
@@ -66,7 +66,7 @@ def test_schema_default_matches_the_code_default(block: str, key: str,
     applies; the schema's declared default must not claim otherwise."""
     import re
 
-    from pipeline.config_schema import Config
+    from dubadabidu.core.config.schema import Config
     model = Config.model_fields[block].annotation
     declared = model.model_fields[key].default
     code = open(src, encoding="utf-8").read()

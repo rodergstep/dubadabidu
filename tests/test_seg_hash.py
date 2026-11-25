@@ -23,12 +23,12 @@ is caught by M.stale_qc on a content hash of the graded wav, and is unaffected.
 """
 from __future__ import annotations
 import sys
-from tests.paths import REPO
+from tests.paths import REPO, source
 
 ROOT = REPO
 sys.path.insert(0, str(ROOT))
 
-from qc.verdicts import _seg_hash  # noqa: E402
+from dubadabidu.review.verdicts import _seg_hash  # noqa: E402
 
 
 def _man(scores):
@@ -106,7 +106,7 @@ def test_review_page_and_verdicts_compute_the_same_hash():
 def test_review_page_source_sorts_by_id_not_by_score():
     """The page builds its key inline, so a future edit could re-introduce the
     display-order hash without any test noticing. Read the source."""
-    src = (ROOT / "qc" / "review_page.py").read_text(encoding="utf-8")
+    src = (source("dubadabidu.review.review_page")).read_text(encoding="utf-8")
     key_block = src[src.index("seg_hash = hashlib.sha1"):]
     key_block = key_block[:key_block.index("hexdigest")]
     assert 'sorted(us, key=lambda u: u["id"])' in key_block, (
@@ -118,8 +118,8 @@ def test_config_cleanup_did_not_move_any_cache_key():
     from config.yaml. synth_hash still keys on their old defaults, so every
     cached take keeps its hash. Golden values measured before the removal."""
     import yaml
-    from pipeline.logic import deep_merge
-    from pipeline.manifest import synth_hash
+    from dubadabidu.core.logic import deep_merge
+    from dubadabidu.core.manifest import synth_hash
     with open("config.yaml", encoding="utf-8") as a, \
             open("config.gpu.yaml", encoding="utf-8") as b:
         t = deep_merge(yaml.safe_load(a), yaml.safe_load(b))["tts"]

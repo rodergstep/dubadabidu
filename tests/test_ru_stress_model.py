@@ -3,8 +3,8 @@
 the guard against stress marks on a checkpoint not trained on them."""
 import pytest
 
-from pipeline import manifest as M
-from pipeline import tts_engine as T
+from dubadabidu.core import manifest as M
+from dubadabidu.engines import tts_engine as T
 
 FT = "siriusfreak/qwen3-tts-12hz-1.7b-ru-stress-cf"
 
@@ -68,7 +68,7 @@ def test_sample_rate_guard_rejects_a_mismatch(tmp_path):
     must fail the take, not ship it at the wrong pitch."""
     import json
     import pytest
-    from pipeline import tts_engine as T
+    from dubadabidu.engines import tts_engine as T
     ck = tmp_path / "ckpt"
     (ck / "speech_tokenizer").mkdir(parents=True)
     (ck / "speech_tokenizer" / "config.json").write_text(
@@ -86,7 +86,7 @@ def test_sample_rate_guard_rejects_a_mismatch(tmp_path):
 
 def test_title_case_is_lowercased_before_ruaccent_but_acronyms_are_not():
     """Model-card recommendation: RUAccent marks capitalized words worse."""
-    from pipeline.text_norm import NORM_VERSIONS, lower_title_ru
+    from dubadabidu.core.text_norm import NORM_VERSIONS, lower_title_ru
     assert lower_title_ru("Какая сегодня погода. Потом мы пошли") == \
         "какая сегодня погода. потом мы пошли"
     assert lower_title_ru("Краски ООО и РФ") == "краски ООО и РФ"

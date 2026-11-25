@@ -51,11 +51,8 @@ Row = tuple[str, str, str]
 
 
 def sources() -> list[Path]:
-    pkg = REPO / "src" / "dubadabidu"
-    if pkg.is_dir():
-        return sorted(pkg.rglob("*.py"))
-    return [REPO / "dub.py", *sorted((REPO / "pipeline").glob("*.py")),
-            *sorted((REPO / "qc").glob("*.py"))]
+    root = [REPO / "dub.py"] if (REPO / "dub.py").exists() else []
+    return root + sorted((REPO / "src" / "dubadabidu").rglob("*.py"))
 
 
 def _chain(node: ast.AST, env: dict[str, str]) -> str | None:

@@ -101,8 +101,30 @@ requires = ["setuptools>=77"]   # 77: SPDX `license` string (PEP 639)
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
+# The product is ONE package, dubadabidu, under src/ (ARCHITECTURE_PLAN.md §2).
+# dub.py stays a root module until the CLI moves into the package; until then
+# the packages are LISTED, because `packages.find(where=src)` remaps the root
+# to src/ and silently drops dub.py (tests/test_packaging.py checks the wheel).
+# research/ and the clone-only pipeline/ and qc/ shims are not shipped.
 py-modules = ["dub"]
-packages = ["pipeline", "qc"]
+package-dir = { "dubadabidu" = "src/dubadabidu" }
+packages = [
+  "dubadabidu",
+  "dubadabidu.core",
+  "dubadabidu.core.config",
+  "dubadabidu.engines",
+  "dubadabidu.infra",
+  "dubadabidu.infra.remote",
+  "dubadabidu.lab",
+  "dubadabidu.qc",
+  "dubadabidu.review",
+  "dubadabidu.stages",
+  "dubadabidu.workflows",
+]
+
+[tool.pytest.ini_options]
+# CI runs pytest without installing the project
+pythonpath = ["src", "."]
 
 # torch from the CUDA 13.0 index on Linux (the pod), PyPI elsewhere (the Mac).
 # Drivers are backward- but not forward-compatible, so the wheel's CUDA must

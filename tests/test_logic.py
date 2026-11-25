@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-from pipeline.logic import merge_segments, decide_fit
+from dubadabidu.core.logic import merge_segments, decide_fit
 
 
 def test_merge_respects_max_chars():

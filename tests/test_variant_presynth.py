@@ -18,9 +18,9 @@ from pathlib import Path
 
 import pytest
 
-from pipeline import s4_synthesize as S4
-from pipeline import manifest as M
-from tests.paths import REPO
+from dubadabidu.stages import s4_synthesize as S4
+from dubadabidu.core import manifest as M
+from tests.paths import source
 
 CFG = {"work_dir": None,           # filled per-test
        "fit": {"soft_tempo": 1.06},
@@ -130,7 +130,7 @@ def test_s5_never_asks_for_a_variant_s4_skipped():
 
     Simulated over the ladder rather than mocked, so it fails if either side
     changes its rule."""
-    from pipeline.s4_synthesize import VARIANT_MARGIN
+    from dubadabidu.stages.s4_synthesize import VARIANT_MARGIN
     SOFT, SLOT = 1.06, 10.0
 
     def s4_makes(primary, variants):
@@ -173,7 +173,7 @@ def test_s5_never_asks_for_a_variant_s4_skipped():
 def test_s5_variant_loop_is_lazy_not_a_comprehension():
     """Guards the mechanism, not just the arithmetic: an eager comprehension
     re-introduces the bug while every duration-level test still passes."""
-    src = (REPO / "pipeline" / "s5_fit.py").read_text()
+    src = (source("dubadabidu.stages.s5_fit")).read_text()
     assert "wavs += [seg_wav(c) for c in candidates[1:]]" not in src, (
         "s5 requests every variant eagerly again — s4 only pre-makes them up to "
         "the first that clears the bar")

@@ -29,7 +29,7 @@ from typing import Protocol
 import numpy as np
 import soundfile as sf
 
-from qc.refit import chance_rate, load_comparisons
+from dubadabidu.review.refit import chance_rate, load_comparisons
 
 TARGET_DBFS = -20.0
 

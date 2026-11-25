@@ -6,9 +6,11 @@ import glob
 from collections.abc import Mapping
 from pathlib import Path
 
-from pipeline import prep, runpod_infra, tune
-from pipeline.config_schema import Config, validate
-from pipeline.logic import deep_merge
+from dubadabidu.lab import prep
+from dubadabidu.infra.remote import runpod_infra
+from dubadabidu.lab import tune
+from dubadabidu.core.config.schema import Config, validate
+from dubadabidu.core.logic import deep_merge
 
 REPO = Path(__file__).resolve().parents[2]
 

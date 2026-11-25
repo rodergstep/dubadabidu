@@ -11,7 +11,7 @@ import time
 
 from pydub import AudioSegment
 
-from pipeline.s6_mix import _assemble
+from dubadabidu.stages.s6_mix import _assemble
 
 RATE = 24000
 
