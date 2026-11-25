@@ -1,0 +1,1986 @@
+{
+ "capacity_retry": {
+  "ledger": [
+   {
+    "bootstrap_s": 5.0,
+    "engines": [
+     "qwen"
+    ],
+    "langs": [
+     "en",
+     "ru"
+    ],
+    "ok": true,
+    "pod_id": "pod1",
+    "price_per_hr": 0.31,
+    "ram_gb": 31,
+    "rc": 0,
+    "reuse": false,
+    "stages": "--from s4_synthesize --to s5_fit",
+    "task": "run",
+    "utterances": 2,
+    "vcpu": 8,
+    "video": "lesson a,lesson_b",
+    "video_minutes": 3.0,
+    "wall_s": 5.5
+   }
+  ],
+  "log": [
+   [
+    "rest",
+    "POST",
+    "/pods",
+    {
+     "cloud": "SECURE",
+     "disk": 40,
+     "env": {
+      "TRANSLATE_API_KEY": "tk-test"
+     },
+     "gpu": {
+      "count": 1,
+      "id": "NVIDIA RTX A4000",
+      "minCudaVersion": "13.0"
+     },
+     "image": "runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404",
+     "name": "dubadabidu",
+     "ports": [
+      "22/tcp"
+     ],
+     "startSsh": true
+    }
+   ],
+   [
+    "rest",
+    "POST",
+    "/pods",
+    {
+     "cloud": "SECURE",
+     "disk": 40,
+     "env": {
+      "TRANSLATE_API_KEY": "tk-test"
+     },
+     "gpu": {
+      "count": 1,
+      "id": "NVIDIA RTX 4000 Ada Generation",
+      "minCudaVersion": "13.0"
+     },
+     "image": "runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404",
+     "name": "dubadabidu",
+     "ports": [
+      "22/tcp"
+     ],
+     "startSsh": true
+    }
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "state",
+    {
+     "created_at": 1800000002.5,
+     "pod_id": "pod1"
+    }
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "true"
+    ]
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "[ -f /tmp/dubadabidu_watchdog.pid ] && kill \"$(cat /tmp/dubadabidu_watchdog.pid)\" 2>/dev/null; nohup sh -c 'sleep 10280; runpodctl remove pod $RUNPOD_POD_ID || shutdown -h now || kill -9 -1' </dev/null >/tmp/watchdog.log 2>&1 & echo $! > /tmp/dubadabidu_watchdog.pid"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "export DEBIAN_FRONTEND=noninteractive; for i in 1 2 3 4 5 6; do apt-get update && { apt-get install -y --no-install-recommends -s rsync ffmpeg sox | grep -E '^[0-9]+ upgraded' | sed 's/^/[apt] plan: /' || true; } && apt-get install -y --no-install-recommends rsync ffmpeg sox && break; echo \"[apt] attempt $i failed (lock?), retrying in 10s\"; sleep 10; done; which rsync && which ffmpeg && { ffmpeg -hide_banner -filters 2>/dev/null | grep -q rubberband && echo '[ffmpeg] rubberband filter present — s5 clean stretch' || echo '[ffmpeg] WARNING: no rubberband filter, s5 uses atempo'; }"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-az",
+     "--exclude",
+     ".venv",
+     "--exclude",
+     "venvs",
+     "--exclude",
+     "__pycache__",
+     "--exclude",
+     ".env",
+     "--exclude",
+     ".git",
+     "--exclude",
+     ".models/ecapa",
+     "--exclude",
+     ".models/audio-separator",
+     "--exclude",
+     "input",
+     "--exclude",
+     "output",
+     "--exclude",
+     "work",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "./",
+     "root@203.0.113.9:~/dubadabidu/"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-azR",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "work/lesson a",
+     "work/lesson_b",
+     "root@203.0.113.9:~/dubadabidu/"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "set -e; cd ~/dubadabidu; export PIP_RETRIES=10 PIP_TIMEOUT=60; if [ ! -e .venv ] && [ -f /opt/venv/.uv-lock-sha256 ] && [ \"$(cat /opt/venv/.uv-lock-sha256)\" = \"$(sha256sum uv.lock | cut -c1-64)\" ]; then ln -s /opt/venv .venv; echo '[setup] prebuilt image venv matches uv.lock — linked'; fi; [ -x .venv/bin/python ] || python3 -m venv .venv || { echo '[setup] no venv module — installing'; apt-get install -y -q python3-venv && python3 -m venv .venv; }; . .venv/bin/activate; pip install -q --upgrade pip; pip install -q 'uv==0.8.15'; UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_HTTP_TIMEOUT=120 uv sync --frozen --inexact --extra dev --python .venv/bin/python; python -c 'import torch,sys; ok=torch.cuda.is_available(); print(\"CUDA:\",ok); sys.exit(0 if ok else 1)'"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "set -e; cd ~/dubadabidu; . .venv/bin/activate; printf 'setuptools<80\\n' > .venv/pip-constraint.txt; export PIP_CONSTRAINT=$PWD/.venv/pip-constraint.txt; export PIP_RETRIES=10 PIP_TIMEOUT=60; pip install -q --upgrade pip; pip install -q 'setuptools<80' wheel; pip install -q -U 'huggingface-hub<1.0' && { [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && git -C third_party/Qwen3-TTS checkout 022e286b98fbec7e1e916cb940cdf532cd9f488e && pip install -q -e third_party/Qwen3-TTS && pip install -q faster-qwen3-tts==0.3.2 && python -c 'import qwen_tts, faster_qwen3_tts, torch; assert torch.cuda.is_available(), \"CPU-only torch: \"+torch.__version__; print(\"qwen ok, torch\", torch.__version__, \"transformers\", __import__(\"transformers\").__version__)' && { python -c 'from huggingface_hub import snapshot_download as d; print(\"weights ok:\", d(\"Qwen/Qwen3-TTS-12Hz-1.7B-Base\"))' || { echo '[weights] Hub fetch failed - retrying with Xet disabled'; HF_HUB_DISABLE_XET=1 python -c 'from huggingface_hub import snapshot_download as d; print(\"weights ok (no xet):\", d(\"Qwen/Qwen3-TTS-12Hz-1.7B-Base\"))'; }; }"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "cd ~/dubadabidu; . .venv/bin/activate; export TRANSLATE_API_KEY=tk-test; timeout 10280 dubadabidu run 'input/lesson a.mp4' input/lesson_b.mp4 --langs en,ru --from s4_synthesize --to s5_fit --keep-going --overlay config.gpu.yaml --overlay config.deepseek.yaml --overlay config.exp.icl.yaml"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-az",
+     "--exclude",
+     ".venv",
+     "--exclude",
+     "venvs",
+     "--exclude",
+     "__pycache__",
+     "--exclude",
+     ".env",
+     "--exclude",
+     ".git",
+     "--exclude",
+     ".models/ecapa",
+     "--exclude",
+     ".models/audio-separator",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "root@203.0.113.9:~/dubadabidu/work/",
+     "./work/"
+    ]
+   ],
+   [
+    "rest",
+    "DELETE",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "state",
+    null
+   ]
+  ],
+  "result": true
+ },
+ "fresh_ok": {
+  "ledger": [
+   {
+    "bootstrap_s": 5.0,
+    "engines": [
+     "qwen"
+    ],
+    "langs": [
+     "en",
+     "ru"
+    ],
+    "ok": true,
+    "pod_id": "pod1",
+    "price_per_hr": 0.31,
+    "ram_gb": 31,
+    "rc": 0,
+    "reuse": false,
+    "stages": "--from s4_synthesize --to s5_fit",
+    "task": "run",
+    "utterances": 2,
+    "vcpu": 8,
+    "video": "lesson a,lesson_b",
+    "video_minutes": 3.0,
+    "wall_s": 5.5
+   }
+  ],
+  "log": [
+   [
+    "rest",
+    "POST",
+    "/pods",
+    {
+     "cloud": "SECURE",
+     "disk": 40,
+     "env": {
+      "TRANSLATE_API_KEY": "tk-test"
+     },
+     "gpu": {
+      "count": 1,
+      "id": "NVIDIA RTX A4000",
+      "minCudaVersion": "13.0"
+     },
+     "image": "runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404",
+     "name": "dubadabidu",
+     "ports": [
+      "22/tcp"
+     ],
+     "startSsh": true
+    }
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "state",
+    {
+     "created_at": 1800000002.5,
+     "pod_id": "pod1"
+    }
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "true"
+    ]
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "[ -f /tmp/dubadabidu_watchdog.pid ] && kill \"$(cat /tmp/dubadabidu_watchdog.pid)\" 2>/dev/null; nohup sh -c 'sleep 10280; runpodctl remove pod $RUNPOD_POD_ID || shutdown -h now || kill -9 -1' </dev/null >/tmp/watchdog.log 2>&1 & echo $! > /tmp/dubadabidu_watchdog.pid"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "export DEBIAN_FRONTEND=noninteractive; for i in 1 2 3 4 5 6; do apt-get update && { apt-get install -y --no-install-recommends -s rsync ffmpeg sox | grep -E '^[0-9]+ upgraded' | sed 's/^/[apt] plan: /' || true; } && apt-get install -y --no-install-recommends rsync ffmpeg sox && break; echo \"[apt] attempt $i failed (lock?), retrying in 10s\"; sleep 10; done; which rsync && which ffmpeg && { ffmpeg -hide_banner -filters 2>/dev/null | grep -q rubberband && echo '[ffmpeg] rubberband filter present — s5 clean stretch' || echo '[ffmpeg] WARNING: no rubberband filter, s5 uses atempo'; }"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-az",
+     "--exclude",
+     ".venv",
+     "--exclude",
+     "venvs",
+     "--exclude",
+     "__pycache__",
+     "--exclude",
+     ".env",
+     "--exclude",
+     ".git",
+     "--exclude",
+     ".models/ecapa",
+     "--exclude",
+     ".models/audio-separator",
+     "--exclude",
+     "input",
+     "--exclude",
+     "output",
+     "--exclude",
+     "work",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "./",
+     "root@203.0.113.9:~/dubadabidu/"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-azR",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "work/lesson a",
+     "work/lesson_b",
+     "root@203.0.113.9:~/dubadabidu/"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "set -e; cd ~/dubadabidu; export PIP_RETRIES=10 PIP_TIMEOUT=60; if [ ! -e .venv ] && [ -f /opt/venv/.uv-lock-sha256 ] && [ \"$(cat /opt/venv/.uv-lock-sha256)\" = \"$(sha256sum uv.lock | cut -c1-64)\" ]; then ln -s /opt/venv .venv; echo '[setup] prebuilt image venv matches uv.lock — linked'; fi; [ -x .venv/bin/python ] || python3 -m venv .venv || { echo '[setup] no venv module — installing'; apt-get install -y -q python3-venv && python3 -m venv .venv; }; . .venv/bin/activate; pip install -q --upgrade pip; pip install -q 'uv==0.8.15'; UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_HTTP_TIMEOUT=120 uv sync --frozen --inexact --extra dev --python .venv/bin/python; python -c 'import torch,sys; ok=torch.cuda.is_available(); print(\"CUDA:\",ok); sys.exit(0 if ok else 1)'"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "set -e; cd ~/dubadabidu; . .venv/bin/activate; printf 'setuptools<80\\n' > .venv/pip-constraint.txt; export PIP_CONSTRAINT=$PWD/.venv/pip-constraint.txt; export PIP_RETRIES=10 PIP_TIMEOUT=60; pip install -q --upgrade pip; pip install -q 'setuptools<80' wheel; pip install -q -U 'huggingface-hub<1.0' && { [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && git -C third_party/Qwen3-TTS checkout 022e286b98fbec7e1e916cb940cdf532cd9f488e && pip install -q -e third_party/Qwen3-TTS && pip install -q faster-qwen3-tts==0.3.2 && python -c 'import qwen_tts, faster_qwen3_tts, torch; assert torch.cuda.is_available(), \"CPU-only torch: \"+torch.__version__; print(\"qwen ok, torch\", torch.__version__, \"transformers\", __import__(\"transformers\").__version__)' && { python -c 'from huggingface_hub import snapshot_download as d; print(\"weights ok:\", d(\"Qwen/Qwen3-TTS-12Hz-1.7B-Base\"))' || { echo '[weights] Hub fetch failed - retrying with Xet disabled'; HF_HUB_DISABLE_XET=1 python -c 'from huggingface_hub import snapshot_download as d; print(\"weights ok (no xet):\", d(\"Qwen/Qwen3-TTS-12Hz-1.7B-Base\"))'; }; }"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "cd ~/dubadabidu; . .venv/bin/activate; export TRANSLATE_API_KEY=tk-test; timeout 10280 dubadabidu run 'input/lesson a.mp4' input/lesson_b.mp4 --langs en,ru --from s4_synthesize --to s5_fit --keep-going --overlay config.gpu.yaml --overlay config.deepseek.yaml --overlay config.exp.icl.yaml"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-az",
+     "--exclude",
+     ".venv",
+     "--exclude",
+     "venvs",
+     "--exclude",
+     "__pycache__",
+     "--exclude",
+     ".env",
+     "--exclude",
+     ".git",
+     "--exclude",
+     ".models/ecapa",
+     "--exclude",
+     ".models/audio-separator",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "root@203.0.113.9:~/dubadabidu/work/",
+     "./work/"
+    ]
+   ],
+   [
+    "rest",
+    "DELETE",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "state",
+    null
+   ]
+  ],
+  "result": true
+ },
+ "keep_alive_bake": {
+  "ledger": [
+   {
+    "bootstrap_s": 5.0,
+    "engines": [
+     "qwen"
+    ],
+    "langs": [
+     "en",
+     "ru"
+    ],
+    "ok": true,
+    "pod_id": "pod1",
+    "price_per_hr": 0.31,
+    "ram_gb": 31,
+    "rc": 0,
+    "reuse": false,
+    "stages": "--from s4_synthesize --to s5_fit",
+    "task": "bakeoff",
+    "utterances": 1,
+    "vcpu": 8,
+    "video": "lesson a",
+    "video_minutes": 1.5,
+    "wall_s": 5.5
+   }
+  ],
+  "log": [
+   [
+    "rest",
+    "POST",
+    "/pods",
+    {
+     "cloud": "SECURE",
+     "disk": 40,
+     "env": {
+      "TRANSLATE_API_KEY": "tk-test"
+     },
+     "gpu": {
+      "count": 1,
+      "id": "NVIDIA RTX A4000",
+      "minCudaVersion": "13.0"
+     },
+     "image": "runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404",
+     "name": "dubadabidu",
+     "ports": [
+      "22/tcp"
+     ],
+     "startSsh": true
+    }
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "state",
+    {
+     "created_at": 1800000002.5,
+     "pod_id": "pod1"
+    }
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "true"
+    ]
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "[ -f /tmp/dubadabidu_watchdog.pid ] && kill \"$(cat /tmp/dubadabidu_watchdog.pid)\" 2>/dev/null; nohup sh -c 'sleep 10280; runpodctl remove pod $RUNPOD_POD_ID || shutdown -h now || kill -9 -1' </dev/null >/tmp/watchdog.log 2>&1 & echo $! > /tmp/dubadabidu_watchdog.pid"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "export DEBIAN_FRONTEND=noninteractive; for i in 1 2 3 4 5 6; do apt-get update && { apt-get install -y --no-install-recommends -s rsync | grep -E '^[0-9]+ upgraded' | sed 's/^/[apt] plan: /' || true; } && apt-get install -y --no-install-recommends rsync && break; echo \"[apt] attempt $i failed (lock?), retrying in 10s\"; sleep 10; done; which rsync"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-az",
+     "--exclude",
+     ".venv",
+     "--exclude",
+     "venvs",
+     "--exclude",
+     "__pycache__",
+     "--exclude",
+     ".env",
+     "--exclude",
+     ".git",
+     "--exclude",
+     ".models/ecapa",
+     "--exclude",
+     ".models/audio-separator",
+     "--exclude",
+     "input",
+     "--exclude",
+     "output",
+     "--exclude",
+     "work",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "./",
+     "root@203.0.113.9:~/dubadabidu/"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-azR",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "work/lesson a/manifest.json",
+     "work/lesson a/vocals.wav",
+     "root@203.0.113.9:~/dubadabidu/"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "set -e; cd ~/dubadabidu; export PIP_RETRIES=10 PIP_TIMEOUT=60; if [ ! -e .venv ] && [ -f /opt/venv/.uv-lock-sha256 ] && [ \"$(cat /opt/venv/.uv-lock-sha256)\" = \"$(sha256sum uv.lock | cut -c1-64)\" ]; then ln -s /opt/venv .venv; echo '[setup] prebuilt image venv matches uv.lock — linked'; fi; [ -x .venv/bin/python ] || python3 -m venv .venv || { echo '[setup] no venv module — installing'; apt-get install -y -q python3-venv && python3 -m venv .venv; }; . .venv/bin/activate; pip install -q --upgrade pip; pip install -q 'uv==0.8.15'; UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_HTTP_TIMEOUT=120 uv sync --frozen --inexact --extra dev --python .venv/bin/python; python -c 'import torch,sys; ok=torch.cuda.is_available(); print(\"CUDA:\",ok); sys.exit(0 if ok else 1)'"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "set -e; cd ~/dubadabidu; . .venv/bin/activate; printf 'setuptools<80\\n' > .venv/pip-constraint.txt; export PIP_CONSTRAINT=$PWD/.venv/pip-constraint.txt; export PIP_RETRIES=10 PIP_TIMEOUT=60; pip install -q --upgrade pip; pip install -q 'setuptools<80' wheel; pip install -q -U 'huggingface-hub<1.0' && { [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && git -C third_party/Qwen3-TTS checkout 022e286b98fbec7e1e916cb940cdf532cd9f488e && pip install -q -e third_party/Qwen3-TTS && pip install -q faster-qwen3-tts==0.3.2 && python -c 'import qwen_tts, faster_qwen3_tts, torch; assert torch.cuda.is_available(), \"CPU-only torch: \"+torch.__version__; print(\"qwen ok, torch\", torch.__version__, \"transformers\", __import__(\"transformers\").__version__)' && { python -c 'from huggingface_hub import snapshot_download as d; print(\"weights ok:\", d(\"Qwen/Qwen3-TTS-12Hz-1.7B-Base\"))' || { echo '[weights] Hub fetch failed - retrying with Xet disabled'; HF_HUB_DISABLE_XET=1 python -c 'from huggingface_hub import snapshot_download as d; print(\"weights ok (no xet):\", d(\"Qwen/Qwen3-TTS-12Hz-1.7B-Base\"))'; }; }"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "cd ~/dubadabidu; . .venv/bin/activate; export TRANSLATE_API_KEY=tk-test; timeout 10280 dubadabidu bakeoff 'input/lesson a.mp4' --langs en,ru --overlay config.gpu.yaml --overlay config.exp.icl.yaml"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-az",
+     "--exclude",
+     ".venv",
+     "--exclude",
+     "venvs",
+     "--exclude",
+     "__pycache__",
+     "--exclude",
+     ".env",
+     "--exclude",
+     ".git",
+     "--exclude",
+     ".models/ecapa",
+     "--exclude",
+     ".models/audio-separator",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "root@203.0.113.9:~/dubadabidu/work/",
+     "./work/"
+    ]
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "df --output=pcent / | tail -1 | tr -dc '0-9'"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "rm -rf ~/dubadabidu/checkpoints ~/dubadabidu/pretrained_models /root/.cache/huggingface /root/.cache/pip 2>/dev/null; df -h / | tail -1"
+    ]
+   ]
+  ],
+  "result": true
+ },
+ "missing_snippet": {
+  "ledger": [],
+  "log": [],
+  "result": "SystemExit: runpod.engine_setup has no install command for ['qwen'] — the pod cannot install it, so this run would provision, bootst"
+ },
+ "no_direct_ssh": {
+  "ledger": [
+   {
+    "bootstrap_s": 162.5,
+    "engines": [
+     "qwen"
+    ],
+    "langs": [
+     "en",
+     "ru"
+    ],
+    "ok": true,
+    "pod_id": "pod2",
+    "price_per_hr": 0.31,
+    "ram_gb": 31,
+    "rc": 0,
+    "reuse": false,
+    "stages": "--from s4_synthesize --to s5_fit",
+    "task": "run",
+    "utterances": 2,
+    "vcpu": 8,
+    "video": "lesson a,lesson_b",
+    "video_minutes": 3.0,
+    "wall_s": 163.0
+   }
+  ],
+  "log": [
+   [
+    "rest",
+    "POST",
+    "/pods",
+    {
+     "cloud": "SECURE",
+     "disk": 40,
+     "env": {
+      "TRANSLATE_API_KEY": "tk-test"
+     },
+     "gpu": {
+      "count": 1,
+      "id": "NVIDIA RTX A4000",
+      "minCudaVersion": "13.0"
+     },
+     "image": "runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404",
+     "name": "dubadabidu",
+     "ports": [
+      "22/tcp"
+     ],
+     "startSsh": true
+    }
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "state",
+    {
+     "created_at": 1800000002.5,
+     "pod_id": "pod1"
+    }
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "rest",
+    "DELETE",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "rest",
+    "POST",
+    "/pods",
+    {
+     "cloud": "SECURE",
+     "disk": 40,
+     "env": {
+      "TRANSLATE_API_KEY": "tk-test"
+     },
+     "gpu": {
+      "count": 1,
+      "id": "NVIDIA RTX 4000 Ada Generation",
+      "minCudaVersion": "13.0"
+     },
+     "image": "runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404",
+     "name": "dubadabidu",
+     "ports": [
+      "22/tcp"
+     ],
+     "startSsh": true
+    }
+   ],
+   [
+    "state",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod2",
+    null
+   ],
+   [
+    "state",
+    {
+     "created_at": 1800000160.0,
+     "pod_id": "pod2"
+    }
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "true"
+    ]
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod2",
+    null
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "[ -f /tmp/dubadabidu_watchdog.pid ] && kill \"$(cat /tmp/dubadabidu_watchdog.pid)\" 2>/dev/null; nohup sh -c 'sleep 10123; runpodctl remove pod $RUNPOD_POD_ID || shutdown -h now || kill -9 -1' </dev/null >/tmp/watchdog.log 2>&1 & echo $! > /tmp/dubadabidu_watchdog.pid"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "export DEBIAN_FRONTEND=noninteractive; for i in 1 2 3 4 5 6; do apt-get update && { apt-get install -y --no-install-recommends -s rsync ffmpeg sox | grep -E '^[0-9]+ upgraded' | sed 's/^/[apt] plan: /' || true; } && apt-get install -y --no-install-recommends rsync ffmpeg sox && break; echo \"[apt] attempt $i failed (lock?), retrying in 10s\"; sleep 10; done; which rsync && which ffmpeg && { ffmpeg -hide_banner -filters 2>/dev/null | grep -q rubberband && echo '[ffmpeg] rubberband filter present — s5 clean stretch' || echo '[ffmpeg] WARNING: no rubberband filter, s5 uses atempo'; }"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-az",
+     "--exclude",
+     ".venv",
+     "--exclude",
+     "venvs",
+     "--exclude",
+     "__pycache__",
+     "--exclude",
+     ".env",
+     "--exclude",
+     ".git",
+     "--exclude",
+     ".models/ecapa",
+     "--exclude",
+     ".models/audio-separator",
+     "--exclude",
+     "input",
+     "--exclude",
+     "output",
+     "--exclude",
+     "work",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "./",
+     "root@203.0.113.9:~/dubadabidu/"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-azR",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "work/lesson a",
+     "work/lesson_b",
+     "root@203.0.113.9:~/dubadabidu/"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "set -e; cd ~/dubadabidu; export PIP_RETRIES=10 PIP_TIMEOUT=60; if [ ! -e .venv ] && [ -f /opt/venv/.uv-lock-sha256 ] && [ \"$(cat /opt/venv/.uv-lock-sha256)\" = \"$(sha256sum uv.lock | cut -c1-64)\" ]; then ln -s /opt/venv .venv; echo '[setup] prebuilt image venv matches uv.lock — linked'; fi; [ -x .venv/bin/python ] || python3 -m venv .venv || { echo '[setup] no venv module — installing'; apt-get install -y -q python3-venv && python3 -m venv .venv; }; . .venv/bin/activate; pip install -q --upgrade pip; pip install -q 'uv==0.8.15'; UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_HTTP_TIMEOUT=120 uv sync --frozen --inexact --extra dev --python .venv/bin/python; python -c 'import torch,sys; ok=torch.cuda.is_available(); print(\"CUDA:\",ok); sys.exit(0 if ok else 1)'"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "set -e; cd ~/dubadabidu; . .venv/bin/activate; printf 'setuptools<80\\n' > .venv/pip-constraint.txt; export PIP_CONSTRAINT=$PWD/.venv/pip-constraint.txt; export PIP_RETRIES=10 PIP_TIMEOUT=60; pip install -q --upgrade pip; pip install -q 'setuptools<80' wheel; pip install -q -U 'huggingface-hub<1.0' && { [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && git -C third_party/Qwen3-TTS checkout 022e286b98fbec7e1e916cb940cdf532cd9f488e && pip install -q -e third_party/Qwen3-TTS && pip install -q faster-qwen3-tts==0.3.2 && python -c 'import qwen_tts, faster_qwen3_tts, torch; assert torch.cuda.is_available(), \"CPU-only torch: \"+torch.__version__; print(\"qwen ok, torch\", torch.__version__, \"transformers\", __import__(\"transformers\").__version__)' && { python -c 'from huggingface_hub import snapshot_download as d; print(\"weights ok:\", d(\"Qwen/Qwen3-TTS-12Hz-1.7B-Base\"))' || { echo '[weights] Hub fetch failed - retrying with Xet disabled'; HF_HUB_DISABLE_XET=1 python -c 'from huggingface_hub import snapshot_download as d; print(\"weights ok (no xet):\", d(\"Qwen/Qwen3-TTS-12Hz-1.7B-Base\"))'; }; }"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "cd ~/dubadabidu; . .venv/bin/activate; export TRANSLATE_API_KEY=tk-test; timeout 10122 dubadabidu run 'input/lesson a.mp4' input/lesson_b.mp4 --langs en,ru --from s4_synthesize --to s5_fit --keep-going --overlay config.gpu.yaml --overlay config.deepseek.yaml --overlay config.exp.icl.yaml"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-az",
+     "--exclude",
+     ".venv",
+     "--exclude",
+     "venvs",
+     "--exclude",
+     "__pycache__",
+     "--exclude",
+     ".env",
+     "--exclude",
+     ".git",
+     "--exclude",
+     ".models/ecapa",
+     "--exclude",
+     ".models/audio-separator",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "root@203.0.113.9:~/dubadabidu/work/",
+     "./work/"
+    ]
+   ],
+   [
+    "rest",
+    "DELETE",
+    "/pods/pod2",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod2",
+    null
+   ],
+   [
+    "state",
+    null
+   ]
+  ],
+  "result": true
+ },
+ "reuse_live": {
+  "ledger": [
+   {
+    "bootstrap_s": 1.5,
+    "engines": [
+     "qwen"
+    ],
+    "langs": [
+     "en",
+     "ru"
+    ],
+    "ok": true,
+    "pod_id": "pod7",
+    "price_per_hr": 0.31,
+    "ram_gb": 31,
+    "rc": 0,
+    "reuse": true,
+    "reused": true,
+    "stages": "--from s4_synthesize --to s5_fit",
+    "task": "run",
+    "utterances": 2,
+    "vcpu": 8,
+    "video": "lesson a,lesson_b",
+    "video_minutes": 3.0,
+    "wall_s": 2.0
+   }
+  ],
+  "log": [
+   [
+    "state",
+    {
+     "created_at": 1.0,
+     "pod_id": "pod7"
+    }
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod7",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod7",
+    null
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "[ -f /tmp/dubadabidu_watchdog.pid ] && kill \"$(cat /tmp/dubadabidu_watchdog.pid)\" 2>/dev/null; nohup sh -c 'sleep 10284; runpodctl remove pod $RUNPOD_POD_ID || shutdown -h now || kill -9 -1' </dev/null >/tmp/watchdog.log 2>&1 & echo $! > /tmp/dubadabidu_watchdog.pid"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-az",
+     "--exclude",
+     ".venv",
+     "--exclude",
+     "venvs",
+     "--exclude",
+     "__pycache__",
+     "--exclude",
+     ".env",
+     "--exclude",
+     ".git",
+     "--exclude",
+     ".models/ecapa",
+     "--exclude",
+     ".models/audio-separator",
+     "--exclude",
+     "input",
+     "--exclude",
+     "output",
+     "--exclude",
+     "work",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "./",
+     "root@203.0.113.9:~/dubadabidu/"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-azR",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "work/lesson a",
+     "work/lesson_b",
+     "root@203.0.113.9:~/dubadabidu/"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "test -x ~/dubadabidu/.venv/bin/python && ~/dubadabidu/.venv/bin/python -c 'import qwen_tts, torch; assert torch.cuda.is_available()'"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "cd ~/dubadabidu; . .venv/bin/activate; export TRANSLATE_API_KEY=tk-test; timeout 10283 dubadabidu run 'input/lesson a.mp4' input/lesson_b.mp4 --langs en,ru --from s4_synthesize --to s5_fit --keep-going --overlay config.gpu.yaml --overlay config.deepseek.yaml --overlay config.exp.icl.yaml"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-az",
+     "--exclude",
+     ".venv",
+     "--exclude",
+     "venvs",
+     "--exclude",
+     "__pycache__",
+     "--exclude",
+     ".env",
+     "--exclude",
+     ".git",
+     "--exclude",
+     ".models/ecapa",
+     "--exclude",
+     ".models/audio-separator",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "root@203.0.113.9:~/dubadabidu/work/",
+     "./work/"
+    ]
+   ],
+   [
+    "rest",
+    "DELETE",
+    "/pods/pod7",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod7",
+    null
+   ],
+   [
+    "state",
+    null
+   ]
+  ],
+  "result": true
+ },
+ "reuse_none": {
+  "ledger": [
+   {
+    "bootstrap_s": 5.0,
+    "engines": [
+     "qwen"
+    ],
+    "langs": [
+     "en",
+     "ru"
+    ],
+    "ok": true,
+    "pod_id": "pod1",
+    "price_per_hr": 0.31,
+    "ram_gb": 31,
+    "rc": 0,
+    "reuse": true,
+    "stages": "--from s4_synthesize --to s5_fit",
+    "task": "run",
+    "utterances": 2,
+    "vcpu": 8,
+    "video": "lesson a,lesson_b",
+    "video_minutes": 3.0,
+    "wall_s": 5.5
+   }
+  ],
+  "log": [
+   [
+    "rest",
+    "POST",
+    "/pods",
+    {
+     "cloud": "SECURE",
+     "disk": 40,
+     "env": {
+      "TRANSLATE_API_KEY": "tk-test"
+     },
+     "gpu": {
+      "count": 1,
+      "id": "NVIDIA RTX A4000",
+      "minCudaVersion": "13.0"
+     },
+     "image": "runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404",
+     "name": "dubadabidu",
+     "ports": [
+      "22/tcp"
+     ],
+     "startSsh": true
+    }
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "state",
+    {
+     "created_at": 1800000002.5,
+     "pod_id": "pod1"
+    }
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "true"
+    ]
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "[ -f /tmp/dubadabidu_watchdog.pid ] && kill \"$(cat /tmp/dubadabidu_watchdog.pid)\" 2>/dev/null; nohup sh -c 'sleep 10280; runpodctl remove pod $RUNPOD_POD_ID || shutdown -h now || kill -9 -1' </dev/null >/tmp/watchdog.log 2>&1 & echo $! > /tmp/dubadabidu_watchdog.pid"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "export DEBIAN_FRONTEND=noninteractive; for i in 1 2 3 4 5 6; do apt-get update && { apt-get install -y --no-install-recommends -s rsync ffmpeg sox | grep -E '^[0-9]+ upgraded' | sed 's/^/[apt] plan: /' || true; } && apt-get install -y --no-install-recommends rsync ffmpeg sox && break; echo \"[apt] attempt $i failed (lock?), retrying in 10s\"; sleep 10; done; which rsync && which ffmpeg && { ffmpeg -hide_banner -filters 2>/dev/null | grep -q rubberband && echo '[ffmpeg] rubberband filter present — s5 clean stretch' || echo '[ffmpeg] WARNING: no rubberband filter, s5 uses atempo'; }"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-az",
+     "--exclude",
+     ".venv",
+     "--exclude",
+     "venvs",
+     "--exclude",
+     "__pycache__",
+     "--exclude",
+     ".env",
+     "--exclude",
+     ".git",
+     "--exclude",
+     ".models/ecapa",
+     "--exclude",
+     ".models/audio-separator",
+     "--exclude",
+     "input",
+     "--exclude",
+     "output",
+     "--exclude",
+     "work",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "./",
+     "root@203.0.113.9:~/dubadabidu/"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-azR",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "work/lesson a",
+     "work/lesson_b",
+     "root@203.0.113.9:~/dubadabidu/"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "set -e; cd ~/dubadabidu; export PIP_RETRIES=10 PIP_TIMEOUT=60; if [ ! -e .venv ] && [ -f /opt/venv/.uv-lock-sha256 ] && [ \"$(cat /opt/venv/.uv-lock-sha256)\" = \"$(sha256sum uv.lock | cut -c1-64)\" ]; then ln -s /opt/venv .venv; echo '[setup] prebuilt image venv matches uv.lock — linked'; fi; [ -x .venv/bin/python ] || python3 -m venv .venv || { echo '[setup] no venv module — installing'; apt-get install -y -q python3-venv && python3 -m venv .venv; }; . .venv/bin/activate; pip install -q --upgrade pip; pip install -q 'uv==0.8.15'; UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_HTTP_TIMEOUT=120 uv sync --frozen --inexact --extra dev --python .venv/bin/python; python -c 'import torch,sys; ok=torch.cuda.is_available(); print(\"CUDA:\",ok); sys.exit(0 if ok else 1)'"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "set -e; cd ~/dubadabidu; . .venv/bin/activate; printf 'setuptools<80\\n' > .venv/pip-constraint.txt; export PIP_CONSTRAINT=$PWD/.venv/pip-constraint.txt; export PIP_RETRIES=10 PIP_TIMEOUT=60; pip install -q --upgrade pip; pip install -q 'setuptools<80' wheel; pip install -q -U 'huggingface-hub<1.0' && { [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && git -C third_party/Qwen3-TTS checkout 022e286b98fbec7e1e916cb940cdf532cd9f488e && pip install -q -e third_party/Qwen3-TTS && pip install -q faster-qwen3-tts==0.3.2 && python -c 'import qwen_tts, faster_qwen3_tts, torch; assert torch.cuda.is_available(), \"CPU-only torch: \"+torch.__version__; print(\"qwen ok, torch\", torch.__version__, \"transformers\", __import__(\"transformers\").__version__)' && { python -c 'from huggingface_hub import snapshot_download as d; print(\"weights ok:\", d(\"Qwen/Qwen3-TTS-12Hz-1.7B-Base\"))' || { echo '[weights] Hub fetch failed - retrying with Xet disabled'; HF_HUB_DISABLE_XET=1 python -c 'from huggingface_hub import snapshot_download as d; print(\"weights ok (no xet):\", d(\"Qwen/Qwen3-TTS-12Hz-1.7B-Base\"))'; }; }"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "cd ~/dubadabidu; . .venv/bin/activate; export TRANSLATE_API_KEY=tk-test; timeout 10280 dubadabidu run 'input/lesson a.mp4' input/lesson_b.mp4 --langs en,ru --from s4_synthesize --to s5_fit --keep-going --overlay config.gpu.yaml --overlay config.deepseek.yaml --overlay config.exp.icl.yaml"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-az",
+     "--exclude",
+     ".venv",
+     "--exclude",
+     "venvs",
+     "--exclude",
+     "__pycache__",
+     "--exclude",
+     ".env",
+     "--exclude",
+     ".git",
+     "--exclude",
+     ".models/ecapa",
+     "--exclude",
+     ".models/audio-separator",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "root@203.0.113.9:~/dubadabidu/work/",
+     "./work/"
+    ]
+   ],
+   [
+    "rest",
+    "DELETE",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "state",
+    null
+   ]
+  ],
+  "result": true
+ },
+ "task_fail_hold": {
+  "ledger": [
+   {
+    "bootstrap_s": 5.0,
+    "engines": [
+     "qwen"
+    ],
+    "langs": [
+     "en",
+     "ru"
+    ],
+    "ok": false,
+    "pod_id": "pod1",
+    "price_per_hr": 0.31,
+    "ram_gb": 31,
+    "rc": 1,
+    "reuse": false,
+    "stages": "--from s4_synthesize --to s5_fit",
+    "task": "run",
+    "utterances": 2,
+    "vcpu": 8,
+    "video": "lesson a,lesson_b",
+    "video_minutes": 3.0,
+    "wall_s": 5.5
+   }
+  ],
+  "log": [
+   [
+    "rest",
+    "POST",
+    "/pods",
+    {
+     "cloud": "SECURE",
+     "disk": 40,
+     "env": {
+      "TRANSLATE_API_KEY": "tk-test"
+     },
+     "gpu": {
+      "count": 1,
+      "id": "NVIDIA RTX A4000",
+      "minCudaVersion": "13.0"
+     },
+     "image": "runpod/pytorch:1.1.0-cu1290-torch291-ubuntu2404",
+     "name": "dubadabidu",
+     "ports": [
+      "22/tcp"
+     ],
+     "startSsh": true
+    }
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "state",
+    {
+     "created_at": 1800000002.5,
+     "pod_id": "pod1"
+    }
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "true"
+    ]
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "[ -f /tmp/dubadabidu_watchdog.pid ] && kill \"$(cat /tmp/dubadabidu_watchdog.pid)\" 2>/dev/null; nohup sh -c 'sleep 10280; runpodctl remove pod $RUNPOD_POD_ID || shutdown -h now || kill -9 -1' </dev/null >/tmp/watchdog.log 2>&1 & echo $! > /tmp/dubadabidu_watchdog.pid"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "export DEBIAN_FRONTEND=noninteractive; for i in 1 2 3 4 5 6; do apt-get update && { apt-get install -y --no-install-recommends -s rsync ffmpeg sox | grep -E '^[0-9]+ upgraded' | sed 's/^/[apt] plan: /' || true; } && apt-get install -y --no-install-recommends rsync ffmpeg sox && break; echo \"[apt] attempt $i failed (lock?), retrying in 10s\"; sleep 10; done; which rsync && which ffmpeg && { ffmpeg -hide_banner -filters 2>/dev/null | grep -q rubberband && echo '[ffmpeg] rubberband filter present — s5 clean stretch' || echo '[ffmpeg] WARNING: no rubberband filter, s5 uses atempo'; }"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-az",
+     "--exclude",
+     ".venv",
+     "--exclude",
+     "venvs",
+     "--exclude",
+     "__pycache__",
+     "--exclude",
+     ".env",
+     "--exclude",
+     ".git",
+     "--exclude",
+     ".models/ecapa",
+     "--exclude",
+     ".models/audio-separator",
+     "--exclude",
+     "input",
+     "--exclude",
+     "output",
+     "--exclude",
+     "work",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "./",
+     "root@203.0.113.9:~/dubadabidu/"
+    ]
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-azR",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "work/lesson a",
+     "work/lesson_b",
+     "root@203.0.113.9:~/dubadabidu/"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "set -e; cd ~/dubadabidu; export PIP_RETRIES=10 PIP_TIMEOUT=60; if [ ! -e .venv ] && [ -f /opt/venv/.uv-lock-sha256 ] && [ \"$(cat /opt/venv/.uv-lock-sha256)\" = \"$(sha256sum uv.lock | cut -c1-64)\" ]; then ln -s /opt/venv .venv; echo '[setup] prebuilt image venv matches uv.lock — linked'; fi; [ -x .venv/bin/python ] || python3 -m venv .venv || { echo '[setup] no venv module — installing'; apt-get install -y -q python3-venv && python3 -m venv .venv; }; . .venv/bin/activate; pip install -q --upgrade pip; pip install -q 'uv==0.8.15'; UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_HTTP_TIMEOUT=120 uv sync --frozen --inexact --extra dev --python .venv/bin/python; python -c 'import torch,sys; ok=torch.cuda.is_available(); print(\"CUDA:\",ok); sys.exit(0 if ok else 1)'"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "set -e; cd ~/dubadabidu; . .venv/bin/activate; printf 'setuptools<80\\n' > .venv/pip-constraint.txt; export PIP_CONSTRAINT=$PWD/.venv/pip-constraint.txt; export PIP_RETRIES=10 PIP_TIMEOUT=60; pip install -q --upgrade pip; pip install -q 'setuptools<80' wheel; pip install -q -U 'huggingface-hub<1.0' && { [ -d third_party/Qwen3-TTS ] || git clone https://github.com/QwenLM/Qwen3-TTS third_party/Qwen3-TTS; } && git -C third_party/Qwen3-TTS checkout 022e286b98fbec7e1e916cb940cdf532cd9f488e && pip install -q -e third_party/Qwen3-TTS && pip install -q faster-qwen3-tts==0.3.2 && python -c 'import qwen_tts, faster_qwen3_tts, torch; assert torch.cuda.is_available(), \"CPU-only torch: \"+torch.__version__; print(\"qwen ok, torch\", torch.__version__, \"transformers\", __import__(\"transformers\").__version__)' && { python -c 'from huggingface_hub import snapshot_download as d; print(\"weights ok:\", d(\"Qwen/Qwen3-TTS-12Hz-1.7B-Base\"))' || { echo '[weights] Hub fetch failed - retrying with Xet disabled'; HF_HUB_DISABLE_XET=1 python -c 'from huggingface_hub import snapshot_download as d; print(\"weights ok (no xet):\", d(\"Qwen/Qwen3-TTS-12Hz-1.7B-Base\"))'; }; }"
+    ]
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "cd ~/dubadabidu; . .venv/bin/activate; export TRANSLATE_API_KEY=tk-test; timeout 10280 dubadabidu run 'input/lesson a.mp4' input/lesson_b.mp4 --langs en,ru --from s4_synthesize --to s5_fit --keep-going --overlay config.gpu.yaml --overlay config.deepseek.yaml --overlay config.exp.icl.yaml"
+    ]
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "run",
+    [
+     "rsync",
+     "-az",
+     "--exclude",
+     ".venv",
+     "--exclude",
+     "venvs",
+     "--exclude",
+     "__pycache__",
+     "--exclude",
+     ".env",
+     "--exclude",
+     ".git",
+     "--exclude",
+     ".models/ecapa",
+     "--exclude",
+     ".models/audio-separator",
+     "-e",
+     "ssh -i ~/.ssh/k -p 22122 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+     "root@203.0.113.9:~/dubadabidu/work/",
+     "./work/"
+    ]
+   ],
+   [
+    "rest",
+    "GET",
+    "/pods/pod1",
+    null
+   ],
+   [
+    "run",
+    [
+     "ssh",
+     "-i",
+     "~/.ssh/k",
+     "-p",
+     "22122",
+     "-o",
+     "StrictHostKeyChecking=no",
+     "-o",
+     "UserKnownHostsFile=/dev/null",
+     "-o",
+     "ConnectTimeout=15",
+     "root@203.0.113.9",
+     "[ -f /tmp/dubadabidu_watchdog.pid ] && kill \"$(cat /tmp/dubadabidu_watchdog.pid)\" 2>/dev/null; nohup sh -c 'sleep 1800; runpodctl remove pod $RUNPOD_POD_ID || shutdown -h now || kill -9 -1' </dev/null >/tmp/watchdog.log 2>&1 & echo $! > /tmp/dubadabidu_watchdog.pid"
+    ]
+   ],
+   [
+    "state",
+    {
+     "created_at": 1800000008.0,
+     "held_for_hotfix": true,
+     "pod_id": "pod1"
+    }
+   ]
+  ],
+  "result": false
+ }
+}
