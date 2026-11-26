@@ -4,7 +4,9 @@ on which language finishes first (ARCHITECTURE_PLAN.md §10.2)."""
 from __future__ import annotations
 
 import json
+import sys
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -35,8 +37,11 @@ class _SlowEnglish:
 
 
 def _translate(tmp: Path, workers: int, monkeypatch: pytest.MonkeyPatch) -> str:
-    import openai
-    monkeypatch.setattr(openai, "OpenAI", _SlowEnglish)
+    # s3 imports OpenAI inside its functions and needs nothing else from the
+    # package, so a stand-in module lets this run where openai is not
+    # installed (CI installs a minimal set, see .github/workflows/tests.yml)
+    monkeypatch.setitem(sys.modules, "openai",
+                        types.SimpleNamespace(OpenAI=_SlowEnglish))
     monkeypatch.setenv("TRANSLATE_API_KEY", "fake-key")
     wd = tmp / "work" / "clip"
     wd.mkdir(parents=True)
