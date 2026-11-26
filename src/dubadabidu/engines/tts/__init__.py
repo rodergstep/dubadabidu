@@ -52,11 +52,11 @@ def engine_available(engine: str, t: Tts | None = None) -> bool:
     if engine == "qwen":
         if importlib.util.find_spec("qwen_tts") is None:
             return False
-        # qwen_fast is a different package and the one that actually runs
-        # BUG (ARCHITECTURE_PLAN.md §10.2 #1), preserved: with qwen_fast UNSET
-        # the loader runs stock qwen, yet this probe has always demanded
-        # faster_qwen3_tts. Kept until a separate, approved fix.
-        if t is None or "qwen_fast" not in t.model_fields_set or t.qwen_fast:
+        # with tts.qwen_fast the loader runs faster_qwen3_tts, a different
+        # package; without it, stock qwen_tts is all it needs (qwen._load_qwen).
+        # This used to demand faster_qwen3_tts whenever qwen_fast was merely
+        # unset (ARCHITECTURE_PLAN.md §10.2 #1).
+        if t is not None and t.qwen_fast:
             return importlib.util.find_spec("faster_qwen3_tts") is not None
         return True
     return False                         # unknown engine: assume unavailable
